@@ -221,43 +221,46 @@ The intended audience of this document is business and technical users from PNB.
 
 ### 2.4 Operating Environment
 The operating environment for the `<project name>` as listed below.
-* **Server system: ** Virtual Machine or Containerized Environment (Docker) capable of running Python applications.
-* **Operating system: ** Linux (Ubuntu 22.04 LTS or higher) is required for the production server; Linux or Windows can be used for local development.
-* **Database: ** PostgreSQL for production (scalable, relational storage for historical scans and CBOM data); SQLite for local development and testing.
-* **Platform: ** Web-based application built on the FastAPI framework.
-* **Technology: ** Python 3.11+ (Core engine), sslyze (for TLS scanning), and the cryptography library (for X.509 certificate parsing).
-* **API: ** RESTful API architecture facilitating communication between the scanning engine, the database, and the frontend dashboard.
+* **Server system:** Virtual Machine or Containerized Environment (Docker) capable of running Python applications.
+* **Operating system:** Linux (Ubuntu 22.04 LTS or higher) is required for the production server; Linux or Windows can be used for local development.
+* **Database:** PostgreSQL for production (scalable, relational storage for historical scans and CBOM data); SQLite for local development and testing.
+* **Platform:** Web-based application built on the FastAPI framework.
+* **Technology:** Python 3.11+ (Core engine), `sslyze` (for TLS scanning), and the `cryptography` library (for X.509 certificate parsing).
+* **API:** RESTful API architecture facilitating communication between the scanning engine, the database, and the frontend dashboard.
 
 ### 2.5 Design and Implementation Constraints
 **1. Technical Constraints: - (For Deployment)**
-* **Network Configuration:** e.g., The application must support private (intranet) IP addressing. Appropriate firewalls and routing rules must be configured.
-* **Hosting Environment:** e.g., Should deploy in intranet i.e. for intranet access.
+* **Network Configuration:** e.g., The application requires outbound network access strictly over port 443 (HTTPS/TLS) to successfully reach and scan public-facing target endpoints. The application must be deployed within a private intranet, requiring appropriate firewall rules to allow outbound scanning while restricting unauthorized inbound access.
+* **Hosting Environment:** The system must be hosted on an internal, secure intranet server so that the centralized management dashboard is never directly exposed to the public internet.
 
 **2. Security Constraints**
-* **Access Control:** e.g. (RBAC)
-* **Data Encryption:** e.g., all data transmitted over the internet must be used by HTTPS.
+* **Access Control:** Implementation of Role-Based Access Control (RBAC) is mandatory. The system must enforce separation of duties, supporting at least two distinct roles: 'Admin' (full access to schedule scans and manage targets) and 'Checker' (read-only access to view reports and verify compliance)
+* **Data Encryption:** All data transmitted between the user's web browser and the internal dashboard must be encrypted using HTTPS (TLS 1.2 or higher).
+* **Passive Scanning Protocol:** The scanner must operate in a strictly read-only, passive mode. It must not disrupt live banking services, execute intrusive payloads, or attempt to write/modify target configurations.
 
 **3. Performance Constraints**
-* **Failover Mechanisms:** e.g., Ensure redundancy and failover mechanisms are in place for both environments to maintain availability.
+* **Concurrency and Throughput:** The backend scanning engine must be highly concurrent, capable of handling 50+ target endpoints simultaneously without causing severe degradation in the dashboard's responsiveness.
+* **Failover Mechanisms:** The scanning engine should be designed statelessly. In the event of a failure, the application must be able to restart, recover safely, and retrieve its last known state from the database backups.
 
 **4. User Interface Constraints**
-* **User Experience Consistency:** e.g., Maintain consistent design and navigation elements across both environments to minimize confusion for users switching between them.
+* **User Experience Consistency:** The web dashboard must be fully responsive and maintain intuitive, consistent design elements. It must clearly present complex cryptographic data (e.g., CBOM tables, PQC status badges) so that no specialized training is required for basic operations.
 
 **Examples:**
-* Must comply with NIST PQC standards.
-* Must operate only on public-facing applications.
-* Must not disrupt live banking services.
-* Must generate reports in machine-readable formats (JSON, XML, CSV).
+* The logic analyzer must strictly comply with NIST Post-Quantum Cryptography (PQC) standards (FIPS 203, 204, 205) and adhere to CERT-In guidelines for Cryptographic Bill of Materials (CBOM) generation.
+* The scanner is restricted to operating exclusively on public-facing applications (Web Servers, APIs, TLS-based VPNs).
+* The system must not disrupt live banking services.
+* The system must be able to export its scan results and CBOM inventories in machine-readable formats (specifically JSON) to allow integration with other banking compliance tools
 
 ### 2.6 Assumptions and Dependencies
 **Assumptions:**
-* **Standard Browser Support-** e.g., It is assumed that end users will be accessing the application using HTML5-compliant browser such as Google Chrome.
-* Assumes TLS-based communication is used in all public-facing applications.
-* Assumes internet connectivity for scanning endpoints.
+* **Standard Browser Support-** It is assumed that bank officials and end-users will access the application dashboard using modern, HTML5-compliant web browsers such as Google Chrome (version 90+).
+* **Protocol Uniformity-** It is assumed that TLS-based communication is actively implemented across all targeted public-facing applications (HTTP over TLS, TLS-VPNs).
+* **Network Connectivity-** The underlying server hosting the scanner is assumed to have stable, continuous internet connectivity to successfully probe external endpoints.
 
 **Dependencies:**
-* **Database System-** e.g., The application is dependent on Oracle database for data storage. Any maintenance, downtime, or performance issues with the database will directly impact on the application's functionality.
-* Depends on NIST PQC algorithms being standardized and available.
+* **Core Software Stack-** The application is heavily dependent on Python 3.11+ and specialized third-party libraries (`sslyze` for protocol enumeration and `cryptography` for certificate parsing). Any deprecation or breaking changes in these libraries will require immediate system updates.
+* **Database System-** The application relies on PostgreSQL for persistent data storage in production. Any maintenance, downtime, or performance bottlenecks within the database will directly impact the application's ability to generate reports or retrieve scan histories.
+* **Cryptographic Standard Finalization-** The analyzer's rule engine depends on the finalized NIST PQC algorithms (e.g., ML-KEM, ML-DSA, SLH-DSA) acting as the definitive source of truth for quantum-safe validation.
 
 ---
 
@@ -669,9 +672,19 @@ The system shall expose the following REST API endpoints, communicating over **H
 ---
 
 ## 4. Technological Requirements
-* **4.1 Technologies used in development of the web application:** e.g., Java, JSP, Servlet or other
-* **4.2 I.D.E. (Integrated Development Environment):** e.g., Eclipse or other.
-* **4.3 Database Management Software:** e.g., Oracle SQL or other.
+
+* **4.1 Technologies used in development of the web application:**
+    * **Core Programming Language:** Python 3.11+, selected for its robust ecosystem and extensive support for network protocol analysis and cryptographic operations.
+    * **Backend Web Framework:** FastAPI, utilized for building a high-performance, asynchronous REST API to serve the web dashboard, manage scan routing, and handle concurrent target evaluations efficiently.
+    * **Scanning Engine & Analysis Libraries:** The backend relies heavily on `sslyze` to perform automated TLS handshakes and exhaustive cipher suite enumeration, coupled with the Python `cryptography` library for extracting and parsing complex X.509 certificate parameters.
+    * **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. [cite_start]It integrates Jinja2 templating  to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
+
+* **4.2 I.D.E. (Integrated Development Environment):**
+    * **Primary Development Environment:** VS Code (Visual Studio Code), chosen for its excellent Python tooling, live debugging capabilities, integrated terminal for testing scanner scripts, and seamless Git integration for team collaboration.
+
+* **4.3 Database Management Software:**
+    * **Development / Testing:** SQLite, utilized as a lightweight, serverless database for rapid local prototyping and testing of the cryptographic mappings and schema designs.
+    * **Production Environment:** PostgreSQL, mandated for the final deployment to provide a secure, highly concurrent, relational database capable of reliably storing extensive historical scan data, user audit trails, and complex CBOM inventories across the bank's public-facing infrastructure.
 
 ---
 
