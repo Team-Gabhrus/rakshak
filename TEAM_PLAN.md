@@ -35,26 +35,28 @@ New algorithms resistant to both classical and quantum attacks, standardized by 
 | **SLH-DSA** (SPHINCS+) | FIPS 205 | Digital Signatures (backup) | Hash-based |
 
 ### 5. CBOM (Cryptographic Bill of Materials)
-A complete inventory of all cryptographic assets used by an application:
-- TLS certificates (issuer, algorithm, key size, expiry)
-- TLS version
-- Cipher suites supported
-- Key exchange algorithms
-- Protocols (TLS, IPsec, SSH)
-- Keys (size, state, creation date)
+A complete inventory of all cryptographic assets used by an application. CERT-IN defines 4 asset categories in Annexure-A — each with mandatory fields our scanner must capture:
 
-CERT-IN defines 4 asset categories in Annexure-A: **Algorithms**, **Keys**, **Protocols**, **Certificates** — each with specific fields we must capture.
+| Category | Required Fields |
+|----------|----------------|
+| **Algorithms** | Name, Asset Type, Primitive, Mode, Crypto Functions, Classical Security Level, OID, List |
+| **Keys** | Name, Asset Type, ID, State, Size, Creation Date, Activation Date |
+| **Protocols** | Name, Asset Type, Version, Cipher Suites, OID |
+| **Certificates** | Name, Asset Type, Subject Name, Issuer Name, Not Valid Before, Not Valid After, Signature Algorithm Reference, Subject Public Key Reference, Certificate Format, Certificate Extension |
 
 ### 6. What Our Scanner Does
 ```
 INPUT → SCAN → ANALYZE → OUTPUT
 
-Targets      TLS Handshake     Quantum-Safe      CBOM Report
-(URLs,       Extract Crypto    Evaluation        QS Labels
-IPs)         Details                             Recommendations
+Targets         TLS Handshake     Quantum-Safe      CBOM Report
+(URLs, IPs,     Extract Crypto    Evaluation        QS Labels
+VPNs, APIs)     Details                             Recommendations
 ```
-- Connect to each public-facing target
+- Connect to each public-facing target (Web Servers, TLS-based VPNs, APIs, and other Systems)
+  > **Note:** The problem statement lists targets as "Web Server, API, System." "System" covers any public-facing system endpoint including TLS-based VPNs and other network services exposed to the internet.
 - Extract TLS version, cipher suites, certificate details
+- Discover API endpoints and validate their TLS configuration
+- Scan TLS-based VPN endpoints and other system services for cryptographic posture
 - Classify each component as quantum-safe or not
 - Generate CBOM, labels, and remediation steps
 
@@ -64,14 +66,14 @@ IPs)         Details                             Recommendations
 - **Cert Parsing:** cryptography library
 - **Web Dashboard:** FastAPI + HTML/CSS/JS (Jinja2 templates)
 - **Database:** SQLite or PostgreSQL
-- **Reports:** JSON + HTML
+- **Reports:** JSON, XML, CSV + HTML
 - **IDE:** VS Code
 
 ---
 
 ## Part 2: SRS Task Division (4 People)
 
-The SRS has sections that need to be filled in. Here's who owns what:
+The SRS template has 3 member slots but our team has 4 members. Person 1 (Team Lead) should add a 4th member slot in the Declaration section. Here's who owns what:
 
 ---
 
@@ -80,13 +82,13 @@ The SRS has sections that need to be filled in. Here's who owns what:
 
 | Section | What to Write |
 |---------|---------------|
-| **Declaration** | Fill in project name, team name, member details (all 3+1) |
+| **Declaration** | Fill in project name, team name, member details. Add a 4th member slot (Member 4 — Analyst) to the SRS template since we have 4 team members. |
 | **Revision History** | Fill version, date, author |
 | **1.1 Purpose** | Replace placeholder. Write: "To develop a quantum-proof cryptographic scanner that discovers, inventories, and validates the cryptographic posture of public-facing banking applications against NIST PQC standards." |
-| **1.2 Scope** | Already partially filled — review and finalize. Add process flow chart. |
+| **1.2 Scope** | Already partially filled — review and finalize. Add a process flow chart based on the diagram in Part 1 §6: show the 4 stages (Target Input → TLS/VPN/API Scanning → PQC Analysis & Classification → CBOM Report + Labels + Recommendations) with user interaction points (Admin triggers scan, Checker views results). Use a simple flowchart or sequence diagram. |
 | **1.3 Intended Audience** | Already done — review. |
 | **2.1 Product Perspective** | Write how this fits into PNB's security ecosystem. It's a standalone scanner tool that integrates with existing infra. Not replacing anything — adding a new capability. |
-| **2.2 Product Functions** | List all major functions: (1) Target input, (2) TLS scanning, (3) Certificate analysis, (4) PQC classification, (5) CBOM generation, (6) Labeling, (7) Recommendations, (8) Dashboard display. |
+| **2.2 Product Functions** | List all major functions: (1) Target input (URLs, IPs, VPN endpoints, APIs), (2) TLS scanning, (3) TLS-based VPN scanning, (4) API endpoint scanning, (5) Certificate analysis, (6) PQC classification, (7) CBOM generation, (8) Labeling (Quantum-Safe / PQC Ready / Fully Quantum Safe), (9) Recommendations for non-PQC ready assets, (10) Enterprise-wide console display. |
 | **2.3 User Classes** | Fill the table: Admin (full access, schedule scans), Checker (view reports, verify compliance). |
 
 **Deliverable:** Completed Sections 1 and 2 (except 2.4, 2.5, 2.6).
@@ -99,7 +101,7 @@ The SRS has sections that need to be filled in. Here's who owns what:
 | Section | What to Write |
 |---------|---------------|
 | **2.4 Operating Environment** | Server: Linux (Ubuntu 22.04+), OS: Linux/Windows, Database: SQLite/PostgreSQL, Platform: Web (FastAPI), Technology: Python 3.11+, sslyze, cryptography lib, API: REST API |
-| **2.5 Design & Implementation Constraints** | Fill each sub-section with real values (not examples): Network (must reach public endpoints, outbound 443), Hosting (deploy on intranet server), Access (RBAC with Admin/Checker roles), Encryption (all dashboard traffic over HTTPS), Performance (handle scanning 50+ targets concurrently), UI (responsive web dashboard) |
+| **2.5 Design & Implementation Constraints** | Fill each sub-section with real values (not examples): Network (must reach public endpoints, outbound 443), Hosting (deploy on intranet server), Access (RBAC with Admin/Checker roles), Encryption (all dashboard traffic over HTTPS), Performance (state the constraint as: "scanner architecture must support concurrent scanning"), UI (responsive web dashboard). **Note:** Do not specify a numeric concurrency target here — Person 4 owns the measurable performance requirement (50+ concurrent targets) in §3.4.1. |
 | **2.6 Assumptions & Dependencies** | Fill with real values: Browser (Chrome 90+), TLS assumed on all targets, internet connectivity needed, depends on Python 3.11+, sslyze, NIST PQC standards |
 | **4.1 Technologies** | Python 3.11+, FastAPI, sslyze, cryptography, Jinja2, HTML/CSS/JS |
 | **4.2 IDE** | VS Code |
@@ -114,11 +116,14 @@ The SRS has sections that need to be filled in. Here's who owns what:
 
 | Section | What to Write |
 |---------|---------------|
-| **3.1 Functional Requirements** | List every feature as a numbered requirement: FR-01: System shall accept target URLs/IPs as input. FR-02: System shall perform TLS handshake and extract protocol version. FR-03: System shall enumerate all supported cipher suites. FR-04: System shall extract certificate details (issuer, subject, algorithm, validity, chain). FR-05: System shall classify each cryptographic component as Quantum-Safe or Not. FR-06: System shall generate CBOM per CERT-IN Annexure-A format. FR-07: System shall assign labels (Quantum-Safe / PQC Ready / Not PQC Ready). FR-08: System shall generate remediation recommendations. FR-09: System shall export reports in JSON format. FR-10: System shall display results on a web dashboard with High/Medium/Low ratings. |
-| **3.2.1 User Interfaces** | Describe the web dashboard: target input form, scan results table, CBOM detail view, label badges, export buttons. |
+| **3.1 Functional Requirements** | List every feature as a numbered requirement: FR-01: System shall accept target URLs/IPs, VPN endpoints, and API endpoints as input. FR-02: System shall perform TLS handshake and extract protocol version. FR-03: System shall enumerate all supported cipher suites. FR-04: System shall extract certificate details (issuer, subject, algorithm, validity, chain). FR-05: System shall discover and scan TLS-based VPN endpoints. FR-06: System shall discover and validate API endpoint TLS configurations. FR-07: System shall classify each cryptographic component as Quantum-Safe or Not. FR-08: System shall generate CBOM per CERT-IN Annexure-A format. FR-09: System shall assign labels: "Quantum-Safe", "PQC Ready", or "Fully Quantum Safe" per problem statement. FR-10: System shall generate actionable remediation recommendations for non-PQC ready assets. FR-11: System shall export reports in JSON, XML, and CSV formats. FR-12: System shall provide an enterprise-wide console displaying status of all scanned systems with High/Medium/Low ratings per Annexure-A. |
+
+> **⚠️ Open Question (FR-09 — Label Criteria):** The Problem Statement uses "or" between "PQC Ready" and "Fully Quantum Safe" without defining distinct criteria for each. Our working interpretation until PNB clarifies: **Quantum-Safe** = asset currently uses algorithms not vulnerable to quantum attacks (e.g., AES-256, SHA-384 — symmetric/hash only); **PQC Ready** = asset has migrated key exchange or authentication to at least one NIST PQC algorithm (e.g., ML-KEM for key exchange) but may still use classical algorithms in other components; **Fully Quantum Safe** = all cryptographic components (key exchange, authentication, encryption, hashing) use quantum-safe or NIST PQC algorithms. **Confirm this interpretation with PNB during the hackathon.**
+
+| **3.2.1 User Interfaces** | Describe the enterprise-wide console (central management GUI): target input form, aggregated multi-system status overview, scan results table, CBOM detail view per Annexure-A, label badges (Quantum-Safe / PQC Ready / Fully Quantum Safe), High/Medium/Low rating indicators, export buttons (JSON, XML, CSV). |
 | **3.2.2 Hardware Interfaces** | Describe: standard server with network access to public internet on port 443. No special hardware. |
 | **3.2.3 Software Interfaces** | Describe: REST API endpoints (POST /scan, GET /results, GET /cbom/{id}), communication via HTTPS, JSON format. |
-| **3.3 System Features** | Group FRs into features: (1) Target Management, (2) TLS Scanner Engine, (3) PQC Analysis Engine, (4) CBOM Generator, (5) Dashboard & Reporting. Describe each with description, stimulus/response, and functional requirements. |
+| **3.3 System Features** | Group FRs into features: (1) Target Management (URLs, IPs, VPNs, APIs), (2) TLS Scanner Engine, (3) VPN & API Scanner Engine, (4) PQC Analysis Engine, (5) CBOM Generator, (6) Enterprise Console & Reporting. Describe each with description, stimulus/response, and functional requirements. |
 
 **Deliverable:** Completed Sections 3.1, 3.2, and 3.3.
 
@@ -152,7 +157,9 @@ The SRS has sections that need to be filled in. Here's who owns what:
 | 2.5 Constraints | ⚠️ Has examples — needs real values |
 | 2.6 Assumptions | ⚠️ Has examples — needs real values |
 | 3.1 Functional Requirements | ❌ Empty |
-| 3.2 External Interfaces | ⚠️ Has examples — needs real values |
+| 3.2.1 User Interfaces | ⚠️ Has example — needs real values |
+| 3.2.2 Hardware Interfaces | ❌ Empty |
+| 3.2.3 Software Interfaces | ❌ Empty |
 | 3.3 System Features | ❌ Empty |
 | 3.4 Non-functional Requirements | ❌ Empty |
 | 4 Technological Requirements | ⚠️ Has examples — needs real values |
