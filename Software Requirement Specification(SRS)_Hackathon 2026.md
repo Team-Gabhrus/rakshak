@@ -19,7 +19,7 @@
 ---
 
 ## Declaration
-The purpose of this Software Requirements Specification (SRS) document is to identify and document the user requirements for the `<Rakshak>`. The end deliverable software that will be supplied by `<Gabrus>` will comprise of all the requirements documented in the current document and will be operated in the manner specified in the document. The Source code will be developed subsequently based on these requirements and will formally go through code review during testing process.
+The purpose of this Software Requirements Specification (SRS) document is to identify and document the user requirements for our platform **Rakshak**. The end deliverable software that will be supplied by our team **Gabrus** will comprise of all the requirements documented in the current document and will be operated in the manner specified in the document. The Source code will be developed subsequently based on these requirements and will formally go through code review during testing process.
 
 **Team Member Details:**
 * **Member 1 (Team Lead):**
