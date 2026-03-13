@@ -245,7 +245,7 @@ The operating environment for the `<project name>` as listed below.
 **4. User Interface Constraints**
 * **User Experience Consistency:** The web dashboard must be fully responsive and maintain intuitive, consistent design elements. It must clearly present complex cryptographic data (e.g., CBOM tables, PQC status badges) so that no specialized training is required for basic operations.
 
-**Examples:**
+**5. Domain-Specific Constraints**
 * The logic analyzer must strictly comply with NIST Post-Quantum Cryptography (PQC) standards (FIPS 203, 204, 205) and adhere to CERT-In guidelines for Cryptographic Bill of Materials (CBOM) generation.
 * The scanner is restricted to operating exclusively on public-facing applications (Web Servers, APIs, TLS-based VPNs).
 * The system must not disrupt live banking services.
@@ -677,10 +677,10 @@ The system shall expose the following REST API endpoints, communicating over **H
     * **Core Programming Language:** Python 3.11+, selected for its robust ecosystem and extensive support for network protocol analysis and cryptographic operations.
     * **Backend Web Framework:** FastAPI, utilized for building a high-performance, asynchronous REST API to serve the web dashboard, manage scan routing, and handle concurrent target evaluations efficiently.
     * **Scanning Engine & Analysis Libraries:** The backend relies heavily on `sslyze` to perform automated TLS handshakes and exhaustive cipher suite enumeration, coupled with the Python `cryptography` library for extracting and parsing complex X.509 certificate parameters.
-    * **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. [cite_start]It integrates Jinja2 templating  to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
+    * **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. It integrates Jinja2 templating  to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
 
 * **4.2 I.D.E. (Integrated Development Environment):**
-    * **Primary Development Environment:** VS Code (Visual Studio Code), chosen for its excellent Python tooling, live debugging capabilities, integrated terminal for testing scanner scripts, and seamless Git integration for team collaboration.
+    * **Primary Development Environment:** VS Code (Visual Studio Code) and Antigravity, chosen for their excellent Python tooling, live debugging capabilities, integrated terminal for testing scanner scripts, and seamless Git integration for team collaboration. 
 
 * **4.3 Database Management Software:**
     * **Development / Testing:** SQLite, utilized as a lightweight, serverless database for rapid local prototyping and testing of the cryptographic mappings and schema designs.
