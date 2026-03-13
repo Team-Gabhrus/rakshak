@@ -221,12 +221,12 @@ The intended audience of this document is business and technical users from PNB.
 
 ### 2.4 Operating Environment
 The operating environment for the `<project name>` as listed below.
-* **Server system**
-* **Operating system:**
-* **Database:**
-* **Platform:**
-* **Technology:**
-* **API:**
+* **Server system: ** Virtual Machine or Containerized Environment (Docker) capable of running Python applications.
+* **Operating system: ** Linux (Ubuntu 22.04 LTS or higher) is required for the production server; Linux or Windows can be used for local development.
+* **Database: ** PostgreSQL for production (scalable, relational storage for historical scans and CBOM data); SQLite for local development and testing.
+* **Platform: ** Web-based application built on the FastAPI framework.
+* **Technology: ** Python 3.11+ (Core engine), sslyze (for TLS scanning), and the cryptography library (for X.509 certificate parsing).
+* **API: ** RESTful API architecture facilitating communication between the scanning engine, the database, and the frontend dashboard.
 
 ### 2.5 Design and Implementation Constraints
 **1. Technical Constraints: - (For Deployment)**
