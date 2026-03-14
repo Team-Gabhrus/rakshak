@@ -216,8 +216,8 @@ The intended audience of this document is business and technical users from PNB.
 
 | User at | User Type | Menus for User |
 | :--- | :--- | :--- |
-| PNB / IIT Kanpur officials | Admin User | |
-| PNB | Checker | |
+| PNB / IIT Kanpur officials | Admin User | Full Access: Home, Asset Inventory, Asset Discovery, CBOM, Posture of PQC, Cyber Rating, Reporting, User Management. |
+| PNB | Checker | Read-Only Access: Home, CBOM, Posture of PQC, Cyber Rating, Export Reports. |
 
 ### 2.4 Operating Environment
 The operating environment for the `<project name>` as listed below.
@@ -662,12 +662,26 @@ The system shall expose the following REST API endpoints, communicating over **H
 
 
 ### 3.4 Non-functional Requirements
+
 #### 3.4.1 Performance Requirements
-*(Details to be filled)*
+* **Dynamic Scan Throttling:** The scanning engine must implement intelligent, dynamic request throttling. It will automatically adjust its handshake velocity to avoid triggering rate-limiting rules or Web Application Firewalls (WAFs) on PNB's perimeter.
+* **Scan Execution Time:** The scanning engine must be highly optimized, capable of completing a full cryptographic scan of a single target endpoint in under 30 seconds.
+* **UI Responsiveness:** The web dashboard and all related UI components must render and load in under 3 seconds to ensure a fluid user experience.
+* **Concurrency:** The backend system must be capable of processing and supporting 50+ concurrent scan targets simultaneously without performance degradation.
+* **Report Generation:** The system must compile and generate complex exportable reports (JSON, PDF, CSV) in under 5 seconds upon user request.
+
 #### 3.4.2 Software Quality Attributes
-*(Details to be filled)*
+* **Extensibility via Plugin Architecture:** The core analysis engine must feature a modular plugin architecture, allowing administrators to seamlessly upload new logic rules as NIST standardizes further PQC algorithms without requiring a full system recompilation.
+* **Reliability:** The central dashboard and API must maintain an uptime of 99.9% to ensure continuous visibility into the organization's cryptographic posture.
+* **Usability:** The system must feature an intuitive user interface, requiring absolutely no specialized training for users to perform basic scans and interpret PQC readiness.
+* **Maintainability:** The backend must be built using a highly modular codebase, allowing developers to easily add or update new NIST PQC algorithms as standards evolve.
+* **Portability:** The application environment must be platform-agnostic, capable of running smoothly on both Linux and Windows operating systems.
+* **Scalability:** The architecture must allow for horizontal scaling, enabling administrators to easily add more scan workers to the system as the target inventory grows.
+
 #### 3.4.3 Other Non-functional Requirements
-*(Details to be filled)*
+* **Logging:** The system must enforce comprehensive logging, ensuring all scan events and system actions are recorded with a precise timestamp.
+* **Compliance:** The core evaluation logic must strictly align with NIST PQC standards (FIPS 203, 204, 205) and adhere precisely to CERT-IN CBOM formatting guidelines.
+* **Localization:** The primary language for the user interface, documentation, and all generated reports shall be English.
 
 ---
 
@@ -680,7 +694,7 @@ The system shall expose the following REST API endpoints, communicating over **H
     * **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. It integrates Jinja2 templating  to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
 
 * **4.2 I.D.E. (Integrated Development Environment):**
-    * **Primary Development Environment:** VS Code (Visual Studio Code) and Antigravity, chosen for their excellent Python tooling, live debugging capabilities, integrated terminal for testing scanner scripts, and seamless Git integration for team collaboration. 
+    * **Primary Development Environment:** VS Code (Visual Studio Code) and Google Antigravity, chosen for their cutting-edge Python tooling, live debugging capabilities, integrated terminals for testing scanner scripts, and seamless Git integration for agile team collaboration.
 
 * **4.3 Database Management Software:**
     * **Development / Testing:** SQLite, utilized as a lightweight, serverless database for rapid local prototyping and testing of the cryptographic mappings and schema designs.
@@ -690,14 +704,15 @@ The system shall expose the following REST API endpoints, communicating over **H
 
 ## 5. Security Requirements
 The following points shall be considered at a minimum while preparing the security requirements for the system or system application:
-* Compatibility of the proposed system with current IT set up. Impact on existing systems should be estimated (e.g. Existing system would not be affected).
-* Audit Trails for all important events capturing details like user ID, time and date, event etc. (e.g. All the responses received from API are logged in DB).
-* Control Access to Information and computing facilities based on principals like 'segregation of duty', 'need-to-know', etc (e.g. Only Admin user will be able to schedule the application).
-* Recoverability of Application in case of Failure (e.g. Will be recovered from DR).
-* Compliance with any legal, statutory and contractual obligations.
-* Security vulnerabilities involved when connecting with other systems and applications (e.g. Will be found during Audit).
-* Operating environment security (e.g. TLS 1.2).
-* Cost of providing security to the system over its life cycle (includes hardware, software, personnel and training).
+* **Compatibility of the proposed system with current IT set up:** The system is engineered to operate as a standalone scanning tool; it is completely passive and will have no structural or performance impact on existing live banking systems.
+* **Tamper-Evident Audit Trails:** All scans and system events must be logged meticulously with the user ID, timestamp, and target details. Furthermore, audit logs will be cryptographically hashed upon creation to ensure tamper-evident immutability.
+* **Audit Trails for all important events:** All scans and system events must be logged meticulously with the user ID, precise timestamp, target details, and scan results securely stored in the database.
+* **Control Access to Information:** Implementation of strict Role-Based Access Control (RBAC) is mandatory, ensuring only 'Admin' users can schedule scans and manage the application, while 'Checkers' are restricted to read-only access for viewing reports.
+* **Recoverability of Application in case of Failure:** The scanning engine is designed to be fully stateless and can instantly restart upon failure, relying on secure, scheduled database backups for total data recoverability.
+* **Compliance with any legal, statutory and contractual obligations:** The system's analysis engine strictly complies with NIST FIPS 203, 204, and 205 for Post-Quantum Cryptography, as well as the CERT-IN mandate for CBOM generation.
+* **Security vulnerabilities involved when connecting with other systems:** The scanner performs strictly passive, read-only scanning operations; it requires and utilizes absolutely no write access to target systems, eliminating the risk of payload injection or configuration alteration during audits.
+* **Operating environment security:** All internal and external communications, including dashboard access and REST API calls, must be heavily encrypted over TLS 1.2 or higher.
+* **Cost of providing security to the system over its life cycle:** The system leverages a robust open-source technology stack (e.g., Python, sslyze), resulting in minimal infrastructure and licensing costs to maintain its security posture.
 
 ---
 
