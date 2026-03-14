@@ -44,34 +44,34 @@ The purpose of this Software Requirements Specification (SRS) document is to ide
     * **Date: 13/03/26**
 
 ## Table of Content
-1. Introduction
-   1.1 Purpose
-   1.2 Scope
-   1.3 Intended Audience
-2. Overall Description
-   2.1 Product Perspective
-   2.2 Product Functions
-   2.3 User Classes and Characteristics
-   2.4 Operating Environment
-   2.5 Design and Implementation Constraints
-   2.6 Assumptions and Dependencies
-3. Specific Requirements
-   3.1 Functional Requirements
-   3.2 External Interface Requirements
-       3.2.1 User Interfaces
-       3.2.2 Hardware Interfaces
-       3.2.3 Software/ Communication Interfaces
-   3.3 System Features
-   3.4 Non-functional Requirements
-       3.4.1 Performance Requirements
-       3.4.2 Software Quality Attributes
-       3.4.3 Other Non-functional Requirements
-4. Technological Requirements
-   4.1 Technologies used in development of the web application
-   4.2 I.D.E. (Integrated Development Environment)
-   4.3 Database Management Software
-5. Security Requirements
-   Annexure-A (CERT-IN CBOM elements)
+1. [Introduction](#1-introduction)
+   - 1.1 [Purpose](#11-purpose)
+   - 1.2 [Scope](#12-scope)
+   - 1.3 [Intended Audience](#13-intended-audience)
+2. [Overall Description](#2-overall-description)
+   - 2.1 [Product Perspective](#21-product-perspective)
+   - 2.2 [Product Functions](#22-product-functions)
+   - 2.3 [User Classes and Characteristics](#23-user-classes-and-characteristics)
+   - 2.4 [Operating Environment](#24-operating-environment)
+   - 2.5 [Design and Implementation Constraints](#25-design-and-implementation-constraints)
+   - 2.6 [Assumptions and Dependencies](#26-assumptions-and-dependencies)
+3. [Specific Requirements](#3-specific-requirements)
+   - 3.1 [Functional Requirements](#31-functional-requirements)
+   - 3.2 [External Interface Requirements](#32-external-interface-requirements)
+      - 3.2.1 [User Interfaces](#321-user-interfaces)
+      - 3.2.2 [Hardware Interfaces](#322-hardware-interfaces)
+      - 3.2.3 [Software / Communication Interfaces](#323-software--communication-interfaces)
+   - 3.3 [System Features](#33-system-features)
+   - 3.4 [Non-functional Requirements](#34-non-functional-requirements)
+      - 3.4.1 [Performance Requirements](#341-performance-requirements)
+      - 3.4.2 [Software Quality Attributes](#342-software-quality-attributes)
+      - 3.4.3 [Other Non-functional Requirements](#343-other-non-functional-requirements)
+4. [Technological Requirements](#4-technological-requirements)
+   - 4.1 [Technologies used in development of the web application](#41-technologies-used-in-development-of-the-web-application)
+   - 4.2 [I.D.E. (Integrated Development Environment)](#42-ide-integrated-development-environment)
+   - 4.3 [Database Management Software](#43-database-management-software)
+5. [Security Requirements](#5-security-requirements)
+   - [Annexure-A (CERT-IN CBOM elements)](#annexure-a-cert-in-cbom-elements)
 
 ---
 
@@ -90,8 +90,8 @@ This document is prepared with the following objectives:
 * Identify cryptographic controls (cipher suites, key exchange mechanisms, TLS versions).
 * Validate whether deployed algorithms are quantum-safe.
 * Generate actionable recommendations for non-PQC ready assets.
-* Issue digital labels: Quantum-Safe, PQC Ready, or Fully Quantum Safe.
-* Enterprise wide console for Central management: A GUI console to display status of scanned systems (public facing applications) covering details mentioned in Appendix-A (Cert-In CBOM Elements).
+* Issue digital labels: Not Quantum-Safe, Quantum-Safe, PQC Ready, or Fully Quantum Safe.
+* Enterprise-wide console for central management: A GUI console to display status of scanned systems (public facing applications) covering details mentioned in Annexure-A (CERT-IN CBOM Elements).
 * As per the variation of score (like High, Medium, Low rating etc) for any public applications, dashboard should display that change as well.
 
 #### System Process Flow
@@ -190,7 +190,7 @@ The intended audience of this document is business and technical users from PNB.
 4. API endpoint scanning — discover and validate TLS configurations of REST and SOAP-based APIs
 5. Certificate analysis — extract and parse certificate details (issuer, subject, signature algorithm, public key, validity, chain)
 6. Real-time scan monitoring — WebSocket-based live progress updates with per-target status and ETA
-7. PQC classification — classify each cryptographic component as Quantum-Safe or Not Quantum-Safe based on NIST PQC standards
+7. PQC classification — classify the quantum-safety status of each cryptographic component based on NIST PQC standards
 8. CBOM generation — produce Cryptographic Bill of Materials per CERT-IN Annexure-A (Algorithms, Keys, Protocols, Certificates)
 9. CBOM snapshot comparison — compare two CBOM snapshots to track cryptographic posture changes over time
 10. Certificate chain visualization — interactive tree/graph view with quantum-safety color coding at each level
@@ -209,7 +209,6 @@ The intended audience of this document is business and technical users from PNB.
 23. Webhook / API notifications — push real-time alerts on scan completion, critical findings, or certificate expiration to external systems
 
 ### 2.3 User Classes and Characteristics
-**Examples:**
 * **Primary Users:** Bank cybersecurity teams, IT administrators.
 * **Secondary Users:** Compliance auditors, risk managers.
 * Users are expected to have technical knowledge of cryptography and networking.
@@ -217,10 +216,10 @@ The intended audience of this document is business and technical users from PNB.
 | User at | User Type | Menus for User |
 | :--- | :--- | :--- |
 | PNB / IIT Kanpur officials | Admin User | Full Access: Home, Asset Inventory, Asset Discovery, CBOM, Posture of PQC, Cyber Rating, Reporting, User Management. |
-| PNB | Checker | Read-Only Access: Home, CBOM, Posture of PQC, Cyber Rating, Export Reports. |
+| PNB | Checker | Read-Only Access: Home, Asset Inventory, Asset Discovery, CBOM, Posture of PQC, Cyber Rating, Export Reports. |
 
 ### 2.4 Operating Environment
-The operating environment for the `<project name>` as listed below.
+The operating environment for **Rakshak** is as listed below.
 * **Server system:** Virtual Machine or Containerized Environment (Docker) capable of running Python applications.
 * **Operating system:** Linux (Ubuntu 22.04 LTS or higher) is required for the production server; Linux or Windows can be used for local development.
 * **Database:** PostgreSQL for production (scalable, relational storage for historical scans and CBOM data); SQLite for local development and testing.
@@ -229,8 +228,8 @@ The operating environment for the `<project name>` as listed below.
 * **API:** RESTful API architecture facilitating communication between the scanning engine, the database, and the frontend dashboard.
 
 ### 2.5 Design and Implementation Constraints
-**1. Technical Constraints: - (For Deployment)**
-* **Network Configuration:** e.g., The application requires outbound network access strictly over port 443 (HTTPS/TLS) to successfully reach and scan public-facing target endpoints. The application must be deployed within a private intranet, requiring appropriate firewall rules to allow outbound scanning while restricting unauthorized inbound access.
+**1. Technical Constraints (Deployment):**
+* **Network Configuration:** The application requires outbound network access strictly over port 443 (HTTPS/TLS) to successfully reach and scan public-facing target endpoints. The application must be deployed within a private intranet, requiring appropriate firewall rules to allow outbound scanning while restricting unauthorized inbound access.
 * **Hosting Environment:** The system must be hosted on an internal, secure intranet server so that the centralized management dashboard is never directly exposed to the public internet.
 
 **2. Security Constraints**
@@ -249,7 +248,7 @@ The operating environment for the `<project name>` as listed below.
 * The logic analyzer must strictly comply with NIST Post-Quantum Cryptography (PQC) standards (FIPS 203, 204, 205) and adhere to CERT-In guidelines for Cryptographic Bill of Materials (CBOM) generation.
 * The scanner is restricted to operating exclusively on public-facing applications (Web Servers, APIs, TLS-based VPNs).
 * The system must not disrupt live banking services.
-* The system must be able to export its scan results and CBOM inventories in machine-readable formats (specifically JSON) to allow integration with other banking compliance tools
+* The system must be able to export its scan results and CBOM inventories in machine-readable formats (JSON, XML, CSV, and PDF) to allow integration with other banking compliance tools.
 
 ### 2.6 Assumptions and Dependencies
 **Assumptions:**
@@ -440,7 +439,7 @@ The application shall provide a **responsive web-based user interface** accessib
 
 #### 3.2.2 Hardware Interfaces
 
-- The system requires a **standard server** (physical or virtual) with network access to the public internet on port **443 (HTTPS/TLS)** and optionally port **80 (HTTP)** for redirect detection.
+- The system requires a **standard server** (physical or virtual) with network access to the public internet on port **443 (HTTPS/TLS)**.
 - No specialized hardware is required. The system operates entirely in software.
 - The server must have a **network interface** capable of establishing outbound TCP connections to target endpoints for TLS handshakes.
 - For TLS-based VPN endpoint scanning, the server must be able to reach port **443** (HTTPS/TLS). Note: Ports 500 (IKE) and 4500 (NAT-T) are UDP-based and outside the scope of TLS-based scanning.
@@ -664,18 +663,18 @@ The system shall expose the following REST API endpoints, communicating over **H
 ### 3.4 Non-functional Requirements
 
 #### 3.4.1 Performance Requirements
-* **Dynamic Scan Throttling:** The scanning engine must implement intelligent, dynamic request throttling. It will automatically adjust its handshake velocity to avoid triggering rate-limiting rules or Web Application Firewalls (WAFs) on PNB's perimeter.
+* **Dynamic Scan Throttling:** The scanning engine must implement intelligent, dynamic request throttling. It will automatically adjust its handshake velocity to avoid triggering rate-limiting rules or Web Application Firewalls (WAFs) on target endpoints.
 * **Scan Execution Time:** The scanning engine must be highly optimized, capable of completing a full cryptographic scan of a single target endpoint in under 30 seconds.
 * **UI Responsiveness:** The web dashboard and all related UI components must render and load in under 3 seconds to ensure a fluid user experience.
 * **Concurrency:** The backend system must be capable of processing and supporting 50+ concurrent scan targets simultaneously without performance degradation.
 * **Report Generation:** The system must compile and generate complex exportable reports (JSON, PDF, CSV) in under 5 seconds upon user request.
 
 #### 3.4.2 Software Quality Attributes
-* **Extensibility via Plugin Architecture:** The core analysis engine must feature a modular plugin architecture, allowing administrators to seamlessly upload new logic rules as NIST standardizes further PQC algorithms without requiring a full system recompilation.
+* **Extensibility via Plugin Architecture:** The core analysis engine must feature a modular plugin architecture, allowing administrators to seamlessly upload new logic rules as NIST standardizes further PQC algorithms, without requiring a full system recompilation.
 * **Reliability:** The central dashboard and API must maintain an uptime of 99.9% to ensure continuous visibility into the organization's cryptographic posture.
 * **Usability:** The system must feature an intuitive user interface, requiring absolutely no specialized training for users to perform basic scans and interpret PQC readiness.
 * **Maintainability:** The backend must be built using a highly modular codebase, allowing developers to easily add or update new NIST PQC algorithms as standards evolve.
-* **Portability:** The application environment must be platform-agnostic, capable of running smoothly on both Linux and Windows operating systems.
+* **Portability:** The application environment must be capable of running smoothly on both Linux and Windows for development, with Linux required for production.
 * **Scalability:** The architecture must allow for horizontal scaling, enabling administrators to easily add more scan workers to the system as the target inventory grows.
 
 #### 3.4.3 Other Non-functional Requirements
@@ -687,26 +686,25 @@ The system shall expose the following REST API endpoints, communicating over **H
 
 ## 4. Technological Requirements
 
-* **4.1 Technologies used in development of the web application:**
-    * **Core Programming Language:** Python 3.11+, selected for its robust ecosystem and extensive support for network protocol analysis and cryptographic operations.
-    * **Backend Web Framework:** FastAPI, utilized for building a high-performance, asynchronous REST API to serve the web dashboard, manage scan routing, and handle concurrent target evaluations efficiently.
-    * **Scanning Engine & Analysis Libraries:** The backend relies heavily on `sslyze` to perform automated TLS handshakes and exhaustive cipher suite enumeration, coupled with the Python `cryptography` library for extracting and parsing complex X.509 certificate parameters.
-    * **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. It integrates Jinja2 templating  to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
+### 4.1 Technologies used in development of the web application
+* **Core Programming Language:** Python 3.11+, selected for its robust ecosystem and extensive support for network protocol analysis and cryptographic operations.
+* **Backend Web Framework:** FastAPI, utilized for building a high-performance, asynchronous REST API to serve the web dashboard, manage scan routing, and handle concurrent target evaluations efficiently.
+* **Scanning Engine & Analysis Libraries:** The backend relies heavily on `sslyze` to perform automated TLS handshakes and exhaustive cipher suite enumeration, coupled with the Python `cryptography` library for extracting and parsing complex X.509 certificate parameters.
+* **Frontend & Reporting Layer:** The web dashboard and user interface are built using standard HTML, CSS, and JS. It integrates Jinja2 templating to dynamically render scan results, generate compliance badges (Quantum-Safe / Not PQC Ready), and format the Cryptographic Bill of Materials (CBOM) exports.
 
-* **4.2 I.D.E. (Integrated Development Environment):**
-    * **Primary Development Environment:** VS Code (Visual Studio Code) and Google Antigravity, chosen for their cutting-edge Python tooling, live debugging capabilities, integrated terminals for testing scanner scripts, and seamless Git integration for agile team collaboration.
+### 4.2 I.D.E. (Integrated Development Environment)
+* **Primary Development Environment:** VS Code (Visual Studio Code) and Google Antigravity, chosen for their cutting-edge Python tooling, live debugging capabilities, integrated terminals for testing scanner scripts, and seamless Git integration for agile team collaboration.
 
-* **4.3 Database Management Software:**
-    * **Development / Testing:** SQLite, utilized as a lightweight, serverless database for rapid local prototyping and testing of the cryptographic mappings and schema designs.
-    * **Production Environment:** PostgreSQL, mandated for the final deployment to provide a secure, highly concurrent, relational database capable of reliably storing extensive historical scan data, user audit trails, and complex CBOM inventories across the bank's public-facing infrastructure.
+### 4.3 Database Management Software
+* **Development / Testing:** SQLite, utilized as a lightweight, serverless database for rapid local prototyping and testing of the cryptographic mappings and schema designs.
+* **Production Environment:** PostgreSQL, mandated for the final deployment to provide a secure, highly concurrent, relational database capable of reliably storing extensive historical scan data, user audit trails, and complex CBOM inventories across the bank's public-facing infrastructure.
 
 ---
 
 ## 5. Security Requirements
 The following points shall be considered at a minimum while preparing the security requirements for the system or system application:
 * **Compatibility of the proposed system with current IT set up:** The system is engineered to operate as a standalone scanning tool; it is completely passive and will have no structural or performance impact on existing live banking systems.
-* **Tamper-Evident Audit Trails:** All scans and system events must be logged meticulously with the user ID, timestamp, and target details. Furthermore, audit logs will be cryptographically hashed upon creation to ensure tamper-evident immutability.
-* **Audit Trails for all important events:** All scans and system events must be logged meticulously with the user ID, precise timestamp, target details, and scan results securely stored in the database.
+* **Tamper-Evident Audit Trails:** All scans and system events must be logged meticulously with user ID, timestamp, IP address, and event details. Audit logs will be cryptographically hashed upon creation to ensure tamper-evident immutability and securely stored in the database.
 * **Control Access to Information:** Implementation of strict Role-Based Access Control (RBAC) is mandatory, ensuring only 'Admin' users can schedule scans and manage the application, while 'Checkers' are restricted to read-only access for viewing reports.
 * **Recoverability of Application in case of Failure:** The scanning engine is designed to be fully stateless and can instantly restart upon failure, relying on secure, scheduled database backups for total data recoverability.
 * **Compliance with any legal, statutory and contractual obligations:** The system's analysis engine strictly complies with NIST FIPS 203, 204, and 205 for Post-Quantum Cryptography, as well as the CERT-IN mandate for CBOM generation.
