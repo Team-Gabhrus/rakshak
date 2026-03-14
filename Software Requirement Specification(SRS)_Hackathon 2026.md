@@ -1,5 +1,6 @@
-# Punjab National Bank
-**Name you can BANK upon!**
+
+
+## **Date: **13/03/2026
 
 # Software Requirement Specification (SRS)
 **PSB Hackathon 2026**
@@ -7,43 +8,31 @@
 **Version 1**
 
 **Project Name:** Quantum-Proof Systems Scanner  
-**Team Name:** <br>
-**Institute Name:** 
+**Team Name:** Gabrus
+**Institute Name:** Indian Institute of Technology, Kharagpur
 
 ## Revision History
 
 | Version No | Date | Prepared by/Modified by | Significant Changes |
 | :--- | :--- | :--- | :--- |
-| Draft V1.0 | 13/03/26 | Sheersh Nigam, Akshat Jiwrajka, Arunangshu Karmakar, Simarpreet Singh | |
-
----
+| Draft V1.0 | 13/03/26 | Sheersh Nigam, Akshat Jiwrajka, Arunangshu Karmakar, Simarpreet Singh | First Draft |
 
 ## Declaration
 The purpose of this Software Requirements Specification (SRS) document is to identify and document the user requirements for our platform **Rakshak**. The end deliverable software that will be supplied by our team **Gabrus** will comprise of all the requirements documented in the current document and will be operated in the manner specified in the document. The Source code will be developed subsequently based on these requirements and will formally go through code review during testing process.
 
 **Team Member Details:**
-* **Member 1 (Team Lead):**
-    * **Sheersh Nigam**
-    * **IIT Kharagpur**
-    * **Signature:**
-    * **Date: 13/03/26**
-* **Member 2 (Developer):**
-    * **Akshat Jiwrajka**
-    * **IIT Kharagpur**
-    * **Signature:**
-    * **Date: 13/03/26**
-* **Member 3 (Analyst):**
-    * **Arunangshu Karmakar**
-    * **IIT Kharagpur**
-    * **Signature:**
-    * **Date: 13/03/26**
-* **Member 4 (Tester):**
-    * **Simarpreet Singh**
-    * **IIT Kharagpur**
-    * **Signature:**
-    * **Date: 13/03/26**
+
+|    Member 1    |    Member 2     |      Member 3       |     Member 4     |
+| :------------: | :-------------: | :-----------------: | :--------------: |
+|   Team Lead    |    Developer    |       Analyst       |      Tester      |
+| Sheersh Nigam  | Akshat Jiwrajka | Arunangshu Karmakar | Simarpreet Singh |
+| IIT Kharagpur  |  IIT Kharagpur  |    IIT Kharagpur    |  IIT Kharagpur   |
+| <br />13/03/26 | <br />13/03/26  |   <br />13/03/26    |  <br />13/03/26  |
+
+---
 
 ## Table of Content
+
 1. [Introduction](#1-introduction)
    - 1.1 [Purpose](#11-purpose)
    - 1.2 [Scope](#12-scope)
@@ -97,58 +86,42 @@ This document is prepared with the following objectives:
 #### System Process Flow
 
 ```mermaid
+---
+config:
+  layout: dagre
+  look: neo
+---
 flowchart TD
-    %% ── User Entry ──
     A["User Login<br/>(Admin / Checker)"] --> B{"Role?"}
-
-    %% ── Admin Path ──
     B -- "Admin" --> C["Configure Targets<br/>(URLs, IPs, VPN Endpoints, APIs)<br/>Manual Entry / Bulk CSV-JSON Import"]
     C --> D["Trigger Scan<br/>(On-Demand or Scheduled)"]
-
-    %% ── Scanning Stage ──
     D --> E["STAGE 1: Scanning Engine"]
     E --> E1["TLS Scanner<br/>Handshake, Protocol Version,<br/>Cipher Suite Enumeration"]
     E --> E2["VPN Scanner<br/>TLS-based VPN<br/>Endpoint Analysis"]
     E --> E3["API Scanner<br/>REST / SOAP<br/>TLS Configuration"]
     E --> E4["Certificate Parser<br/>Issuer, Subject, Algorithm,<br/>Key Length, Validity, Chain"]
-
-    %% ── Live Monitoring ──
     E1 & E2 & E3 & E4 --> F["Real-Time Progress<br/>(WebSocket Live Updates)"]
-
-    %% ── Analysis Stage ──
     F --> G["STAGE 2: PQC Analysis & Classification"]
     G --> G1["Evaluate Key Exchange<br/>(RSA, ECDHE → ML-KEM?)"]
     G --> G2["Evaluate Authentication<br/>(RSA, ECDSA → ML-DSA?)"]
     G --> G3["Evaluate Encryption<br/>(AES-128/256, ChaCha20)"]
     G --> G4["Evaluate Hashing<br/>(SHA-256/384/512)"]
-
-    %% ── Classification ──
     G1 & G2 & G3 & G4 --> H["STAGE 3: Quantum-Safety Labeling"]
     H --> H1["Not Quantum-Safe"]
     H --> H2["Quantum-Safe"]
     H --> H3["PQC Ready"]
     H --> H4["Fully Quantum Safe"]
-
-    %% ── Output Stage ──
     H1 & H2 & H3 & H4 --> I["STAGE 4: Output Generation"]
     I --> I1["CBOM Report<br/>(CERT-IN Annexure-A:<br/>Algorithms, Keys,<br/>Protocols, Certificates)"]
     I --> I2["Remediation<br/>Recommendations<br/>& Migration Playbooks"]
     I --> I3["Cyber Rating Score<br/>(out of 1000)<br/>Tier 1-4 Classification"]
     I --> I4["Quantum Risk<br/>Timeline<br/>(HNDL Exposure)"]
-
-    %% ── Enterprise Console ──
     I1 & I2 & I3 & I4 --> J["Enterprise Dashboard Console"]
-
-    %% ── Checker Path ──
     B -- "Checker<br/>(Read-Only)" --> J
-
-    %% ── Dashboard Outputs ──
     J --> K1["View Reports<br/>& Analytics"]
     J --> K2["Export<br/>(JSON, XML, CSV, PDF)"]
     J --> K3["Alerts<br/>(Email, Slack, Webhooks)"]
     J --> K4["Historical Trends<br/>& CBOM Comparison"]
-
-    %% ── Styling ──
     style A fill:#4A90D9,stroke:#2C5F8A,color:#fff
     style B fill:#F5A623,stroke:#D48A1A,color:#fff
     style E fill:#7B68EE,stroke:#5A4FCF,color:#fff
@@ -299,8 +272,6 @@ The operating environment for **Rakshak** is as listed below.
 | 🟡 **Quantum-Safe** | All components use algorithms not currently vulnerable to quantum attacks (e.g., AES-256, SHA-384 — symmetric/hash), but key exchange and/or authentication still rely on classical algorithms (RSA, ECC) that are quantum-vulnerable. | AES-256-GCM encryption + SHA-384 hashing, but ECDHE key exchange |
 | 🔵 **PQC Ready** | Key exchange or authentication has been migrated to at least one NIST-standardized PQC algorithm (e.g., ML-KEM for key exchange), but other components may still use classical algorithms. | ML-KEM-768 key exchange + RSA authentication |
 | 🟢 **Fully Quantum Safe** | All cryptographic components (key exchange, authentication, encryption, hashing) use quantum-safe or NIST PQC algorithms. | ML-KEM-768 key exchange + ML-DSA authentication + AES-256-GCM encryption + SHA-384 hashing |
-
-> ⚠️ *Note: This is our working interpretation. The "PQC Ready" vs "Fully Quantum Safe" distinction is to be confirmed with PNB during the hackathon.*
 
 #### Reporting & Export
 
