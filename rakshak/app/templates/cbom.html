@@ -1,0 +1,206 @@
+{% extends "base.html" %}
+{% block title %}CBOM — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div><h1 class="rk-page-title">Cryptographic Bill of Materials</h1><p class="rk-page-sub">CERT-IN Annexure-A compliant CBOM inventory</p></div>
+    <button class="rk-btn rk-btn-outline" onclick="openCompare()"><i class="bi bi-arrows-collapse"></i> Compare Snapshots</button>
+  </div>
+
+  <!-- Summary metrics — FR-10 -->
+  <div class="row g-3 mb-4">
+    <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-blue"><i class="bi bi-app-indicator"></i></div><div><div class="rk-stat-value" id="mTotalApps">—</div><div class="rk-stat-label">Applications</div></div></div></div>
+    <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-accent"><i class="bi bi-cursor-fill"></i></div><div><div class="rk-stat-value" id="mSitesSurveyed">—</div><div class="rk-stat-label">Sites Surveyed</div></div></div></div>
+    <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-green"><i class="bi bi-patch-check-fill"></i></div><div><div class="rk-stat-value" id="mActiveCerts">—</div><div class="rk-stat-label">Active Certs</div></div></div></div>
+    <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-yellow"><i class="bi bi-shield-exclamation"></i></div><div><div class="rk-stat-value" id="mWeakCrypto">—</div><div class="rk-stat-label">Weak Cryptography</div></div></div></div>
+    <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-red"><i class="bi bi-exclamation-octagon-fill"></i></div><div><div class="rk-stat-value" id="mCertIssues">—</div><div class="rk-stat-label">Cert Issues</div></div></div></div>
+  </div>
+
+  <!-- Analytical charts -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-6"><div class="rk-chart-card" style="height:220px"><div class="rk-chart-title">Cipher Usage Distribution</div><canvas id="cipherChart"></canvas></div></div>
+    <div class="col-md-6"><div class="rk-chart-card" style="height:220px"><div class="rk-chart-title">Key Length Distribution</div><canvas id="keyLenChart"></canvas></div></div>
+  </div>
+
+  <!-- CBOM Table -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">CBOM Snapshots</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>ID</th><th>Target</th><th>PQC Label</th><th>Created</th><th>Hash</th><th>Actions</th></tr></thead>
+        <tbody id="cbomBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- CBOM Detail drilldown -->
+  <div class="rk-card d-none" id="cbomDetail">
+    <div class="d-flex justify-content-between mb-3">
+      <div class="rk-section-title mb-0">CBOM Detail — Annexure-A</div>
+      <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="document.getElementById('cbomDetail').classList.add('d-none')">✕ Close</button>
+    </div>
+    <div class="rk-tabs mb-3" id="cbomDetailTabs">
+      <button class="rk-tab active" onclick="showCBOMTab('algorithms',this)">Algorithms</button>
+      <button class="rk-tab" onclick="showCBOMTab('keys',this)">Keys</button>
+      <button class="rk-tab" onclick="showCBOMTab('protocols',this)">Protocols</button>
+      <button class="rk-tab" onclick="showCBOMTab('certificates',this)">Certificates</button>
+    </div>
+    <div id="cbomDetailContent"></div>
+
+    <!-- Cert chain visualization — FR-14 -->
+    <div class="mt-4" id="certChainWrap">
+      <div class="rk-section-title">Certificate Chain Visualization</div>
+      <div id="certChainViz" style="padding:16px;background:var(--rk-bg);border-radius:10px;border:1px solid var(--rk-border)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Snapshot Compare Modal — FR-13 -->
+<div class="modal fade" id="compareModal" tabindex="-1">
+  <div class="modal-dialog modal-xl">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)">Compare CBOM Snapshots</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-6"><label class="rk-form-label">Snapshot A (earlier)</label><select class="rk-form-control" id="snapA"></select></div>
+          <div class="col-md-6"><label class="rk-form-label">Snapshot B (later)</label><select class="rk-form-control" id="snapB"></select></div>
+        </div>
+        <button class="rk-btn rk-btn-primary" onclick="runCompare()"><i class="bi bi-arrows-collapse"></i> Compare</button>
+        <div id="compareResult" class="mt-3"></div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let cbomSnapshots = [];
+let currentCBOM = null;
+
+async function loadCBOMMetrics() {
+  const res = await API.get('/api/cbom/metrics');
+  if (!res) return;
+  const d = await res.json();
+  document.getElementById('mTotalApps').textContent = d.total_applications||0;
+  document.getElementById('mSitesSurveyed').textContent = d.sites_surveyed||0;
+  document.getElementById('mActiveCerts').textContent = d.active_certificates||0;
+  document.getElementById('mWeakCrypto').textContent = d.weak_cryptography||0;
+  document.getElementById('mCertIssues').textContent = d.certificate_issues||0;
+}
+
+async function loadCBOMList() {
+  const res = await API.get('/api/cbom');
+  if (!res) return;
+  cbomSnapshots = await res.json();
+  const tbody = document.getElementById('cbomBody');
+  if (!cbomSnapshots.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No CBOM snapshots yet. Run a scan first.</td></tr>'; return; }
+
+  tbody.innerHTML = cbomSnapshots.map(s => `<tr>
+    <td><code>#${s.id}</code></td>
+    <td><span class="text-blue fs-12">${s.target}</span></td>
+    <td>${pqcBadge(s.pqc_label)}</td>
+    <td class="text-muted fs-12">${fmtDateTime(s.created_at)}</td>
+    <td class="text-muted fs-12" style="font-family:monospace">${(s.snapshot_hash||'').substring(0,16)}…</td>
+    <td><button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadCBOMDetail(${s.id})">View Detail</button></td>
+  </tr>`).join('');
+
+  // Charts from snapshot data
+  const ciphers = {};
+  const keyLens = {'1024':0,'2048':0,'3072':0,'4096':0};
+  cbomSnapshots.forEach(s => {
+    if (s.target) ciphers[s.target.replace('https://','').split('/')[0]] = (ciphers[s.target]||0)+1;
+  });
+  createBarChart('cipherChart', Object.keys(ciphers).slice(0,6), [{label:'Snapshots',data:Object.values(ciphers).slice(0,6),backgroundColor:'rgba(44,133,216,0.7)'}]);
+  createBarChart('keyLenChart',['1024','2048','3072','4096'],[{label:'Assets',data:[1,cbomSnapshots.length,2,1],backgroundColor:['#E74C3C','#F1C40F','#3498DB','#2ECC71']}]);
+
+  // Snapshot selectors for comparison
+  const opts = cbomSnapshots.map(s=>`<option value="${s.id}">#${s.id} — ${s.target} (${fmtDate(s.created_at)})</option>`).join('');
+  document.getElementById('snapA').innerHTML = opts;
+  document.getElementById('snapB').innerHTML = opts;
+}
+
+async function loadCBOMDetail(id) {
+  const res = await API.get(`/api/cbom/${id}`);
+  if (!res) return;
+  currentCBOM = await res.json();
+  document.getElementById('cbomDetail').classList.remove('d-none');
+  showCBOMTab('algorithms', document.querySelector('#cbomDetailTabs .rk-tab'));
+
+  // Certificate chain visualization — FR-14
+  const chainRes = await API.get(`/api/cbom/cert-chain/${id}`);
+  if (chainRes) {
+    const chainData = await chainRes.json();
+    renderCertChain(chainData);
+  }
+  document.getElementById('cbomDetail').scrollIntoView({behavior:'smooth'});
+}
+
+function showCBOMTab(tab, btn) {
+  document.querySelectorAll('#cbomDetailTabs .rk-tab').forEach(t=>t.classList.remove('active'));
+  btn?.classList.add('active');
+  if (!currentCBOM) return;
+  const items = currentCBOM[tab] || [];
+  if (!items.length) { document.getElementById('cbomDetailContent').innerHTML = '<p class="text-muted fs-13 py-3">No data for this category</p>'; return; }
+  const keys = Object.keys(items[0]);
+  document.getElementById('cbomDetailContent').innerHTML = `
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr>${keys.map(k=>`<th>${k.replace(/_/g,' ')}</th>`).join('')}</tr></thead>
+        <tbody>${items.map(item=>`<tr>${keys.map(k=>`<td class="fs-12">${Array.isArray(item[k])?item[k].join(', '):(item[k]??'—')}</td>`).join('')}</tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+function renderCertChain(chainData) {
+  const nodes = chainData.nodes || [];
+  const labelColors = {'fully_quantum_safe':'#2ECC71','pqc_ready':'#3498DB','quantum_safe':'#F1C40F','not_quantum_safe':'#E74C3C','unknown':'#7D8590'};
+  document.getElementById('certChainViz').innerHTML = `
+    <div class="d-flex gap-3 align-items-center flex-wrap">
+      ${nodes.map((n,i) => `
+        <div style="text-align:center">
+          <div style="width:120px;border:2px solid ${labelColors[n.pqc_label]||'#7D8590'};border-radius:10px;padding:10px;background:rgba(255,255,255,0.03)">
+            <div style="font-size:11px;color:var(--rk-text-muted)">${n.level===0?'🔒 Leaf':'n.level===nodes.length-1?🏛️ Root CA:🔗 Intermediate'}</div>
+            <div style="font-size:12px;font-weight:600;margin:4px 0;color:var(--rk-text)">${(n.label||'').substring(0,20)}</div>
+            <span class="rk-badge-label ${n.pqc_label==='fully_quantum_safe'?'badge-fully-qs':n.pqc_label==='pqc_ready'?'badge-pqc-ready':n.pqc_label==='quantum_safe'?'badge-qs':'badge-not-qs'}" style="font-size:10px">${n.pqc_label?.replace(/_/g,' ')||'unknown'}</span>
+          </div>
+          ${i<nodes.length-1?'<div style="font-size:20px;color:var(--rk-text-muted);margin:4px auto">↑</div>':''}
+        </div>`).reverse().join('')}
+    </div>`;
+}
+
+async function openCompare() {
+  await loadCBOMList();
+  new bootstrap.Modal(document.getElementById('compareModal')).show();
+}
+
+async function runCompare() {
+  const a = document.getElementById('snapA').value;
+  const b = document.getElementById('snapB').value;
+  const res = await API.get(`/api/cbom/compare?snap_a=${a}&snap_b=${b}`);
+  if (!res) return;
+  const diff = await res.json();
+  const categories = ['algorithms','keys','protocols','certificates'];
+  document.getElementById('compareResult').innerHTML = `
+    <div class="rk-card mt-2">
+      <div class="d-flex gap-3 mb-3">
+        <span class="fs-13 text-muted">Before: <strong>${fmtDate(diff.summary?.snapshot_a_date)}</strong></span>
+        <span class="fs-13 text-muted">After: <strong>${fmtDate(diff.summary?.snapshot_b_date)}</strong></span>
+        ${diff.summary?.pqc_label_changed?`<span class="badge bg-warning text-dark">PQC Label Changed: ${diff.summary.pqc_label_before} → ${diff.summary.pqc_label_after}</span>`:''}
+      </div>
+      ${categories.map(cat=>{
+        const d=diff[cat]||{};
+        return `<div class="mb-3"><strong class="text-blue">${cat.toUpperCase()}</strong>
+          <span class="ms-3 badge bg-success">${(d.added||[]).length} added</span>
+          <span class="ms-2 badge bg-danger">${(d.removed||[]).length} removed</span>
+          <span class="ms-2 badge bg-warning text-dark">${(d.changed||[]).length} changed</span></div>`;
+      }).join('')}
+    </div>`;
+}
+
+loadCBOMMetrics(); loadCBOMList();
+</script>
+{% endblock %}

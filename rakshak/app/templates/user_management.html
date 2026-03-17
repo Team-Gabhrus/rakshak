@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+{% block title %}User Management — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="d-flex justify-content-between align-items-center mb-4">
+    <div><h1 class="rk-page-title">User Management</h1><p class="rk-page-sub">RBAC — Admin and Checker role assignment</p></div>
+    <button class="rk-btn rk-btn-primary" onclick="openAddUser()"><i class="bi bi-person-plus-fill"></i> Add User</button>
+  </div>
+
+  <!-- Users table — FR-22, FR-23 -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">System Users</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th></tr></thead>
+        <tbody id="userBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Audit logs — FR-16 -->
+  <div class="rk-card">
+    <div class="rk-section-title"><i class="bi bi-journals me-2"></i>Audit Logs — Tamper-Evident</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>ID</th><th>Event Type</th><th>Username</th><th>Details</th><th>IP</th><th>Timestamp</th><th>Hash</th></tr></thead>
+        <tbody id="auditBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Add User Modal -->
+<div class="modal fade" id="addUserModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)">Add New User</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="rk-form-label">Username</label><input class="rk-form-control" id="nuUsername" placeholder="johndoe"></div>
+        <div class="mb-3"><label class="rk-form-label">Email</label><input type="email" class="rk-form-control" id="nuEmail" placeholder="john@pnb.in"></div>
+        <div class="mb-3"><label class="rk-form-label">Password</label><input type="password" class="rk-form-control" id="nuPassword" placeholder="••••••••"></div>
+        <div class="mb-3"><label class="rk-form-label">Role</label>
+          <select class="rk-form-control" id="nuRole">
+            <option value="admin">Admin (full access)</option>
+            <option value="checker">Checker (read-only)</option>
+          </select>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--rk-border)">
+        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
+        <button class="rk-btn rk-btn-primary" onclick="addUser()"><i class="bi bi-person-plus-fill"></i> Add User</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadUsers() {
+  const res = await API.get('/api/users');
+  if (!res) return;
+  const users = await res.json();
+  document.getElementById('userBody').innerHTML = users.map(u => `<tr>
+    <td><code>#${u.id}</code></td>
+    <td><strong>${u.username}</strong></td>
+    <td class="text-muted">${u.email}</td>
+    <td><span class="badge ${u.role==='admin'?'bg-danger':'bg-info text-dark'}">${u.role}</span></td>
+    <td><span class="badge ${u.is_active?'bg-success':'bg-secondary'}">${u.is_active?'Active':'Inactive'}</span></td>
+    <td class="text-muted fs-12">${fmtDateTime(u.last_login)||'Never'}</td>
+  </tr>`).join('');
+}
+
+async function loadAuditLogs() {
+  const res = await API.get('/api/audit-logs');
+  if (!res) return;
+  const logs = await res.json();
+  document.getElementById('auditBody').innerHTML = logs.map(l => `<tr>
+    <td><code>#${l.id}</code></td>
+    <td><span class="badge bg-secondary">${l.event_type}</span></td>
+    <td class="text-muted">${l.username||'system'}</td>
+    <td class="fs-12">${l.event_details||'—'}</td>
+    <td class="text-muted fs-12">${l.ip_address||'—'}</td>
+    <td class="text-muted fs-12">${fmtDateTime(l.timestamp)}</td>
+    <td style="font-family:monospace;font-size:11px;color:var(--rk-text-muted)">${(l.log_hash||'').substring(0,16)}…</td>
+  </tr>`).join('');
+}
+
+function openAddUser() { new bootstrap.Modal(document.getElementById('addUserModal')).show(); }
+
+async function addUser() {
+  const res = await API.post('/api/auth/register', {
+    username: document.getElementById('nuUsername').value,
+    email:    document.getElementById('nuEmail').value,
+    password: document.getElementById('nuPassword').value,
+    role:     document.getElementById('nuRole').value,
+  });
+  if (res?.ok) { showToast('User created!','success'); bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide(); loadUsers(); }
+  else { const d = await res?.json(); showToast(d?.detail||'Error creating user','danger'); }
+}
+
+loadUsers(); loadAuditLogs();
+</script>
+{% endblock %}

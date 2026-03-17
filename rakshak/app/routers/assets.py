@@ -1,0 +1,196 @@
+"""Assets router — FR-31 through FR-36, FR-37 through FR-40."""
+import json
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select, func
+from app.database import get_db
+from app.models.asset import Asset, AssetDiscovery, NameserverRecord, AssetType, RiskLevel, DiscoveryStatus, DiscoveryCategory
+from app.models.user import User
+from app.dependencies import require_admin, require_any_role
+
+router = APIRouter(prefix="/api/assets", tags=["assets"])
+
+
+class AddAssetRequest(BaseModel):
+    name: str
+    url: str
+    ipv4: Optional[str] = None
+    ipv6: Optional[str] = None
+    asset_type: str = "web_app"
+    owner: Optional[str] = None
+
+
+@router.get("")
+async def list_assets(
+    search: Optional[str] = Query(None),
+    risk: Optional[str] = Query(None),
+    asset_type: Optional[str] = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-33: Searchable, sortable, paginated asset table."""
+    query = select(Asset)
+    if search:
+        query = query.where(
+            (Asset.name.ilike(f"%{search}%")) |
+            (Asset.url.ilike(f"%{search}%")) |
+            (Asset.ipv4.ilike(f"%{search}%"))
+        )
+    if risk:
+        query = query.where(Asset.risk_level == risk)
+    if asset_type:
+        query = query.where(Asset.asset_type == asset_type)
+
+    total_q = await db.execute(select(func.count()).select_from(query.subquery()))
+    total = total_q.scalar()
+
+    query = query.offset((page - 1) * page_size).limit(page_size).order_by(Asset.created_at.desc())
+    result = await db.execute(query)
+    assets = result.scalars().all()
+
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "assets": [_asset_dict(a) for a in assets],
+    }
+
+
+def _asset_dict(a: Asset) -> dict:
+    return {
+        "id": a.id, "name": a.name, "url": a.url, "ipv4": a.ipv4, "ipv6": a.ipv6,
+        "asset_type": a.asset_type.value if a.asset_type else None,
+        "owner": a.owner, "risk_level": a.risk_level.value if a.risk_level else None,
+        "pqc_label": a.pqc_label.value if a.pqc_label else None,
+        "tls_version": a.tls_version, "cipher_suite": a.cipher_suite,
+        "key_length": a.key_length, "cert_expiry": a.cert_expiry,
+        "cert_authority": a.cert_authority, "last_scan": a.last_scan,
+        "cyber_score": a.cyber_score, "created_at": a.created_at,
+    }
+
+
+@router.post("")
+async def add_asset(
+    req: AddAssetRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """FR-35: Manually add asset."""
+    existing = await db.execute(select(Asset).where(Asset.url == req.url))
+    if existing.scalar_one_or_none():
+        raise HTTPException(status_code=409, detail="Asset with this URL already exists")
+    asset = Asset(
+        name=req.name, url=req.url, ipv4=req.ipv4, ipv6=req.ipv6,
+        asset_type=AssetType(req.asset_type), owner=req.owner,
+    )
+    db.add(asset)
+    await db.commit()
+    await db.refresh(asset)
+    return _asset_dict(asset)
+
+
+@router.post("/discover")
+async def trigger_discovery(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """FR-37–40: Trigger asset discovery (simulated discovery for prototype)."""
+    # In real deployment: integrate DNS enumeration, SSL cert logs, Shodan API, etc.
+    # For prototype: return existing data
+    result = await db.execute(select(Asset))
+    assets = result.scalars().all()
+    for asset in assets:
+        hostname = asset.url.replace("https://", "").replace("http://", "").split("/")[0]
+        disc = AssetDiscovery(
+            category=DiscoveryCategory.domain,
+            status=DiscoveryStatus.confirmed,
+            name=hostname,
+            value=asset.url,
+            metadata_json=json.dumps({"source": "scan_result", "ip": asset.ipv4}),
+        )
+        db.add(disc)
+    await db.commit()
+    return {"message": f"Discovery triggered for {len(assets)} known assets"}
+
+
+@router.get("/metrics")
+async def asset_metrics(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-31: Top-level asset metrics."""
+    result = await db.execute(select(Asset))
+    assets = result.scalars().all()
+    total = len(assets)
+    web_apps = sum(1 for a in assets if a.asset_type == AssetType.web_app)
+    apis = sum(1 for a in assets if a.asset_type == AssetType.api)
+    vpns = sum(1 for a in assets if a.asset_type == AssetType.vpn)
+    servers = sum(1 for a in assets if a.asset_type == AssetType.server)
+
+    # FR-32: risk distribution
+    risk_breakdown = {r.value: sum(1 for a in assets if a.risk_level == r) for r in RiskLevel}
+
+    # Label breakdown
+    from app.models.asset import PQCLabel
+    label_breakdown = {l.value: sum(1 for a in assets if a.pqc_label == l) for l in PQCLabel}
+
+    return {
+        "total": total, "web_apps": web_apps, "apis": apis, "vpns": vpns, "servers": servers,
+        "risk_breakdown": risk_breakdown, "label_breakdown": label_breakdown,
+    }
+
+
+@router.get("/discovery")
+async def list_discoveries(
+    category: Optional[str] = Query(None),
+    status: Optional[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-37, FR-38, FR-39: Asset discovery with category tabs and status filtering."""
+    query = select(AssetDiscovery)
+    if category:
+        query = query.where(AssetDiscovery.category == category)
+    if status:
+        query = query.where(AssetDiscovery.status == status)
+    result = await db.execute(query.order_by(AssetDiscovery.discovered_at.desc()))
+    items = result.scalars().all()
+    return [{"id": d.id, "category": d.category.value, "status": d.status.value,
+             "name": d.name, "value": d.value,
+             "metadata": json.loads(d.metadata_json) if d.metadata_json else {},
+             "discovered_at": d.discovered_at} for d in items]
+
+
+@router.patch("/discovery/{disc_id}/status")
+async def update_discovery_status(
+    disc_id: int,
+    new_status: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """FR-38: Update discovery status (confirmed / false_positive)."""
+    result = await db.execute(select(AssetDiscovery).where(AssetDiscovery.id == disc_id))
+    disc = result.scalar_one_or_none()
+    if not disc:
+        raise HTTPException(status_code=404, detail="Discovery not found")
+    disc.status = DiscoveryStatus(new_status)
+    await db.commit()
+    return {"message": "Status updated", "id": disc_id, "status": new_status}
+
+
+@router.get("/nameservers")
+async def list_nameservers(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-34: Nameserver records."""
+    result = await db.execute(select(NameserverRecord))
+    records = result.scalars().all()
+    return [{"id": r.id, "domain": r.domain, "hostname": r.hostname, "ip_address": r.ip_address,
+             "record_type": r.record_type, "ipv6_address": r.ipv6_address,
+             "ttl": r.ttl, "key_length": r.key_length,
+             "cipher_suite_tls": r.cipher_suite_tls, "certificate_authority": r.certificate_authority} for r in records]

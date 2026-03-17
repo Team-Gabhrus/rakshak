@@ -1,0 +1,246 @@
+{% extends "base.html" %}
+{% block title %}Home — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="d-flex align-items-center justify-content-between mb-4">
+    <div>
+      <h1 class="rk-page-title">Overview Dashboard</h1>
+      <p class="rk-page-sub">Cryptographic posture at a glance — Punjab National Bank</p>
+    </div>
+    <button class="rk-btn rk-btn-primary" onclick="triggerScan()">
+      <i class="bi bi-play-fill"></i> New Scan
+    </button>
+  </div>
+
+  <!-- Summary stat cards — FR-28 -->
+  <div class="row g-3 mb-4" id="statCards">
+    <div class="col-sm-6 col-xl-3">
+      <div class="rk-stat-card">
+        <div class="rk-stat-icon rk-icon-blue"><i class="bi bi-globe2"></i></div>
+        <div>
+          <div class="rk-stat-value" id="totalAssets">—</div>
+          <div class="rk-stat-label">Total Assets Discovered</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="rk-stat-card">
+        <div class="rk-stat-icon rk-icon-green"><i class="bi bi-shield-check"></i></div>
+        <div>
+          <div class="rk-stat-value" id="pqcPct">—</div>
+          <div class="rk-stat-label">PQC Adoption Rate</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="rk-stat-card">
+        <div class="rk-stat-icon rk-icon-red"><i class="bi bi-exclamation-triangle-fill"></i></div>
+        <div>
+          <div class="rk-stat-value" id="cbomVuln">—</div>
+          <div class="rk-stat-label">CBOM Vulnerabilities</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-sm-6 col-xl-3">
+      <div class="rk-stat-card">
+        <div class="rk-stat-icon rk-icon-accent"><i class="bi bi-speedometer2"></i></div>
+        <div>
+          <div class="rk-stat-value" id="cyberScore">—</div>
+          <div class="rk-stat-label">Cyber Rating Score</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="row g-3 mb-4">
+    <!-- PQC Posture donut chart -->
+    <div class="col-md-6 col-lg-4">
+      <div class="rk-chart-card h-100">
+        <div class="rk-chart-title"><i class="bi bi-cpu-fill me-2 text-blue"></i>PQC Posture Distribution</div>
+        <div style="height:220px;position:relative">
+          <canvas id="pqcChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- Cyber Rating breakdown -->
+    <div class="col-md-6 col-lg-4">
+      <div class="rk-chart-card h-100">
+        <div class="rk-chart-title"><i class="bi bi-bar-chart-fill me-2 text-accent"></i>Cyber Rating Tier Breakdown</div>
+        <div id="tierBreakdown" style="padding-top:8px">
+          <p class="text-muted fs-13">Loading…</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Asset inventory summary -->
+    <div class="col-lg-4">
+      <div class="rk-chart-card h-100">
+        <div class="rk-chart-title"><i class="bi bi-archive-fill me-2 text-green"></i>Asset Type Summary</div>
+        <div id="assetTypeSummary" style="padding-top:8px">
+          <p class="text-muted fs-13">Loading…</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent scans -->
+  <div class="rk-card">
+    <div class="d-flex align-items-center justify-content-between mb-3">
+      <div class="rk-section-title mb-0">Recent Scans</div>
+      <a href="/asset-inventory" class="rk-btn rk-btn-outline rk-btn-sm">View All Assets →</a>
+    </div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr>
+          <th>Scan ID</th><th>Status</th><th>Targets</th><th>Completed</th><th>Progress</th><th>Started</th>
+        </tr></thead>
+        <tbody id="scanBody"><tr><td colspan="6" class="text-muted text-center py-3">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Scan modal -->
+<div class="modal fade" id="scanModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)"><i class="bi bi-play-fill me-2"></i>New Scan</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <label class="rk-form-label">Targets <span class="text-muted fs-12">(one per line — URL, IP, or CIDR)</span></label>
+        <textarea class="rk-form-control" id="scanTargets" rows="6" placeholder="https://example.com&#10;192.168.1.1&#10;10.0.0.0/24"></textarea>
+        <div id="scanProgress" class="mt-3 d-none">
+          <div class="d-flex justify-content-between fs-12 text-muted mb-1">
+            <span id="scanMsg">Initializing…</span>
+            <span id="scanPct">0%</span>
+          </div>
+          <div class="rk-progress"><div class="rk-progress-bar" id="scanBar" style="width:0%"></div></div>
+          <div id="scanLog" class="mt-2 p-2 rounded fs-12 text-muted" style="background:var(--rk-bg);max-height:120px;overflow-y:auto;font-family:monospace"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--rk-border)">
+        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
+        <button class="rk-btn rk-btn-primary" id="startScanBtn" onclick="startScan()">
+          <i class="bi bi-play-fill"></i> Start Scan
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadPageData() {
+  const res = await API.get('/api/home/summary');
+  if (!res) return;
+  const d = await res.json();
+  document.getElementById('totalAssets').textContent = d.total_assets || 0;
+  document.getElementById('pqcPct').textContent = (d.pqc_adoption_pct || 0) + '%';
+  document.getElementById('cbomVuln').textContent = d.cbom_vulnerabilities || 0;
+  document.getElementById('cyberScore').textContent = d.cyber_rating?.score || 0;
+
+  // PQC donut chart
+  const bp = d.pqc_breakdown || {};
+  createDonutChart('pqcChart',
+    ['🟢 Fully QS','🔵 PQC Ready','🟡 Quantum-Safe','🔴 Not QS','⚪ Unknown'],
+    [bp.fully_quantum_safe||0, bp.pqc_ready||0, bp.quantum_safe||0, bp.not_quantum_safe||0, bp.unknown||0],
+    ['#2ECC71','#3498DB','#F1C40F','#E74C3C','#7D8590']
+  );
+
+  // Tier breakdown
+  const rating = d.cyber_rating || {};
+  document.getElementById('tierBreakdown').innerHTML = `
+    <div class="mb-3">
+      <div class="d-flex justify-content-between mb-1 fs-13">
+        <span class="text-muted">Score</span>
+        <strong style="color:${rating.score>=800?'#2ECC71':rating.score>=600?'#3498DB':rating.score>=300?'#F1C40F':'#E74C3C'}">${rating.score||0} / 1000</strong>
+      </div>
+      <div class="rk-progress"><div class="rk-progress-bar" style="width:${(rating.score||0)/10}%"></div></div>
+    </div>
+    <div class="d-flex gap-2 flex-wrap">
+      ${['Excellent (800+)','Good (600-799)','Satisfactory (300-599)','Needs Improvement (<300)'].map((t,i) => {
+        const colors=['#2ECC71','#3498DB','#F1C40F','#E74C3C'];
+        return `<span style="background:rgba(255,255,255,0.05);border-radius:8px;padding:4px 10px;font-size:11px;color:${colors[i]}">${t}</span>`;
+      }).join('')}
+    </div>
+    <div class="mt-3 fs-13"><span class="text-muted">Classification: </span><strong style="color:var(--rk-text)">${rating.tier_label||'—'}</strong></div>`;
+
+  // Asset type summary
+  const at = d.asset_types || {};
+  document.getElementById('assetTypeSummary').innerHTML = [
+    ['Web Apps','bi-browser-chrome','#3498DB', at.web_apps||0],
+    ['APIs','bi-plug-fill','#9B59B6', at.apis||0],
+    ['VPN Endpoints','bi-hdd-network-fill','#F1C40F', at.vpns||0],
+    ['Servers','bi-server','#2ECC71', at.servers||0],
+  ].map(([label,icon,color,val]) => `
+    <div class="d-flex align-items-center justify-content-between py-2" style="border-bottom:1px solid var(--rk-border)">
+      <div class="d-flex align-items-center gap-2">
+        <i class="bi ${icon}" style="color:${color}"></i>
+        <span class="fs-13">${label}</span>
+      </div>
+      <strong style="color:var(--rk-text)">${val}</strong>
+    </div>`).join('');
+}
+
+async function loadScans() {
+  const res = await API.get('/api/scan');
+  if (!res) return;
+  const scans = await res.json();
+  const tbody = document.getElementById('scanBody');
+  if (!scans.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-muted text-center py-3">No scans yet</td></tr>'; return; }
+  tbody.innerHTML = scans.slice(0,8).map(s => `
+    <tr>
+      <td><code>#${s.id}</code></td>
+      <td><span class="badge ${s.status==='completed'?'bg-success':s.status==='running'?'bg-warning text-dark':s.status==='failed'?'bg-danger':'bg-secondary'}">${s.status}</span></td>
+      <td>${s.target_count}</td>
+      <td>${s.completed_count}</td>
+      <td><div class="rk-progress" style="width:80px"><div class="rk-progress-bar" style="width:${s.progress_pct||0}%"></div></div></td>
+      <td class="text-muted">${fmtDateTime(s.started_at)}</td>
+    </tr>`).join('');
+}
+
+function triggerScan() { new bootstrap.Modal(document.getElementById('scanModal')).show(); }
+
+async function startScan() {
+  const rawTargets = document.getElementById('scanTargets').value;
+  const targets = rawTargets.split('\n').map(t=>t.trim()).filter(Boolean);
+  if (!targets.length) { showToast('Please enter at least one target', 'danger'); return; }
+
+  document.getElementById('startScanBtn').disabled = true;
+  document.getElementById('scanProgress').classList.remove('d-none');
+
+  const res = await API.post('/api/scan', { targets });
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) { showToast(data.detail?.message || 'Scan failed', 'danger'); return; }
+
+  const scanId = data.scan_id;
+  showToast(`Scan #${scanId} started — ${data.target_count} targets`, 'success');
+
+  // WebSocket progress
+  const ws = new WebSocket(`ws://${location.host}/ws/scan/${scanId}`);
+  const log = document.getElementById('scanLog');
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    document.getElementById('scanMsg').textContent = msg.message || '';
+    document.getElementById('scanPct').textContent = (msg.pct||0) + '%';
+    document.getElementById('scanBar').style.width = (msg.pct||0) + '%';
+    log.innerHTML += `<div>${msg.message}</div>`;
+    log.scrollTop = log.scrollHeight;
+    if (msg.phase === 'done') {
+      document.getElementById('startScanBtn').disabled = false;
+      showToast('Scan complete!', 'success');
+      loadPageData(); loadScans();
+    }
+  };
+}
+
+loadPageData();
+loadScans();
+setInterval(loadScans, 15000);
+</script>
+{% endblock %}

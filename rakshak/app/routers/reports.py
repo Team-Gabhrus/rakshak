@@ -1,0 +1,154 @@
+"""Reports router — FR-15 through FR-21."""
+import json
+import os
+from datetime import datetime
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from pydantic import BaseModel
+from typing import Optional
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+from app.database import get_db
+from app.models.report import Report, ScheduledReport, ReportFormat, DeliveryChannel, ReportFrequency
+from app.models.user import User
+from app.dependencies import require_admin, require_any_role
+from app.services.audit_service import log_event
+
+router = APIRouter(prefix="/api/reports", tags=["reports"])
+
+
+class GenerateReportRequest(BaseModel):
+    title: str = "Rakshak Security Report"
+    format: str = "pdf"
+    delivery_channel: str = "local"
+    modules: list[str] = ["cbom", "pqc", "rating", "inventory", "discovery"]
+    include_charts: bool = True
+    password_protected: bool = False
+    password: Optional[str] = None
+    delivery_target: Optional[str] = None  # email / path / webhook
+
+
+class ScheduleReportRequest(BaseModel):
+    title: str
+    frequency: str  # daily / weekly / monthly
+    format: str = "pdf"
+    delivery_channel: str = "email"
+    modules: list[str] = ["cbom", "pqc", "rating"]
+    include_charts: bool = True
+    password_protected: bool = False
+    delivery_target: Optional[str] = None
+
+
+@router.post("/generate")
+async def generate_report(
+    req: GenerateReportRequest,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-17: On-demand report generation."""
+    report = Report(
+        title=req.title,
+        report_type="on_demand",
+        format=ReportFormat(req.format),
+        delivery_channel=DeliveryChannel(req.delivery_channel),
+        modules_json=json.dumps(req.modules),
+        include_charts=req.include_charts,
+        password_protected=req.password_protected,
+        password=req.password,
+        delivery_target=req.delivery_target,
+        created_by=current_user.id,
+        status="generating",
+    )
+    db.add(report)
+    await db.commit()
+    await db.refresh(report)
+
+    await log_event(db, "report_generated", f"Report '{req.title}' in {req.format} format", current_user.id, current_user.username)
+
+    background_tasks.add_task(_generate_report_background, report.id, req.modules, req.format)
+
+    return {"report_id": report.id, "status": "generating", "message": "Report generation started"}
+
+
+async def _generate_report_background(report_id: int, modules: list, fmt: str):
+    """Background report generation task."""
+    from app.services.export_service import generate_report_file
+    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
+    from app.config import settings
+    engine = create_async_engine(settings.DATABASE_URL)
+    AsyncSession = async_sessionmaker(engine, expire_on_commit=False)
+    async with AsyncSession() as db:
+        result = await db.execute(select(Report).where(Report.id == report_id))
+        report = result.scalar_one_or_none()
+        if not report:
+            return
+        try:
+            file_path = await generate_report_file(db, modules, fmt, report_id)
+            report.file_path = file_path
+            report.status = "completed"
+            report.generated_at = datetime.utcnow()
+        except Exception as e:
+            report.status = f"failed: {str(e)}"
+        await db.commit()
+
+
+@router.post("/schedule")
+async def schedule_report(
+    req: ScheduleReportRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """FR-17: Scheduled recurring report."""
+    sched = ScheduledReport(
+        title=req.title,
+        frequency=ReportFrequency(req.frequency),
+        format=ReportFormat(req.format),
+        delivery_channel=DeliveryChannel(req.delivery_channel),
+        modules_json=json.dumps(req.modules),
+        include_charts=req.include_charts,
+        password_protected=req.password_protected,
+        delivery_target=req.delivery_target,
+        created_by=current_user.id,
+    )
+    db.add(sched)
+    await db.commit()
+    await db.refresh(sched)
+    return {"scheduled_report_id": sched.id, "frequency": req.frequency, "status": "scheduled"}
+
+
+@router.get("")
+async def list_reports(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    result = await db.execute(select(Report).order_by(Report.created_at.desc()))
+    reports = result.scalars().all()
+    return [{"id": r.id, "title": r.title, "format": r.format.value,
+             "status": r.status, "created_at": r.created_at, "file_path": r.file_path} for r in reports]
+
+
+@router.get("/export/{report_id}")
+async def export_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-15: Download/export report in specified format."""
+    from fastapi.responses import FileResponse
+    result = await db.execute(select(Report).where(Report.id == report_id))
+    report = result.scalar_one_or_none()
+    if not report or not report.file_path or not os.path.exists(report.file_path):
+        raise HTTPException(status_code=404, detail="Report file not found")
+    return FileResponse(report.file_path, filename=os.path.basename(report.file_path))
+
+
+@router.get("/scheduled")
+async def list_scheduled(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    result = await db.execute(select(ScheduledReport).order_by(ScheduledReport.created_at.desc()))
+    rows = result.scalars().all()
+    return [{"id": r.id, "title": r.title, "frequency": r.frequency.value,
+             "format": r.format.value, "is_active": r.is_active,
+             "next_run": r.next_run, "last_run": r.last_run} for r in rows]

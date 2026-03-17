@@ -1,0 +1,191 @@
+{% extends "base.html" %}
+{% block title %}PQC Posture — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="mb-4">
+    <h1 class="rk-page-title">Posture of PQC</h1>
+    <p class="rk-page-sub">Quantum-readiness posture across all public-facing applications</p>
+  </div>
+
+  <!-- FR-41 Categorization bars -->
+  <div class="row g-3 mb-4">
+    <div class="col-md-3"><div class="rk-stat-card" style="border-left:3px solid #2ECC71"><div class="rk-stat-icon rk-icon-green"><i class="bi bi-shield-fill-check"></i></div><div><div class="rk-stat-value" id="catFQS">—</div><div class="rk-stat-label">Elite PQC Ready</div></div></div></div>
+    <div class="col-md-3"><div class="rk-stat-card" style="border-left:3px solid #3498DB"><div class="rk-stat-icon rk-icon-blue"><i class="bi bi-cpu-fill"></i></div><div><div class="rk-stat-value" id="catPQC">—</div><div class="rk-stat-label">Standard (PQC)</div></div></div></div>
+    <div class="col-md-3"><div class="rk-stat-card" style="border-left:3px solid #F1C40F"><div class="rk-stat-icon rk-icon-yellow"><i class="bi bi-exclamation-triangle-fill"></i></div><div><div class="rk-stat-value" id="catLegacy">—</div><div class="rk-stat-label">Legacy</div></div></div></div>
+    <div class="col-md-3"><div class="rk-stat-card" style="border-left:3px solid #E74C3C"><div class="rk-stat-icon rk-icon-red"><i class="bi bi-shield-x"></i></div><div><div class="rk-stat-value" id="catCrit">—</div><div class="rk-stat-label">Critical</div></div></div></div>
+  </div>
+
+  <!-- Category table tabs -->
+  <div class="rk-card mb-4">
+    <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <div class="rk-tabs" id="pqcTabs">
+        <button class="rk-tab active" onclick="switchPQCTab('critical',this)">🔴 Critical</button>
+        <button class="rk-tab" onclick="switchPQCTab('legacy',this)">🟡 Legacy</button>
+        <button class="rk-tab" onclick="switchPQCTab('standard',this)">🔵 Standard</button>
+        <button class="rk-tab" onclick="switchPQCTab('elite_pqc_ready',this)">🟢 Elite</button>
+      </div>
+      <button class="rk-btn rk-btn-primary rk-btn-sm" onclick="exportRecs()"><i class="bi bi-download"></i> Export</button>
+    </div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>Name</th><th>URL</th><th>PQC Label</th><th>Risk</th><th>TLS</th><th>Cipher</th><th>Owner</th><th>Last Scan</th><th>Actions</th></tr></thead>
+        <tbody id="pqcTable"><tr><td colspan="9" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- FR-43: Improvement Recommendations -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title"><i class="bi bi-lightbulb-fill me-2 text-yellow"></i>Improvement Recommendations</div>
+    <div id="improveRecs"></div>
+  </div>
+
+  <!-- FR-45: Quantum Risk Timeline -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title"><i class="bi bi-clock-history me-2 text-blue"></i>Quantum Risk Timeline</div>
+    <div id="riskTimeline"></div>
+  </div>
+
+  <!-- Per-asset Playbook — FR-46 -->
+  <div class="rk-card d-none" id="playbookPanel">
+    <div class="d-flex justify-content-between mb-3">
+      <div class="rk-section-title mb-0"><i class="bi bi-journal-richtext me-2"></i>Migration Playbook</div>
+      <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="document.getElementById('playbookPanel').classList.add('d-none')">✕</button>
+    </div>
+    <div id="playbookContent"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let pqcData = {};
+let currentPQCTab = 'critical';
+
+async function loadPQCPosture() {
+  const res = await API.get('/api/pqc/posture');
+  if (!res) return;
+  pqcData = await res.json();
+
+  const counts = pqcData.counts || {};
+  document.getElementById('catFQS').textContent    = counts.elite_pqc_ready||0;
+  document.getElementById('catPQC').textContent    = counts.standard||0;
+  document.getElementById('catLegacy').textContent = counts.legacy||0;
+  document.getElementById('catCrit').textContent   = counts.critical||0;
+
+  renderPQCTable(currentPQCTab);
+  renderRecommendations(pqcData.improvement_recommendations || []);
+  renderRiskTimeline();
+}
+
+function switchPQCTab(tab, btn) {
+  currentPQCTab = tab;
+  document.querySelectorAll('#pqcTabs .rk-tab').forEach(t=>t.classList.remove('active'));
+  btn?.classList.add('active');
+  renderPQCTable(tab);
+}
+
+function renderPQCTable(cat) {
+  const assets = (pqcData.categories || {})[cat] || [];
+  const tbody = document.getElementById('pqcTable');
+  if (!assets.length) { tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No assets in this category</td></tr>`; return; }
+  tbody.innerHTML = assets.map(a => `<tr>
+    <td><strong class="fs-13">${a.name||'—'}</strong></td>
+    <td><a href="${a.url}" target="_blank" class="text-blue fs-12">${(a.url||'').replace('https://','')}</a></td>
+    <td>${pqcBadge(a.pqc_label)}</td>
+    <td>${riskBadge(a.risk_level)}</td>
+    <td class="text-muted fs-12">${a.tls_version||'—'}</td>
+    <td class="text-muted fs-12 text-truncate" style="max-width:160px" title="${a.cipher_suite||''}">${(a.cipher_suite||'—').substring(0,25)}</td>
+    <td class="text-muted fs-12">${a.owner||'—'}</td>
+    <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
+    <td><button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadPlaybook(${a.id})" title="View Migration Playbook"><i class="bi bi-journal-richtext"></i> Playbook</button></td>
+  </tr>`).join('');
+}
+
+function renderRecommendations(recs) {
+  if (!recs.length) { document.getElementById('improveRecs').innerHTML = '<p class="text-muted fs-13">Run a scan to generate recommendations.</p>'; return; }
+  const priorityColor = {Critical:'#E74C3C',High:'#E67E22',Medium:'#F1C40F',Informational:'#7D8590'};
+  document.getElementById('improveRecs').innerHTML = recs.slice(0,10).map(r => `
+    <div class="d-flex align-items-start gap-3 py-3" style="border-bottom:1px solid var(--rk-border)">
+      <span class="rk-badge-label" style="background:${priorityColor[r.priority]||'#7D8590'}22;color:${priorityColor[r.priority]||'#7D8590'};border:1px solid ${priorityColor[r.priority]||'#7D8590'}44;white-space:nowrap">${r.priority}</span>
+      <div>
+        <div class="fs-13 fw-700">${r.component||'General'}</div>
+        <div class="fs-12 text-muted">${r.action}</div>
+        <div class="fs-12 text-muted mt-1">↳ ${r.target||''}</div>
+      </div>
+    </div>`).join('');
+}
+
+function renderRiskTimeline() {
+  const phases = [
+    {year:'2024–2026',label:'Immediate',desc:'Inventory cryptographic assets. Identify HNDL-exposed data. Clone CBOM baseline.',color:'#E74C3C'},
+    {year:'2026–2028',label:'Short-Term',desc:'Deploy hybrid PQC+classical TLS. Prioritize long-lived secrets and sensitive data channels.',color:'#E67E22'},
+    {year:'2028–2032',label:'Medium-Term',desc:'Full ML-KEM and ML-DSA migration across all public-facing systems.',color:'#F1C40F'},
+    {year:'2032+',    label:'Long-Term',desc:'Operate fully quantum-safe infrastructure. Monitor NIST PQC evolution.',color:'#2ECC71'},
+  ];
+  document.getElementById('riskTimeline').innerHTML = `
+    <div class="p-3" style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.2);border-radius:10px;margin-bottom:16px">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <i class="bi bi-exclamation-triangle-fill text-red"></i>
+        <strong class="text-red">HNDL Risk — Active Now</strong>
+      </div>
+      <p class="fs-12 text-muted mb-0">Adversaries may be intercepting encrypted traffic today for future quantum decryption. Prioritize high-sensitivity channels immediately.</p>
+    </div>
+    <div class="d-flex gap-3 flex-wrap">
+      ${phases.map(p=>`<div class="rk-card" style="flex:1;min-width:180px;border-left:3px solid ${p.color}">
+        <div class="fs-12 text-muted">${p.year}</div>
+        <div class="fw-700 mb-1" style="color:${p.color}">${p.label}</div>
+        <div class="fs-12 text-muted">${p.desc}</div>
+      </div>`).join('')}
+    </div>`;
+}
+
+async function loadPlaybook(assetId) {
+  const res = await API.get(`/api/pqc/recommendations/${assetId}`);
+  if (!res) return;
+  const d = await res.json();
+  const playbook = d.playbook || {};
+  const steps = playbook.steps || [];
+  const effortColors = {Low:'#2ECC71',Medium:'#F1C40F',High:'#E74C3C'};
+  document.getElementById('playbookContent').innerHTML = `
+    <div class="mb-3">
+      <div class="d-flex gap-3 flex-wrap">
+        <div class="fs-13"><span class="text-muted">Asset:</span> <strong>${d.url}</strong></div>
+        <div class="fs-13"><span class="text-muted">Current Label:</span> ${pqcBadge(d.pqc_label)}</div>
+        <div class="fs-13"><span class="text-muted">Estimated Effort:</span> <strong>${playbook.total_estimated_effort_days||0} days</strong></div>
+      </div>
+    </div>
+    ${steps.map(s=>`
+      <div class="d-flex gap-3 mb-3 p-3" style="background:var(--rk-bg);border-radius:10px;border-left:3px solid ${effortColors[s.risk]||'#7D8590'}">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--rk-surface2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${s.step}</div>
+        <div>
+          <div class="fw-700 fs-13">${s.title}</div>
+          <div class="fs-12 text-muted mt-1">${s.description}</div>
+          <div class="d-flex gap-2 mt-2">
+            <span class="badge bg-secondary">~${s.effort_days}d</span>
+            <span class="badge" style="background:${effortColors[s.risk]||'#7D8590'}33;color:${effortColors[s.risk]||'#7D8590'}">${s.risk} Risk</span>
+            ${(s.tools||[]).map(t=>`<span class="badge bg-dark">${t}</span>`).join('')}
+          </div>
+        </div>
+      </div>`).join('')}
+    <div class="mt-3">
+      <div class="rk-section-title fs-13">References</div>
+      ${(playbook.references||[]).map(r=>`<div class="fs-12 text-muted">${r}</div>`).join('')}
+    </div>`;
+  document.getElementById('playbookPanel').classList.remove('d-none');
+  document.getElementById('playbookPanel').scrollIntoView({behavior:'smooth'});
+}
+
+function exportRecs() {
+  const data = JSON.stringify(pqcData, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'pqc_posture_export.json';
+  a.click();
+  showToast('PQC posture exported as JSON', 'success');
+}
+
+loadPQCPosture();
+</script>
+{% endblock %}

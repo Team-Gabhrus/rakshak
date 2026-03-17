@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Reporting — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+    <div><h1 class="rk-page-title">Reporting</h1><p class="rk-page-sub">Generate, schedule, and export security reports</p></div>
+    <div class="d-flex gap-2">
+      <button class="rk-btn rk-btn-outline" onclick="openSchedule()"><i class="bi bi-calendar-event"></i> Schedule</button>
+      <button class="rk-btn rk-btn-primary" onclick="openGenerateReport()"><i class="bi bi-file-earmark-plus"></i> Generate Report</button>
+    </div>
+  </div>
+
+  <!-- Module Selection Cards — FR-18 -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">Report Modules</div>
+    <div class="row g-3">
+      <div class="col-6 col-md-3" onclick="toggleModule(this,'cbom')" data-mod="cbom" style="cursor:pointer">
+        <div class="rk-stat-card" id="mod-cbom" style="border:2px solid var(--rk-accent)">
+          <div class="rk-stat-icon rk-icon-blue"><i class="bi bi-file-earmark-code-fill"></i></div>
+          <div><div class="fw-700">CBOM</div><div class="fs-12 text-muted">Crypto Bill of Materials</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3" onclick="toggleModule(this,'pqc')" data-mod="pqc" style="cursor:pointer">
+        <div class="rk-stat-card" id="mod-pqc" style="border:2px solid var(--rk-accent)">
+          <div class="rk-stat-icon rk-icon-blue"><i class="bi bi-cpu-fill"></i></div>
+          <div><div class="fw-700">PQC Posture</div><div class="fs-12 text-muted">Quantum-readiness</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3" onclick="toggleModule(this,'rating')" data-mod="rating" style="cursor:pointer">
+        <div class="rk-stat-card" id="mod-rating" style="border:2px solid var(--rk-accent)">
+          <div class="rk-stat-icon rk-icon-green"><i class="bi bi-graph-up-arrow"></i></div>
+          <div><div class="fw-700">Cyber Rating</div><div class="fs-12 text-muted">Score & compliance</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-3" onclick="toggleModule(this,'inventory')" data-mod="inventory" style="cursor:pointer">
+        <div class="rk-stat-card" id="mod-inventory" style="border:2px solid var(--rk-accent)">
+          <div class="rk-stat-icon rk-icon-accent"><i class="bi bi-archive-fill"></i></div>
+          <div><div class="fw-700">Asset Inventory</div><div class="fs-12 text-muted">Full asset catalog</div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Reports list -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">Generated Reports</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>ID</th><th>Title</th><th>Format</th><th>Status</th><th>Created</th><th>Actions</th></tr></thead>
+        <tbody id="reportsBody"><tr><td colspan="6" class="text-center text-muted py-4">No reports yet</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Scheduled reports — FR-17 -->
+  <div class="rk-card">
+    <div class="rk-section-title">Scheduled Reports</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>ID</th><th>Title</th><th>Frequency</th><th>Format</th><th>Next Run</th><th>Status</th></tr></thead>
+        <tbody id="schedBody"><tr><td colspan="6" class="text-center text-muted py-3">No scheduled reports</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- Generate Report Modal — FR-15 to FR-21 -->
+<div class="modal fade" id="genModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)">Generate Report</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="rk-form-label">Title</label><input class="rk-form-control" id="repTitle" value="Rakshak Security Report"></div>
+        <div class="mb-3"><label class="rk-form-label">Format — FR-15</label>
+          <div class="d-flex gap-2">
+            <label class="d-flex align-items-center gap-2 rk-stat-card p-2 flex-fill" style="cursor:pointer">
+              <input type="radio" name="repFmt" value="pdf" checked> PDF
+            </label>
+            <label class="d-flex align-items-center gap-2 rk-stat-card p-2 flex-fill" style="cursor:pointer">
+              <input type="radio" name="repFmt" value="json"> JSON
+            </label>
+            <label class="d-flex align-items-center gap-2 rk-stat-card p-2 flex-fill" style="cursor:pointer">
+              <input type="radio" name="repFmt" value="csv"> CSV
+            </label>
+          </div>
+        </div>
+        <div class="mb-3"><label class="rk-form-label">Delivery — FR-20</label>
+          <select class="rk-form-control" id="repDelivery">
+            <option value="local">Local Download</option>
+            <option value="email">Email</option>
+          </select>
+        </div>
+        <div class="mb-3">
+          <label class="rk-form-label">Delivery Target (email address if email)</label>
+          <input class="rk-form-control" id="repTarget" placeholder="security@pnb.in">
+        </div>
+        <div class="mb-3 d-flex align-items-center gap-3">
+          <label class="d-flex align-items-center gap-2 fs-13"><input type="checkbox" id="repPwd"> Password Protect</label>
+          <input class="rk-form-control d-none" id="repPwdVal" placeholder="Password" style="max-width:180px">
+        </div>
+        <div id="repPwdWrap">
+          <script>document.getElementById('repPwd').addEventListener('change',e=>{document.getElementById('repPwdVal').classList.toggle('d-none',!e.target.checked)});</script>
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--rk-border)">
+        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
+        <button class="rk-btn rk-btn-primary" onclick="generateReport()"><i class="bi bi-file-earmark-arrow-down-fill"></i> Generate</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Schedule Modal -->
+<div class="modal fade" id="schedModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)">Schedule Report</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3"><label class="rk-form-label">Title</label><input class="rk-form-control" id="schedTitle" value="Weekly PQC Report"></div>
+        <div class="mb-3">
+          <label class="rk-form-label">Frequency</label>
+          <select class="rk-form-control" id="schedFreq"><option>daily</option><option>weekly</option><option>monthly</option></select>
+        </div>
+        <div class="mb-3"><label class="rk-form-label">Format</label>
+          <select class="rk-form-control" id="schedFmt"><option>pdf</option><option>json</option><option>csv</option></select>
+        </div>
+        <div class="mb-3"><label class="rk-form-label">Delivery</label>
+          <select class="rk-form-control" id="schedDelivery"><option value="local">Local</option><option value="email">Email</option></select>
+        </div>
+        <div class="mb-3"><label class="rk-form-label">Delivery Target</label><input class="rk-form-control" id="schedTarget" placeholder="security@pnb.in"></div>
+      </div>
+      <div class="modal-footer" style="border-color:var(--rk-border)">
+        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
+        <button class="rk-btn rk-btn-primary" onclick="scheduleReport()"><i class="bi bi-calendar-check"></i> Schedule</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let selectedModules = ['cbom','pqc','rating','inventory'];
+
+function toggleModule(parent, mod) {
+  const card = document.getElementById('mod-'+mod);
+  if (selectedModules.includes(mod)) {
+    selectedModules = selectedModules.filter(m=>m!==mod);
+    card.style.borderColor = 'var(--rk-border)';
+  } else {
+    selectedModules.push(mod);
+    card.style.borderColor = 'var(--rk-accent)';
+  }
+}
+
+function openGenerateReport() { new bootstrap.Modal(document.getElementById('genModal')).show(); }
+function openSchedule()       { new bootstrap.Modal(document.getElementById('schedModal')).show(); }
+
+async function generateReport() {
+  const fmt = document.querySelector('input[name="repFmt"]:checked').value;
+  const res = await API.post('/api/reports/generate', {
+    title: document.getElementById('repTitle').value,
+    format: fmt,
+    delivery_channel: document.getElementById('repDelivery').value,
+    delivery_target: document.getElementById('repTarget').value || null,
+    modules: selectedModules,
+    include_charts: true,
+    password_protected: document.getElementById('repPwd').checked,
+    password: document.getElementById('repPwdVal').value || null,
+  });
+  if (res?.ok) {
+    const d = await res.json();
+    showToast(`Report #${d.report_id} is being generated…`, 'success');
+    bootstrap.Modal.getInstance(document.getElementById('genModal')).hide();
+    setTimeout(loadReports, 2000);
+  } else { showToast('Report generation failed', 'danger'); }
+}
+
+async function scheduleReport() {
+  const res = await API.post('/api/reports/schedule', {
+    title: document.getElementById('schedTitle').value,
+    frequency: document.getElementById('schedFreq').value,
+    format: document.getElementById('schedFmt').value,
+    delivery_channel: document.getElementById('schedDelivery').value,
+    delivery_target: document.getElementById('schedTarget').value || null,
+    modules: selectedModules,
+  });
+  if (res?.ok) {
+    showToast('Report scheduled!', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('schedModal')).hide();
+    loadScheduled();
+  }
+}
+
+async function loadReports() {
+  const res = await API.get('/api/reports');
+  if (!res) return;
+  const items = await res.json();
+  const tbody = document.getElementById('reportsBody');
+  if (!items.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No reports yet</td></tr>'; return; }
+  tbody.innerHTML = items.map(r => `<tr>
+    <td><code>#${r.id}</code></td>
+    <td>${r.title}</td>
+    <td><span class="badge bg-secondary">${r.format}</span></td>
+    <td><span class="badge ${r.status==='completed'?'bg-success':r.status==='generating'?'bg-warning text-dark':'bg-danger'}">${r.status}</span></td>
+    <td class="text-muted fs-12">${fmtDateTime(r.created_at)}</td>
+    <td>${r.status==='completed'?`<a href="/api/reports/export/${r.id}" class="rk-btn rk-btn-outline rk-btn-sm"><i class="bi bi-download"></i> Download</a>`:'<span class="text-muted fs-12">pending…</span>'}</td>
+  </tr>`).join('');
+}
+
+async function loadScheduled() {
+  const res = await API.get('/api/reports/scheduled');
+  if (!res) return;
+  const items = await res.json();
+  const tbody = document.getElementById('schedBody');
+  if (!items.length) { tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No scheduled reports</td></tr>'; return; }
+  tbody.innerHTML = items.map(r => `<tr>
+    <td><code>#${r.id}</code></td><td>${r.title}</td>
+    <td><span class="badge bg-info text-dark">${r.frequency}</span></td>
+    <td><span class="badge bg-secondary">${r.format}</span></td>
+    <td class="text-muted fs-12">${fmtDate(r.next_run)||'—'}</td>
+    <td><span class="badge ${r.is_active?'bg-success':'bg-secondary'}">${r.is_active?'Active':'Paused'}</span></td>
+  </tr>`).join('');
+}
+
+loadReports(); loadScheduled();
+setInterval(loadReports, 10000);
+</script>
+{% endblock %}

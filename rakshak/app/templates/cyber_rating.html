@@ -1,0 +1,136 @@
+{% extends "base.html" %}
+{% block title %}Cyber Rating — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="mb-4">
+    <h1 class="rk-page-title">Cyber Rating</h1>
+    <p class="rk-page-sub">Enterprise-level quantum-readiness score and compliance matrix</p>
+  </div>
+
+  <div class="row g-4 mb-4">
+    <!-- Score gauge — FR-47 -->
+    <div class="col-lg-4">
+      <div class="rk-card text-center h-100">
+        <div class="rk-section-title">Enterprise Score</div>
+        <div style="height:200px;position:relative">
+          <canvas id="gaugeCanvas"></canvas>
+          <div class="rk-gauge-wrap" style="position:absolute;inset:0;bottom:0;flex-direction:column">
+            <div class="rk-gauge-score" id="scoreValue">—</div>
+            <div class="rk-gauge-label">out of 1000</div>
+          </div>
+        </div>
+        <div class="mt-3">
+          <span class="rk-badge-label" id="tierBadge" style="font-size:14px;padding:6px 16px">—</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Breakdown & stats -->
+    <div class="col-lg-8">
+      <div class="row g-3 h-100">
+        <div class="col-6"><div class="rk-stat-card h-100"><div class="rk-stat-icon rk-icon-green"><i class="bi bi-shield-check"></i></div><div><div class="rk-stat-value" id="countFQS">—</div><div class="rk-stat-label">Fully Quantum Safe</div></div></div></div>
+        <div class="col-6"><div class="rk-stat-card h-100"><div class="rk-stat-icon rk-icon-blue"><i class="bi bi-cpu-fill"></i></div><div><div class="rk-stat-value" id="countPQC">—</div><div class="rk-stat-label">PQC Ready</div></div></div></div>
+        <div class="col-6"><div class="rk-stat-card h-100"><div class="rk-stat-icon rk-icon-yellow"><i class="bi bi-shield-fill-check"></i></div><div><div class="rk-stat-value" id="countQS">—</div><div class="rk-stat-label">Quantum-Safe</div></div></div></div>
+        <div class="col-6"><div class="rk-stat-card h-100"><div class="rk-stat-icon rk-icon-red"><i class="bi bi-shield-x"></i></div><div><div class="rk-stat-value" id="countNQS">—</div><div class="rk-stat-label">Not Quantum-Safe</div></div></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- FR-48: Classification table -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">Classification Table — Asset Status vs Score Range</div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr><th>Asset Status</th><th>Score Range</th><th>Description</th></tr></thead>
+        <tbody id="classTable"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- FR-49: Compliance Matrix Tier 1–4 -->
+  <div class="rk-card mb-4">
+    <div class="rk-section-title">Compliance Matrix — Tier 1 to Tier 4</div>
+    <div class="row g-3" id="complianceMatrix"></div>
+  </div>
+
+  <!-- FR-50: Historical Trend -->
+  <div class="rk-card">
+    <div class="rk-section-title">Historical Trend Analysis</div>
+    <div style="height:260px"><canvas id="trendChart"></canvas></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+async function loadRating() {
+  const res = await API.get('/api/rating');
+  if (!res) return;
+  const d = await res.json();
+
+  // Gauge
+  drawGauge('gaugeCanvas', d.score || 0);
+  document.getElementById('scoreValue').textContent = d.score || 0;
+
+  const tierColors = {1:'badge-fully-qs',2:'badge-pqc-ready',3:'badge-qs',4:'badge-not-qs'};
+  const tierEl = document.getElementById('tierBadge');
+  tierEl.textContent = d.tier_label || '—';
+  tierEl.className = `rk-badge-label ${tierColors[d.tier]||'badge-unknown'}`;
+
+  // Breakdown
+  const bk = d.breakdown || {};
+  document.getElementById('countFQS').textContent = bk.fully_quantum_safe||0;
+  document.getElementById('countPQC').textContent = bk.pqc_ready||0;
+  document.getElementById('countQS').textContent = bk.quantum_safe||0;
+  document.getElementById('countNQS').textContent = bk.not_quantum_safe||0;
+
+  // FR-48 Classification table
+  const classData = d.classification_table || [];
+  document.getElementById('classTable').innerHTML = classData.map(row => `
+    <tr>
+      <td><strong>${row.status}</strong></td>
+      <td><span style="background:rgba(44,133,216,0.15);color:var(--rk-accent);padding:2px 10px;border-radius:8px;font-weight:600">${row.score_min}–${row.score_max}</span></td>
+      <td class="text-muted fs-12">${row.description}</td>
+    </tr>`).join('');
+
+  // FR-49 Compliance matrix
+  const tiers = d.compliance_matrix || [];
+  const tierBadgeClass = {1:'badge-fully-qs',2:'badge-pqc-ready',3:'badge-qs',4:'badge-not-qs'};
+  document.getElementById('complianceMatrix').innerHTML = tiers.map(t => `
+    <div class="col-md-6 col-xl-3">
+      <div class="rk-card h-100" style="border-color:${t.badge_color}33">
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="rk-badge-label ${tierBadgeClass[t.tier]||'badge-unknown'}">${t.label}</span>
+        </div>
+        <div class="mb-2"><span class="rk-form-label">Score Range</span><div class="fw-700" style="color:${t.badge_color}">${t.score_min}–${t.score_max}</div></div>
+        <div class="mb-2"><span class="rk-form-label">Security Level</span><div class="fs-13">${t.security_level}</div></div>
+        <div class="mb-2"><span class="rk-form-label">Compliance Criteria</span><div class="fs-12 text-muted">${t.compliance_criteria}</div></div>
+        <div><span class="rk-form-label">Action Required</span><div class="fs-12 text-muted">${t.priority_action}</div></div>
+      </div>
+    </div>`).join('');
+}
+
+async function loadHistory() {
+  const res = await API.get('/api/rating/history');
+  if (!res) return;
+  const history = await res.json();
+  if (!history.length) {
+    createLineChart('trendChart',['No data'],[{label:'Score',data:[0],borderColor:'#3498DB',backgroundColor:'rgba(52,152,219,0.1)'}]);
+    return;
+  }
+  const labels = history.map(h => fmtDate(h.recorded_at));
+  const scores = history.map(h => h.score);
+  createLineChart('trendChart', labels, [{
+    label: 'Cyber Rating Score',
+    data: scores,
+    borderColor: '#2C85D8',
+    backgroundColor: 'rgba(44,133,216,0.1)',
+    fill: true,
+    pointBackgroundColor: scores.map(s => s>=800?'#2ECC71':s>=600?'#3498DB':s>=300?'#F1C40F':'#E74C3C'),
+    pointRadius: 5,
+  }]);
+}
+
+loadRating(); loadHistory();
+</script>
+{% endblock %}

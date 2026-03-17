@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}Asset Discovery — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in">
+  <div class="mb-4">
+    <h1 class="rk-page-title">Asset Discovery</h1>
+    <p class="rk-page-sub">Automatically discovered public-facing cryptographic assets</p>
+  </div>
+
+  <!-- Category tabs — FR-37 -->
+  <div class="rk-card mb-4">
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+      <div class="rk-tabs" id="discTabs">
+        <button class="rk-tab active" onclick="switchTab('domain',this)">Domains</button>
+        <button class="rk-tab" onclick="switchTab('ssl_cert',this)">SSL Certificates</button>
+        <button class="rk-tab" onclick="switchTab('ip_subnet',this)">IP / Subnets</button>
+        <button class="rk-tab" onclick="switchTab('software',this)">Software</button>
+      </div>
+      <!-- Status filter — FR-38 -->
+      <div class="d-flex gap-2">
+        <button class="rk-btn rk-btn-sm rk-btn-primary" id="fAll"   onclick="setFilter('',this)">All</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew"   onclick="setFilter('new',this)">New</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf"  onclick="setFilter('confirmed',this)">Confirmed</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fFP"    onclick="setFilter('false_positive',this)">Ignored</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="triggerDiscover()"><i class="bi bi-radar"></i> Discover</button>
+      </div>
+    </div>
+
+    <!-- Discovery table — FR-39 -->
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr id="discHeader"></tr></thead>
+        <tbody id="discBody"><tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Network Topology Graph — FR-40 -->
+  <div class="rk-card">
+    <div class="rk-section-title"><i class="bi bi-diagram-3-fill me-2 text-blue"></i>Network Topology Graph</div>
+    <div id="topologyGraph" style="height:420px;background:var(--rk-bg);border-radius:10px;position:relative;overflow:hidden;border:1px solid var(--rk-border)">
+      <div id="topoLoading" class="d-flex align-items-center justify-content-center h-100 text-muted flex-column gap-3">
+        <i class="bi bi-diagram-3" style="font-size:48px;opacity:0.3"></i>
+        <p class="fs-13">Loading network topology…</p>
+      </div>
+      <canvas id="topoCanvas" style="width:100%;height:100%"></canvas>
+    </div>
+    <p class="fs-12 text-muted mt-2">Nodes represent IPs, SSL certificates, web servers, and domains.</p>
+  </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentCategory = 'domain';
+let currentStatus = '';
+
+const HEADERS = {
+  domain:     ['Name','Value','Status','Registration Date','Registrar','Discovered','Actions'],
+  ssl_cert:   ['Name','Value','Status','Fingerprint','Certificate Authority','Discovered','Actions'],
+  ip_subnet:  ['Name','Value','Status','Location','ASN','Netname','Discovered','Actions'],
+  software:   ['Name','Value','Status','Version','Vendor','Discovered','Actions'],
+};
+
+function switchTab(cat, btn) {
+  currentCategory = cat;
+  document.querySelectorAll('#discTabs .rk-tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  loadDiscoveries();
+}
+
+function setFilter(status, btn) {
+  currentStatus = status;
+  document.querySelectorAll('[id^="f"]').forEach(b=>{ b.classList.remove('rk-btn-primary'); b.classList.add('rk-btn-outline'); });
+  btn.classList.add('rk-btn-primary'); btn.classList.remove('rk-btn-outline');
+  loadDiscoveries();
+}
+
+async function loadDiscoveries() {
+  let url = `/api/assets/discovery?category=${currentCategory}`;
+  if (currentStatus) url += `&status=${currentStatus}`;
+  const res = await API.get(url);
+  if (!res) return;
+  const items = await res.json();
+
+  const headers = HEADERS[currentCategory];
+  document.getElementById('discHeader').innerHTML = headers.map(h=>`<th>${h}</th>`).join('');
+
+  const tbody = document.getElementById('discBody');
+  if (!items.length) { tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`; return; }
+
+  const statusBadge = {new:'badge bg-info text-dark',confirmed:'badge bg-success',false_positive:'badge bg-secondary'};
+  tbody.innerHTML = items.map(item => {
+    const meta = item.metadata || {};
+    let extraCols = '';
+    if (currentCategory === 'domain')    extraCols = `<td class="text-muted fs-12">${meta.registration_date||'—'}</td><td class="text-muted fs-12">${meta.registrar||'—'}</td>`;
+    if (currentCategory === 'ssl_cert')  extraCols = `<td class="text-muted fs-12">${(item.value||'').substring(0,20)}…</td><td class="text-muted fs-12">${meta.ca||'—'}</td>`;
+    if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.location||'—'}</td><td class="text-muted fs-12">${meta.asn||'—'}</td><td class="text-muted fs-12">${meta.netname||'—'}</td>`;
+    if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.vendor||'—'}</td>`;
+    return `<tr>
+      <td><strong>${item.name||'—'}</strong></td>
+      <td class="text-muted fs-12">${item.value}</td>
+      <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
+      ${extraCols}
+      <td class="text-muted fs-12">${fmtDate(item.discovered_at)}</td>
+      <td>
+        ${item.status==='new'?`<button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.2);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+
+  renderTopology(items);
+}
+
+async function updateStatus(id, status) {
+  const res = await API.patch(`/api/assets/discovery/${id}/status?new_status=${status}`);
+  if (res?.ok) { showToast(`Marked as ${status}`,'success'); loadDiscoveries(); }
+}
+
+async function triggerDiscover() {
+  const res = await API.post('/api/assets/discover',{});
+  if (res?.ok) { showToast('Discovery triggered','success'); setTimeout(loadDiscoveries, 1000); }
+}
+
+function renderTopology(items) {
+  const canvas = document.getElementById('topoCanvas');
+  document.getElementById('topoLoading').style.display = 'none';
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth;
+  canvas.height = canvas.offsetHeight;
+
+  const nodes = items.slice(0,20).map((item, i) => ({
+    x: 60 + (i % 5) * 160,
+    y: 60 + Math.floor(i / 5) * 120,
+    label: (item.name||item.value||'').substring(0,16),
+    color: item.status==='confirmed'?'#2ECC71':item.status==='new'?'#3498DB':'#7D8590',
+  }));
+
+  ctx.fillStyle = '#0D1117';
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Draw edges between all nodes
+  ctx.strokeStyle = 'rgba(44,133,216,0.15)';
+  ctx.lineWidth = 1;
+  for (let i=0; i<nodes.length-1; i++) {
+    ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[i+1].x,nodes[i+1].y); ctx.stroke();
+  }
+
+  // Draw nodes
+  nodes.forEach(n => {
+    ctx.beginPath(); ctx.arc(n.x,n.y,20,0,Math.PI*2);
+    ctx.fillStyle = n.color+'33'; ctx.fill();
+    ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#E6EDF3'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(n.label, n.x, n.y+35);
+  });
+}
+
+loadDiscoveries();
+</script>
+{% endblock %}
