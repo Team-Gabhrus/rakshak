@@ -12,8 +12,8 @@ aiosqlite>=0.19.0
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.4
 
-# Scanning — sslyze 5.2.x is compatible with anyio 3.x/4.x without conflict
-sslyze>=5.2.0,<6.0.0
+# Scanning
+sslyze>=6.0.0
 cryptography>=41.0.0
 
 # Export

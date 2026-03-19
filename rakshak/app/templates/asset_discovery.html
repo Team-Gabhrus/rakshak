@@ -33,6 +33,14 @@
         <tbody id="discBody"><tr><td colspan="8" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
     </div>
+    <!-- Discovery Pagination -->
+    <div id="discPagination" class="d-flex justify-content-between align-items-center mt-3 d-none">
+      <span class="fs-13 text-muted" id="discPageInfo"></span>
+      <div class="btn-group gap-2">
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="discPrevBtn" onclick="prevDiscPage()">Prev</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="discNextBtn" onclick="nextDiscPage()">Next</button>
+      </div>
+    </div>
   </div>
 
   <!-- Network Topology Graph — FR-40 -->
@@ -54,6 +62,9 @@
 <script>
 let currentCategory = 'domain';
 let currentStatus = '';
+let discData = [];
+let discCurrentPage = 1;
+const discPageSize = 10;
 
 const HEADERS = {
   domain:     ['Name','Value','Status','Registration Date','Registrar','Discovered','Actions'],
@@ -64,6 +75,7 @@ const HEADERS = {
 
 function switchTab(cat, btn) {
   currentCategory = cat;
+  discCurrentPage = 1;
   document.querySelectorAll('#discTabs .rk-tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
   loadDiscoveries();
@@ -71,6 +83,7 @@ function switchTab(cat, btn) {
 
 function setFilter(status, btn) {
   currentStatus = status;
+  discCurrentPage = 1;
   document.querySelectorAll('[id^="f"]').forEach(b=>{ b.classList.remove('rk-btn-primary'); b.classList.add('rk-btn-outline'); });
   btn.classList.add('rk-btn-primary'); btn.classList.remove('rk-btn-outline');
   loadDiscoveries();
@@ -81,35 +94,77 @@ async function loadDiscoveries() {
   if (currentStatus) url += `&status=${currentStatus}`;
   const res = await API.get(url);
   if (!res) return;
-  const items = await res.json();
+  discData = await res.json();
 
   const headers = HEADERS[currentCategory];
   document.getElementById('discHeader').innerHTML = headers.map(h=>`<th>${h}</th>`).join('');
+  
+  renderDiscPage();
+  renderTopology(discData);
+}
 
+function renderDiscPage() {
   const tbody = document.getElementById('discBody');
-  if (!items.length) { tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`; return; }
+  const headers = HEADERS[currentCategory];
+
+  if (!discData.length) { 
+    tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`; 
+    document.getElementById('discPagination').classList.add('d-none');
+    return; 
+  }
+
+  const totalPages = Math.ceil(discData.length / discPageSize);
+  if (discCurrentPage < 1) discCurrentPage = 1;
+  if (discCurrentPage > totalPages) discCurrentPage = totalPages;
+
+  const start = (discCurrentPage - 1) * discPageSize;
+  const end = start + discPageSize;
+  const pageData = discData.slice(start, end);
 
   const statusBadge = {new:'badge bg-info text-dark',confirmed:'badge bg-success',false_positive:'badge bg-secondary'};
-  tbody.innerHTML = items.map(item => {
+  tbody.innerHTML = pageData.map(item => {
     const meta = item.metadata || {};
     let extraCols = '';
     if (currentCategory === 'domain')    extraCols = `<td class="text-muted fs-12">${meta.registration_date||'—'}</td><td class="text-muted fs-12">${meta.registrar||'—'}</td>`;
-    if (currentCategory === 'ssl_cert')  extraCols = `<td class="text-muted fs-12">${(item.value||'').substring(0,20)}…</td><td class="text-muted fs-12">${meta.ca||'—'}</td>`;
+    if (currentCategory === 'ssl_cert')  extraCols = `<td class="text-muted fs-12" title="${item.value||''}">${(item.value||'').substring(0,25)}…</td><td class="text-muted fs-12">${meta.ca||'—'}</td>`;
     if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.location||'—'}</td><td class="text-muted fs-12">${meta.asn||'—'}</td><td class="text-muted fs-12">${meta.netname||'—'}</td>`;
     if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.vendor||'—'}</td>`;
+    
     return `<tr>
       <td><strong>${item.name||'—'}</strong></td>
-      <td class="text-muted fs-12">${item.value}</td>
+      <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
       ${extraCols}
       <td class="text-muted fs-12">${fmtDate(item.discovered_at)}</td>
       <td>
-        ${item.status==='new'?`<button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.2);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button>`:''}
+        ${item.status==='new'?`<button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.1);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button>`:''}
       </td>
     </tr>`;
   }).join('');
 
-  renderTopology(items);
+  if (totalPages > 1) {
+    document.getElementById('discPagination').classList.remove('d-none');
+    document.getElementById('discPageInfo').textContent = `Page ${discCurrentPage} of ${totalPages} (${discData.length} total)`;
+    document.getElementById('discPrevBtn').disabled = discCurrentPage === 1;
+    document.getElementById('discNextBtn').disabled = discCurrentPage === totalPages;
+  } else {
+    document.getElementById('discPagination').classList.add('d-none');
+  }
+}
+
+function prevDiscPage() {
+  if (discCurrentPage > 1) {
+    discCurrentPage--;
+    renderDiscPage();
+  }
+}
+
+function nextDiscPage() {
+  const totalPages = Math.ceil(discData.length / discPageSize);
+  if (discCurrentPage < totalPages) {
+    discCurrentPage++;
+    renderDiscPage();
+  }
 }
 
 async function updateStatus(id, status) {

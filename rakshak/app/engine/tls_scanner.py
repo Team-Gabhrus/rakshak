@@ -126,16 +126,12 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
     )
     from sslyze.errors import ServerHostnameCouldNotBeResolved, ConnectionToServerFailed
     from app.engine.cert_parser import parse_certificate_chain
+    from urllib.parse import urlparse
 
     # Extract hostname and port
-    host = target.replace("https://", "").replace("http://", "").split("/")[0]
-    port = 443
-    if ":" in host:
-        host, port_str = host.rsplit(":", 1)
-        try:
-            port = int(port_str)
-        except ValueError:
-            port = 443
+    parsed_url = urlparse(target if target.startswith(('http://', 'https://')) else f'https://{target}')
+    host = parsed_url.hostname or target
+    port = parsed_url.port or 443
 
     result = TLSScanResult(target=target)
 
@@ -179,8 +175,9 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
 
             best_version = None
             for attr, version_label in version_map.items():
-                suite_result = getattr(scan_res, attr, None)
-                if suite_result and suite_result.is_tls_version_supported:
+                suite_attempt = getattr(scan_res, attr, None)
+                if suite_attempt and suite_attempt.result and suite_attempt.result.is_tls_version_supported:
+                    suite_result = suite_attempt.result
                     supported_versions.append(version_label)
                     best_version = version_label
                     for accepted in suite_result.accepted_cipher_suites:
@@ -201,9 +198,9 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 result.hashing = best["hashing"]
 
             # Certificate chain
-            cert_info = getattr(scan_res, "certificate_info", None)
-            if cert_info and cert_info.certificate_deployments:
-                deployment = cert_info.certificate_deployments[0]
+            cert_attempt = getattr(scan_res, "certificate_info", None)
+            if cert_attempt and cert_attempt.result and cert_attempt.result.certificate_deployments:
+                deployment = cert_attempt.result.certificate_deployments[0]
                 result.cert_chain = parse_certificate_chain(deployment.received_certificate_chain)
 
             result.success = True

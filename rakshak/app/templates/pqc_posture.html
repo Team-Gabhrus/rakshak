@@ -32,6 +32,14 @@
         <tbody id="pqcTable"><tr><td colspan="9" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
     </div>
+    <!-- Posture Pagination -->
+    <div id="pqcPagination" class="d-flex justify-content-between align-items-center mt-3 d-none">
+      <span class="fs-13 text-muted" id="pqcPageInfo"></span>
+      <div class="btn-group gap-2">
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="pqcPrevBtn" onclick="prevPQCPage()">Prev</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" id="pqcNextBtn" onclick="nextPQCPage()">Next</button>
+      </div>
+    </div>
   </div>
 
   <!-- FR-43: Improvement Recommendations -->
@@ -61,6 +69,8 @@
 <script>
 let pqcData = {};
 let currentPQCTab = 'critical';
+let pqcCurrentPage = 1;
+const pqcPageSize = 10;
 
 async function loadPQCPosture() {
   const res = await API.get('/api/pqc/posture');
@@ -80,6 +90,7 @@ async function loadPQCPosture() {
 
 function switchPQCTab(tab, btn) {
   currentPQCTab = tab;
+  pqcCurrentPage = 1;
   document.querySelectorAll('#pqcTabs .rk-tab').forEach(t=>t.classList.remove('active'));
   btn?.classList.add('active');
   renderPQCTable(tab);
@@ -88,18 +99,56 @@ function switchPQCTab(tab, btn) {
 function renderPQCTable(cat) {
   const assets = (pqcData.categories || {})[cat] || [];
   const tbody = document.getElementById('pqcTable');
-  if (!assets.length) { tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No assets in this category</td></tr>`; return; }
-  tbody.innerHTML = assets.map(a => `<tr>
+  if (!assets.length) { 
+    tbody.innerHTML = `<tr><td colspan="9" class="text-center text-muted py-4">No assets in this category</td></tr>`; 
+    document.getElementById('pqcPagination').classList.add('d-none');
+    return; 
+  }
+
+  const totalPages = Math.ceil(assets.length / pqcPageSize);
+  if (pqcCurrentPage < 1) pqcCurrentPage = 1;
+  if (pqcCurrentPage > totalPages) pqcCurrentPage = totalPages;
+
+  const start = (pqcCurrentPage - 1) * pqcPageSize;
+  const end = start + pqcPageSize;
+  const pageData = assets.slice(start, end);
+
+  tbody.innerHTML = pageData.map(a => `<tr>
     <td><strong class="fs-13">${a.name||'—'}</strong></td>
-    <td><a href="${a.url}" target="_blank" class="text-blue fs-12">${(a.url||'').replace('https://','')}</a></td>
+    <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${(a.url||'').replace('https://','')}</a></td>
     <td>${pqcBadge(a.pqc_label)}</td>
     <td>${riskBadge(a.risk_level)}</td>
     <td class="text-muted fs-12">${a.tls_version||'—'}</td>
-    <td class="text-muted fs-12 text-truncate" style="max-width:160px" title="${a.cipher_suite||''}">${(a.cipher_suite||'—').substring(0,25)}</td>
+    <td class="text-muted fs-12"><div class="cell-truncate" style="max-width:160px" title="${a.cipher_suite||''}">${a.cipher_suite||'—'}</div></td>
     <td class="text-muted fs-12">${a.owner||'—'}</td>
     <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
     <td><button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadPlaybook(${a.id})" title="View Migration Playbook"><i class="bi bi-journal-richtext"></i> Playbook</button></td>
   </tr>`).join('');
+
+  if (totalPages > 1) {
+    document.getElementById('pqcPagination').classList.remove('d-none');
+    document.getElementById('pqcPageInfo').textContent = `Page ${pqcCurrentPage} of ${totalPages} (${assets.length} total)`;
+    document.getElementById('pqcPrevBtn').disabled = pqcCurrentPage === 1;
+    document.getElementById('pqcNextBtn').disabled = pqcCurrentPage === totalPages;
+  } else {
+    document.getElementById('pqcPagination').classList.add('d-none');
+  }
+}
+
+function prevPQCPage() {
+  if (pqcCurrentPage > 1) {
+    pqcCurrentPage--;
+    renderPQCTable(currentPQCTab);
+  }
+}
+
+function nextPQCPage() {
+  const assets = (pqcData.categories || {})[currentPQCTab] || [];
+  const totalPages = Math.ceil(assets.length / pqcPageSize);
+  if (pqcCurrentPage < totalPages) {
+    pqcCurrentPage++;
+    renderPQCTable(currentPQCTab);
+  }
 }
 
 function renderRecommendations(recs) {

@@ -24,10 +24,10 @@
 
   <!-- Charts — FR-32 -->
   <div class="row g-3 mb-4">
-    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:200px"><div class="rk-chart-title">Asset Risk Distribution</div><canvas id="riskChart"></canvas></div></div>
-    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:200px"><div class="rk-chart-title">Cert Expiry Timeline</div><canvas id="expiryChart"></canvas></div></div>
-    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:200px"><div class="rk-chart-title">IPv4 vs IPv6</div><canvas id="ipChart"></canvas></div></div>
-    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:200px"><div class="rk-chart-title">Asset Type Distribution</div><canvas id="typeChart"></canvas></div></div>
+    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:240px"><div class="rk-chart-title">Asset Risk Distribution</div><div class="rk-chart-body"><canvas id="riskChart"></canvas></div></div></div>
+    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:240px"><div class="rk-chart-title">Cert Expiry Timeline</div><div class="rk-chart-body"><canvas id="expiryChart"></canvas></div></div></div>
+    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:240px"><div class="rk-chart-title">IPv4 vs IPv6</div><div class="rk-chart-body"><canvas id="ipChart"></canvas></div></div></div>
+    <div class="col-md-6 col-lg-3"><div class="rk-chart-card" style="height:240px"><div class="rk-chart-title">Asset Type Distribution</div><div class="rk-chart-body"><canvas id="typeChart"></canvas></div></div></div>
   </div>
 
   <!-- Asset table — FR-33 -->
@@ -155,7 +155,7 @@ async function loadAssets(page=1) {
   tbody.innerHTML = d.assets.map(a => `
     <tr>
       <td><strong>${a.name||'—'}</strong></td>
-      <td><a href="${a.url}" target="_blank" class="text-blue fs-12">${a.url}</a></td>
+      <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
       <td class="text-muted fs-12">${a.ipv4||'—'}</td>
       <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
       <td class="text-muted fs-12">${a.owner||'—'}</td>
