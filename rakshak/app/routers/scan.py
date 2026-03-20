@@ -168,10 +168,20 @@ async def cancel_scan(
 
 @router.get("")
 async def list_scans(
+    start: str = None,
+    end: str = None,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    result = await db.execute(select(Scan).order_by(Scan.created_at.desc()))
+    query = select(Scan).order_by(Scan.created_at.desc())
+    if start:
+        from datetime import datetime
+        query = query.where(Scan.created_at >= datetime.fromisoformat(start))
+    if end:
+        from datetime import datetime
+        query = query.where(Scan.created_at <= datetime.fromisoformat(end))
+
+    result = await db.execute(query)
     scans = result.scalars().all()
     return [{"id": s.id, "status": s.status.value, "target_count": s.target_count,
              "completed_count": s.completed_count, "progress_pct": s.progress_pct,

@@ -11,10 +11,11 @@
   <div class="rk-card mb-4">
     <div class="rk-section-title">System Users</div>
     <div class="rk-table-wrap">
-      <table class="rk-table">
+      <table class="rk-table mb-3">
         <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th></tr></thead>
         <tbody id="userBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
+      <div id="usersPagination" class="d-flex justify-content-end"></div>
     </div>
   </div>
 
@@ -22,10 +23,11 @@
   <div class="rk-card">
     <div class="rk-section-title"><i class="bi bi-journals me-2"></i>Audit Logs — Tamper-Evident</div>
     <div class="rk-table-wrap">
-      <table class="rk-table">
+      <table class="rk-table mb-3">
         <thead><tr><th>ID</th><th>Event Type</th><th>Username</th><th>Details</th><th>IP</th><th>Timestamp</th><th>Hash</th></tr></thead>
         <tbody id="auditBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
+      <div id="auditPagination" class="d-flex justify-content-end"></div>
     </div>
   </div>
 </div>
@@ -60,33 +62,60 @@
 
 {% block extra_js %}
 <script>
-async function loadUsers() {
-  const res = await API.get('/api/users');
+let usersPage = 1;
+let auditPage = 1;
+
+async function loadUsers(page = 1) {
+  usersPage = page;
+  const res = await API.get(`/api/users?page=${page}&page_size=10`);
   if (!res) return;
-  const users = await res.json();
-  document.getElementById('userBody').innerHTML = users.map(u => `<tr>
-    <td><code>#${u.id}</code></td>
-    <td><strong>${u.username}</strong></td>
-    <td class="text-muted">${u.email}</td>
-    <td><span class="badge ${u.role==='admin'?'bg-danger':'bg-info text-dark'}">${u.role}</span></td>
-    <td><span class="badge ${u.is_active?'bg-success':'bg-secondary'}">${u.is_active?'Active':'Inactive'}</span></td>
-    <td class="text-muted fs-12">${fmtDateTime(u.last_login)||'Never'}</td>
-  </tr>`).join('');
+  const data = await res.json();
+  const users = data.items || data;
+  
+  if (users.length === 0) {
+    document.getElementById('userBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No users found.</td></tr>';
+  } else {
+    document.getElementById('userBody').innerHTML = users.map(u => `<tr>
+      <td><code>#${u.id}</code></td>
+      <td><strong>${u.username}</strong></td>
+      <td class="text-muted">${u.email}</td>
+      <td><span class="badge ${u.role==='admin'?'bg-danger':'bg-info text-dark'}">${u.role}</span></td>
+      <td><span class="badge ${u.is_active?'bg-success':'bg-secondary'}">${u.is_active?'Active':'Inactive'}</span></td>
+      <td class="text-muted fs-12">${fmtDateTime(u.last_login)||'Never'}</td>
+    </tr>`).join('');
+  }
+  
+  if (data.total !== undefined) {
+    const totalPages = Math.ceil(data.total / data.page_size);
+    renderPagination('usersPagination', data.page, totalPages, 'loadUsers');
+  }
 }
 
-async function loadAuditLogs() {
-  const res = await API.get('/api/audit-logs');
+async function loadAuditLogs(page = 1) {
+  auditPage = page;
+  const res = await API.get(`/api/audit-logs?page=${page}&page_size=10`);
   if (!res) return;
-  const logs = await res.json();
-  document.getElementById('auditBody').innerHTML = logs.map(l => `<tr>
-    <td><code>#${l.id}</code></td>
-    <td><span class="badge bg-secondary">${l.event_type}</span></td>
-    <td class="text-muted">${l.username||'system'}</td>
-    <td class="fs-12">${l.event_details||'—'}</td>
-    <td class="text-muted fs-12">${l.ip_address||'—'}</td>
-    <td class="text-muted fs-12">${fmtDateTime(l.timestamp)}</td>
-    <td style="font-family:monospace;font-size:11px;color:var(--rk-text-muted)">${(l.log_hash||'').substring(0,16)}…</td>
-  </tr>`).join('');
+  const data = await res.json();
+  const logs = data.items || data;
+  
+  if (logs.length === 0) {
+    document.getElementById('auditBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No logs found.</td></tr>';
+  } else {
+    document.getElementById('auditBody').innerHTML = logs.map(l => `<tr>
+      <td><code>#${l.id}</code></td>
+      <td><span class="badge bg-secondary">${l.event_type}</span></td>
+      <td class="text-muted">${l.username||'system'}</td>
+      <td class="fs-12">${l.event_details||'—'}</td>
+      <td class="text-muted fs-12">${l.ip_address||'—'}</td>
+      <td class="text-muted fs-12">${fmtDateTime(l.timestamp)}</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--rk-text-muted)">${(l.log_hash||'').substring(0,16)}…</td>
+    </tr>`).join('');
+  }
+  
+  if (data.total !== undefined) {
+    const totalPages = Math.ceil(data.total / data.page_size);
+    renderPagination('auditPagination', data.page, totalPages, 'loadAuditLogs');
+  }
 }
 
 function openAddUser() { new bootstrap.Modal(document.getElementById('addUserModal')).show(); }
@@ -98,7 +127,7 @@ async function addUser() {
     password: document.getElementById('nuPassword').value,
     role:     document.getElementById('nuRole').value,
   });
-  if (res?.ok) { showToast('User created!','success'); bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide(); loadUsers(); }
+  if (res?.ok) { showToast('User created!','success'); bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide(); loadUsers(usersPage); }
   else { const d = await res?.json(); showToast(d?.detail||'Error creating user','danger'); }
 }
 

@@ -131,13 +131,26 @@ async def user_management_page(request: Request):
 # ─── User management API routes ──────────────────────────────────────────────
 
 @app.get("/api/users")
-async def list_users(db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
-    from sqlalchemy import select
+async def list_users(
+    page: int = 1,
+    page_size: int = 10,
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(require_admin)
+):
+    from sqlalchemy import select, func
     from app.models.user import User
-    result = await db.execute(select(User))
+    total_q = await db.execute(select(func.count(User.id)))
+    total = total_q.scalar()
+    
+    result = await db.execute(select(User).order_by(User.id.asc()).offset((page - 1) * page_size).limit(page_size))
     users = result.scalars().all()
-    return [{"id": u.id, "email": u.email, "username": u.username,
-             "role": u.role.value, "is_active": u.is_active, "last_login": u.last_login} for u in users]
+    return {
+        "items": [{"id": u.id, "email": u.email, "username": u.username,
+                  "role": u.role.value, "is_active": u.is_active, "last_login": u.last_login} for u in users],
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    }
 
 
 @app.post("/api/auth/register")
@@ -157,26 +170,52 @@ async def register_endpoint(
 
 
 @app.get("/api/audit-logs")
-async def list_audit_logs(db: AsyncSession = Depends(get_db)):
-    from sqlalchemy import select
+async def list_audit_logs(
+    page: int = 1,
+    page_size: int = 10,
+    db: AsyncSession = Depends(get_db)
+):
+    from sqlalchemy import select, func
     from app.models.audit import AuditLog
-    result = await db.execute(select(AuditLog).order_by(AuditLog.timestamp.desc()).limit(100))
+    
+    total_q = await db.execute(select(func.count(AuditLog.id)))
+    total = total_q.scalar()
+    
+    result = await db.execute(select(AuditLog).order_by(AuditLog.timestamp.desc()).offset((page - 1) * page_size).limit(page_size))
     logs = result.scalars().all()
-    return [{"id": l.id, "event_type": l.event_type, "username": l.username,
-             "event_details": l.event_details, "ip_address": l.ip_address,
-             "timestamp": l.timestamp, "log_hash": l.log_hash} for l in logs]
+    return {
+        "items": [{"id": l.id, "event_type": l.event_type, "username": l.username,
+                  "event_details": l.event_details, "ip_address": l.ip_address,
+                  "timestamp": l.timestamp, "log_hash": l.log_hash} for l in logs],
+        "total": total,
+        "page": page,
+        "page_size": page_size
+    }
 
 
 @app.get("/api/home/summary")
-async def home_summary(db: AsyncSession = Depends(get_db)):
+async def home_summary(start: str = None, end: str = None, db: AsyncSession = Depends(get_db)):
     """Home overview dashboard data — FR-28."""
     from sqlalchemy import select, func
     from app.models.asset import Asset, PQCLabel
     from app.models.cbom import CBOMSnapshot
     from app.models.scan import Scan
     from app.engine.rating_engine import compute_enterprise_score
+    from datetime import datetime
 
-    result = await db.execute(select(Asset))
+    asset_query = select(Asset)
+    cbom_query = select(func.count()).select_from(CBOMSnapshot)
+
+    if start:
+        dt_start = datetime.fromisoformat(start)
+        asset_query = asset_query.where(Asset.created_at >= dt_start)
+        cbom_query = cbom_query.where(CBOMSnapshot.created_at >= dt_start)
+    if end:
+        dt_end = datetime.fromisoformat(end)
+        asset_query = asset_query.where(Asset.created_at <= dt_end)
+        cbom_query = cbom_query.where(CBOMSnapshot.created_at <= dt_end)
+
+    result = await db.execute(asset_query)
     assets = result.scalars().all()
     total_assets = len(assets)
 
@@ -192,12 +231,15 @@ async def home_summary(db: AsyncSession = Depends(get_db)):
         if total_assets else 0, 1
     )
 
-    cbom_result = await db.execute(select(func.count()).select_from(CBOMSnapshot))
+    cbom_result = await db.execute(cbom_query)
     cbom_count = cbom_result.scalar()
 
     weak_cbom = pqc_counts["not_quantum_safe"] + pqc_counts["unknown"]
     rating = compute_enterprise_score(pqc_counts)
-
+    
+    cbom_query_vuln = cbom_query.where(CBOMSnapshot.is_vulnerable == True) if hasattr(CBOMSnapshot, 'is_vulnerable') else cbom_query
+    
+    # We will just depend on 'weak_cbom' since we have no complex vulnerability calculation for cboms if missing
     return {
         "total_assets": total_assets,
         "pqc_adoption_pct": pqc_adoption_pct,

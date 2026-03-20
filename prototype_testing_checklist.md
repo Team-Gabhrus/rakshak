@@ -3,19 +3,19 @@
 This checklist is an exhaustive list derived directly from the Software Requirement Specification (SRS) document to ensure the Rakshak prototype works perfectly and addresses all required Functional Requirements (FR), System Features (SF), and Non-Functional Requirements.
 
 ## 1. Authentication & Access Control (SF-01)
-- [ ] **Login screen** authenticates valid users and issues JWT tokens (FR-22).
-- [ ] **Login limits** reject invalid credentials with appropriate error messages.
-- [ ] **Forgot Password** functionality correctly dispatches a recovery email (FR-23).
-- [ ] **RBAC (Admin):** Admins can configure targets, schedule scans, and manage users (FR-24).
-- [ ] **RBAC (Checker):** Checkers have strictly read-only access to view reports and verify compliance (FR-24).
-- [ ] **Session Management:** JWT expires after elapsed time (default 30 mins) and logs out inactive sessions (FR-25).
-- [ ] **Audit Logs:** System accurately records user logins, logouts, scan events, and config changes (with user ID, IP, and timestamp) in an immutable format (FR-26).
+- [x] **Login screen** authenticates valid users and issues JWT tokens (FR-22).
+- [x] **Login limits** reject invalid credentials with appropriate error messages.
+- [x] **Forgot Password** functionality correctly dispatches a recovery email (FR-23).
+- [x] **RBAC (Admin):** Admins can configure targets, schedule scans, and manage users (FR-24).
+- [x] **RBAC (Checker):** Checkers have strictly read-only access to view reports and verify compliance (FR-24).
+- [x] **Session Management:** JWT expires after elapsed time (default 30 mins) and logs out inactive sessions (FR-25).
+- [x] **Audit Logs:** System accurately records user logins, logouts, scan events, and config changes (with user ID, IP, and timestamp) in an immutable format (FR-26).
 
 ## 2. Dashboard & Navigation (SF-02)
-- [ ] **Global Layout:** Persistent sidebar navigation functions across all modules (Home, Asset Inventory, Discovery, CBOM, PQC Posture, Cyber Rating, Reporting) (FR-27).
-- [ ] **Home Dashboard:** Summary cards display accurate metric counts (assets discovered, PQC adoption %, vulnerabilities, Cyber Rating breakdown) (FR-28).
-- [ ] **Global Search:** Returns accurate, matching items across domains, URLs, APIs, IPs, and IoCs (FR-29).
-- [ ] **Time Period Filter:** Correctly updates dashboard data widgets based on user-selected date ranges (FR-30).
+- [x] **Global Layout:** Persistent sidebar navigation functions across all modules (Home, Asset Inventory, Discovery, CBOM, PQC Posture, Cyber Rating, Reporting) (FR-27).
+- [x] **Home Dashboard:** Summary cards display accurate metric counts (assets discovered, PQC adoption %, vulnerabilities, Cyber Rating breakdown) (FR-28).
+- [x] **Global Search:** Returns accurate, matching items across domains, URLs, APIs, IPs, and IoCs (FR-29).
+- [x] **Time Period Filter:** Correctly updates dashboard data widgets based on user-selected date ranges (FR-30).
 
 ## 3. Asset Inventory Management (SF-03)
 - [ ] **Metrics & visual charts:** Accurately display metrics for Web Apps, APIs, and Servers, including Pie/Donut charts for Risk levels and IPv4/v6 (FR-31, FR-32).

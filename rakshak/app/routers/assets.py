@@ -9,6 +9,7 @@ from app.database import get_db
 from app.models.asset import Asset, AssetDiscovery, NameserverRecord, AssetType, RiskLevel, DiscoveryStatus, DiscoveryCategory
 from app.models.user import User
 from app.dependencies import require_admin, require_any_role
+from datetime import datetime
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -27,6 +28,8 @@ async def list_assets(
     search: Optional[str] = Query(None),
     risk: Optional[str] = Query(None),
     asset_type: Optional[str] = Query(None),
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -34,6 +37,7 @@ async def list_assets(
 ):
     """FR-33: Searchable, sortable, paginated asset table."""
     query = select(Asset)
+
     if search:
         query = query.where(
             (Asset.name.ilike(f"%{search}%")) |
@@ -44,6 +48,10 @@ async def list_assets(
         query = query.where(Asset.risk_level == risk)
     if asset_type:
         query = query.where(Asset.asset_type == asset_type)
+    if start:
+        query = query.where(Asset.created_at >= datetime.fromisoformat(start))
+    if end:
+        query = query.where(Asset.created_at <= datetime.fromisoformat(end))
 
     total_q = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_q.scalar()
@@ -119,11 +127,19 @@ async def trigger_discovery(
 
 @router.get("/metrics")
 async def asset_metrics(
+    start: Optional[str] = Query(None),
+    end: Optional[str] = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
     """FR-31: Top-level asset metrics."""
-    result = await db.execute(select(Asset))
+    query = select(Asset)
+    if start:
+        query = query.where(Asset.created_at >= datetime.fromisoformat(start))
+    if end:
+        query = query.where(Asset.created_at <= datetime.fromisoformat(end))
+
+    result = await db.execute(query)
     assets = result.scalars().all()
     total = len(assets)
     web_apps = sum(1 for a in assets if a.asset_type == AssetType.web_app)

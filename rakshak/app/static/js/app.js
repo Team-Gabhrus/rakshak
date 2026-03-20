@@ -90,7 +90,7 @@ async function doSearch(q) {
     if (!drop) return;
     if (data.assets?.length) {
         drop.innerHTML = data.assets.map(a =>
-            `<div class="rk-search-item" onclick="window.location='/asset-inventory'">
+            `<div class="rk-search-item" onclick="window.location='/asset-inventory?search=' + encodeURIComponent(a.name||a.url)">
                 <strong>${a.name}</strong> <span class="text-muted fs-12 ms-2">${a.url}</span>
                 <span class="ms-2">${pqcBadge(a.pqc_label)}</span>
              </div>`
@@ -109,6 +109,16 @@ function applyTimeFilter() {
     window._timeFilter = { start, end };
     showToast('Time filter applied', 'info');
     if (typeof loadPageData === 'function') loadPageData();
+    if (typeof loadScans === 'function') loadScans();
+    if (typeof loadMetrics === 'function') loadMetrics();
+    if (typeof loadAssets === 'function') loadAssets();
+    if (typeof loadDiscoveries === 'function') loadDiscoveries();
+    if (typeof loadCBOMMetrics === 'function') loadCBOMMetrics();
+    if (typeof loadCBOMList === 'function') loadCBOMList();
+    if (typeof loadRating === 'function') loadRating();
+    if (typeof loadHistory === 'function') loadHistory();
+    if (typeof loadPQCPosture === 'function') loadPQCPosture();
+    if (typeof loadReports === 'function') loadReports();
 }
 
 // ── PQC Badge renderer ────────────────────────────────────────────────────

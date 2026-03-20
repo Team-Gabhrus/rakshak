@@ -123,7 +123,14 @@ let currentPage = 1;
 let searchTimer;
 
 async function loadMetrics() {
-  const res = await API.get('/api/assets/metrics');
+  let url = '/api/assets/metrics';
+  if (window._timeFilter) {
+    const params = new URLSearchParams();
+    if (window._timeFilter.start) params.append('start', window._timeFilter.start);
+    if (window._timeFilter.end) params.append('end', window._timeFilter.end);
+    if (params.toString()) url += '?' + params.toString();
+  }
+  const res = await API.get(url);
   if (!res) return;
   const d = await res.json();
   document.getElementById('metricWebApps').textContent = d.web_apps||0;
@@ -147,6 +154,10 @@ async function loadAssets(page=1) {
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (risk)   url += `&risk=${risk}`;
   if (type)   url += `&asset_type=${type}`;
+  if (window._timeFilter) {
+    if (window._timeFilter.start) url += `&start=${window._timeFilter.start}`;
+    if (window._timeFilter.end)   url += `&end=${window._timeFilter.end}`;
+  }
   const res = await API.get(url);
   if (!res) return;
   const d = await res.json();
@@ -214,6 +225,12 @@ async function scanAll() {
   const scanRes = await API.post('/api/scan', {targets});
   const scanData = await scanRes.json();
   showToast(`Scan All started — Scan #${scanData.scan_id}, ${targets.length} targets`,'success');
+}
+
+const params = new URLSearchParams(window.location.search);
+const q = params.get('search');
+if (q) {
+  document.getElementById('assetSearch').value = q;
 }
 
 loadMetrics(); loadAssets(); loadNameservers();

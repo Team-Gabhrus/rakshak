@@ -135,7 +135,14 @@
 {% block extra_js %}
 <script>
 async function loadPageData() {
-  const res = await API.get('/api/home/summary');
+  let url = '/api/home/summary';
+  if (window._timeFilter) {
+    const params = new URLSearchParams();
+    if (window._timeFilter.start) params.append('start', window._timeFilter.start);
+    if (window._timeFilter.end) params.append('end', window._timeFilter.end);
+    if (params.toString()) url += '?' + params.toString();
+  }
+  const res = await API.get(url);
   if (!res) return;
   const d = await res.json();
   document.getElementById('totalAssets').textContent = d.total_assets || 0;
@@ -187,7 +194,14 @@ async function loadPageData() {
 }
 
 async function loadScans() {
-  const res = await API.get('/api/scan');
+  let url = '/api/scan';
+  if (window._timeFilter) {
+    const params = new URLSearchParams();
+    if (window._timeFilter.start) params.append('start', window._timeFilter.start);
+    if (window._timeFilter.end) params.append('end', window._timeFilter.end);
+    if (params.toString()) url += '?' + params.toString();
+  }
+  const res = await API.get(url);
   if (!res) return;
   const scans = await res.json();
   const tbody = document.getElementById('scanBody');
