@@ -10,7 +10,19 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link href="/static/css/style.css" rel="stylesheet">
     {% block extra_css %}{% endblock %}
+
+    
+
+    
+
+    <script>
+        const theme = localStorage.getItem('rk-theme') || 'light';
+        document.documentElement.setAttribute('data-theme', theme);
+    </script>
 </head>
+
+
+
 <body class="rk-body">
 
 <div class="rk-layout">
@@ -93,7 +105,13 @@
                 <button class="rk-btn-filter" onclick="applyTimeFilter()">Apply</button>
             </div>
 
+            
+            
             <div class="rk-topbar-right">
+                <button class="rk-icon-btn" title="Toggle Theme" onclick="toggleTheme()">
+                    <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
+                </button>
+
                 <button class="rk-icon-btn" title="Notifications">
                     <i class="bi bi-bell-fill"></i>
                     <span class="rk-badge" id="notifBadge">0</span>
@@ -122,5 +140,64 @@
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 <script src="/static/js/app.js"></script>
 {% block extra_js %}{% endblock %}
+
+<script>
+    function toggleTheme() {
+        const doc = document.documentElement;
+        const currentTheme = doc.getAttribute('data-theme') || 'dark';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        doc.setAttribute('data-theme', newTheme);
+        localStorage.setItem('rk-theme', newTheme);
+        const icon = document.getElementById('themeIcon');
+        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+        // Optional logic to reload charts if needed
+        if (typeof Chart !== 'undefined') location.reload(); // simple brute-force to re-render charts accurately
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+        const savedTheme = localStorage.getItem('rk-theme') || 'light';
+        const icon = document.getElementById('themeIcon');
+        if(icon) icon.className = savedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+    });
+</script>
+
+<script>
+    function toggleTheme() {
+        const doc = document.documentElement;
+        const currentTheme = doc.getAttribute('data-theme') || 'dark';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        doc.setAttribute('data-theme', newTheme);
+        localStorage.setItem('rk-theme', newTheme);
+        const icon = document.getElementById('themeIcon');
+        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+        // Optional logic to reload charts if needed
+        if (typeof Chart !== 'undefined') location.reload(); // simple brute-force to re-render charts accurately
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+        const savedTheme = localStorage.getItem('rk-theme') || 'light';
+        const icon = document.getElementById('themeIcon');
+        if(icon) icon.className = savedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+    });
+</script>
+
+<script>
+    function toggleTheme() {
+        const doc = document.documentElement;
+        const currentTheme = doc.getAttribute('data-theme') || 'light';
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        doc.setAttribute('data-theme', newTheme);
+        localStorage.setItem('rk-theme', newTheme);
+        const icon = document.getElementById('themeIcon');
+        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+        if (typeof Chart !== 'undefined') location.reload(); 
+    }
+    document.addEventListener("DOMContentLoaded", () => {
+        const theme = localStorage.getItem('rk-theme') || 'light';
+        const icon = document.getElementById('themeIcon');
+        if(icon) icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+    });
+</script>
 </body>
+
+
+
 </html>

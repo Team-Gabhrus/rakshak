@@ -139,7 +139,7 @@ function createDonutChart(canvasId, labels, values, colors) {
         data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] },
         options: {
             responsive: true, maintainAspectRatio: false, cutout: '65%',
-            plugins: { legend: { position: 'right', labels: { color: '#E6EDF3', font: { size: 12 }, padding: 12, boxWidth: 12 } } }
+            plugins: { legend: { position: 'right', labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 }, padding: 12, boxWidth: 12 } } }
         }
     });
 }
@@ -152,7 +152,7 @@ function createBarChart(canvasId, labels, datasets) {
         data: { labels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#E6EDF3', font: { size: 12 } } } },
+            plugins: { legend: { labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 } } } },
             scales: {
                 x: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.5)' } },
                 y: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.5)' } },
@@ -169,7 +169,7 @@ function createLineChart(canvasId, labels, datasets) {
         data: { labels, datasets },
         options: {
             responsive: true, maintainAspectRatio: false,
-            plugins: { legend: { labels: { color: '#E6EDF3', font: { size: 12 } } } },
+            plugins: { legend: { labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 } } } },
             scales: {
                 x: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.3)' } },
                 y: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.3)' } },

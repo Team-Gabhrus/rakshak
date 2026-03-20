@@ -15,7 +15,7 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(exist_ok=True)
 
 
-async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report_id: int) -> str:
+async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report_id: int, password: str = None) -> str:
     """Generate a report file in the specified format and return path."""
     data = await collect_report_data(db, modules)
     filename = f"rakshak_report_{report_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{fmt}"
@@ -28,7 +28,7 @@ async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report
     elif fmt == "csv":
         _export_csv(data, filepath)
     elif fmt == "pdf":
-        _export_pdf(data, filepath)
+        _export_pdf(data, filepath, password)
 
     return filepath
 
@@ -103,7 +103,7 @@ def _export_csv(data: dict, filepath: str):
             writer.writerow(["No inventory data available"])
 
 
-def _export_pdf(data: dict, filepath: str):
+def _export_pdf(data: dict, filepath: str, password: str = None):
     try:
         from reportlab.lib.pagesizes import letter, A4
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -147,6 +147,30 @@ def _export_pdf(data: dict, filepath: str):
             story.append(t)
             story.append(Spacer(1, 20))
 
+
+        # CBOM Snapshot Data
+        if "cbom" in data and data["cbom"]:
+            story.append(Spacer(1, 10))
+            story.append(Paragraph("Latest CBOM Snapshots", styles["Heading2"]))
+            cbom_data = [["Target", "PQC Label", "Created At"]]
+            for snap in data["cbom"][:20]:
+                cbom_data.append([
+                    str(snap.get("target", ""))[:40],
+                    str(snap.get("pqc_label", "")),
+                    str(snap.get("created_at", ""))[:19]
+                ])
+            t2 = Table(cbom_data, colWidths=[200, 100, 120])
+            t2.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#3B6A99")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#CCCCCC")),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+            ]))
+            story.append(t2)
+            story.append(Spacer(1, 20))
+
         # Asset Inventory
         if "inventory" in data and data["inventory"]:
             story.append(Paragraph("Asset Inventory", styles["Heading1"]))
@@ -172,7 +196,23 @@ def _export_pdf(data: dict, filepath: str):
             story.append(t)
 
         doc.build(story)
+
+        # Encrypt if password is given
+        if password:
+            from pypdf import PdfReader, PdfWriter
+            import os
+            reader = PdfReader(filepath)
+            writer = PdfWriter()
+            for page in reader.pages:
+                writer.add_page(page)
+            writer.encrypt(password)
+            temp_path = filepath + ".enc"
+            with open(temp_path, "wb") as f_out:
+                writer.write(f_out)
+            os.replace(temp_path, filepath)
+
     except Exception as e:
+
         # Fallback: write plain text
         with open(filepath, "w") as f:
             f.write(f"Rakshak Report\nGenerated: {data.get('generated_at')}\n\n")

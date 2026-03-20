@@ -20,6 +20,24 @@
     --rk-transition: 0.2s ease-in-out;
 }
 
+
+[data-theme="light"] {
+    --rk-bg:         #F3F6F8;
+    --rk-surface:    #FFFFFF;
+    --rk-surface2:   #F8FAFC;
+    --rk-border:     #E2E8F0;
+    --rk-accent:     #A3112E; /* PNB Maroon */
+    --rk-accent2:    #8B0D26;
+    --rk-green:      #059669;
+    --rk-blue:       #2563EB;
+    --rk-yellow:     #D97706; /* PNB Gold Accent */
+    --rk-red:        #DC2626;
+    --rk-purple:     #7C3AED;
+    --rk-text:       #0F172A;
+    --rk-text-muted: #64748B;
+    --rk-shadow:     0 4px 12px rgba(0,0,0,0.06);
+}
+
 /* ── Base ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 body.rk-body {
@@ -300,7 +318,7 @@ body.rk-body {
 /* ── Gauge / Score dial ───────────────────────────────── */
 .rk-gauge-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
 .rk-gauge-score {
-    position: absolute; text-align: center;
+    text-align: center;
     font-size: 36px; font-weight: 900; color: var(--rk-text);
 }
 .rk-gauge-label { font-size: 12px; color: var(--rk-text-muted); margin-top: 4px; }
