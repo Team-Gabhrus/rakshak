@@ -46,14 +46,26 @@ async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends
         token = auth_service.generate_reset_token(req.email)
         user.password_reset_token = token
         await db.commit()
-        # In production: send email. For prototype: log.
+        # Dispatch recovery email (FR-23)
+        from app.services.email_service import send_report_email
+        reset_link = f"http://localhost:8000/reset-password?token={token}"
+        email_body = f"Hello,\n\nA password reset was requested for your account.\nPlease use the following token to reset your password:\n\n{token}\n\nLink: {reset_link}\n\nIf you did not request this, please ignore this email.\n\n— Rakshak Admin"
+        
+        import asyncio
         import logging
-        logging.getLogger(__name__).info(f"Password reset token for {req.email}: {token}")
-
+        try:
+            # We don't block the API response, so we create a task (or could await if we wanted strict delivery confirm)
+            asyncio.create_task(send_report_email(
+                to_email=req.email,
+                subject="Rakshak Password Recovery",
+                body=email_body
+            ))
+            logging.getLogger(__name__).info(f"Password reset email dispatched to {req.email}")
+        except Exception as e:
+            logging.getLogger(__name__).error(f"Failed dispatching email to {req.email}: {e}")
+            
     # Always return success to prevent email enumeration
     return {"message": "If that email exists, a reset link has been sent."}
-
-
 @router.post("/reset-password")
 async def reset_password(token: str, new_password: str, db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select
@@ -66,3 +78,28 @@ async def reset_password(token: str, new_password: str, db: AsyncSession = Depen
     user.password_reset_token = None
     await db.commit()
     return {"message": "Password reset successful"}
+
+
+from app.dependencies import require_any_role
+
+@router.post("/logout")
+async def logout(
+    request: Request,
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    current_user = Depends(require_any_role)
+):
+    current_user.active_session_token = None
+    await db.commit()
+    await log_event(
+        db, 
+        "user_logout", 
+        f"User {current_user.username} logged out", 
+        current_user.id, 
+        current_user.username, 
+        request.client.host if request.client else None
+    )
+    
+    # If using cookies
+    response.delete_cookie("access_token")
+    return {"message": "Logged out successfully"}

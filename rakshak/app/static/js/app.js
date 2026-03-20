@@ -42,6 +42,20 @@ document.addEventListener('DOMContentLoaded', () => {
         if (a.getAttribute('href') === path) a.classList.add('active');
     });
 
+    // Hide admin elements if checker
+    if (role === 'checker') {
+        const navUsers = document.getElementById('nav-users');
+        if (navUsers) navUsers.style.display = 'none';
+
+        if (window.location.pathname === '/user-management') {
+            document.body.innerHTML = '<div style="padding: 50px; text-align: center; color: white;"><h2>403 Forbidden</h2><p>Checkers have read-only access.</p><a href="/home" class="rk-btn rk-btn-primary">Go Home</a></div>';
+        }
+
+        const style = document.createElement('style');
+        style.innerHTML = '.admin-only { display: none !important; }';
+        document.head.appendChild(style);
+    }
+
     // Global search
     const searchInput = document.getElementById('globalSearch');
     const searchDrop  = document.getElementById('searchDropdown');

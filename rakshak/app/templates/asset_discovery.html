@@ -22,7 +22,7 @@
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew"   onclick="setFilter('new',this)">New</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf"  onclick="setFilter('confirmed',this)">Confirmed</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fFP"    onclick="setFilter('false_positive',this)">Ignored</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="triggerDiscover()"><i class="bi bi-radar"></i> Discover</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="triggerDiscover()"><i class="bi bi-radar"></i> Discover</button>
       </div>
     </div>
 
@@ -137,7 +137,7 @@ function renderDiscPage() {
       ${extraCols}
       <td class="text-muted fs-12">${fmtDate(item.discovered_at)}</td>
       <td>
-        ${item.status==='new'?`<button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.1);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button>`:''}
+        ${item.status==='new'?`<div class="admin-only d-inline-block"><button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.1);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button></div>`:''}
       </td>
     </tr>`;
   }).join('');

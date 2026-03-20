@@ -9,6 +9,8 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
+from app.dependencies import require_admin, require_any_role
+from app.models.user import User
 
 from app.config import settings
 from app.database import init_db, get_db
@@ -81,6 +83,11 @@ async def login_page(request: Request):
     return templates.TemplateResponse("login.html", {"request": request})
 
 
+@app.get("/reset-password", response_class=HTMLResponse)
+async def reset_password_page(request: Request):
+    return templates.TemplateResponse("reset_password.html", {"request": request})
+
+
 @app.get("/home", response_class=HTMLResponse)
 async def home_page(request: Request):
     return templates.TemplateResponse("home.html", {"request": request})
@@ -124,10 +131,9 @@ async def user_management_page(request: Request):
 # ─── User management API routes ──────────────────────────────────────────────
 
 @app.get("/api/users")
-async def list_users(db: AsyncSession = Depends(get_db)):
+async def list_users(db: AsyncSession = Depends(get_db), current_user=Depends(require_admin)):
     from sqlalchemy import select
     from app.models.user import User
-    from app.dependencies import require_admin
     result = await db.execute(select(User))
     users = result.scalars().all()
     return [{"id": u.id, "email": u.email, "username": u.username,
@@ -138,6 +144,7 @@ async def list_users(db: AsyncSession = Depends(get_db)):
 async def register_endpoint(
     req_data: dict,
     db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
 ):
     from app.services.register_service import RegisterRequest, register_user_endpoint
     from fastapi import HTTPException
