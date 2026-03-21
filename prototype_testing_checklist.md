@@ -18,14 +18,14 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Time Period Filter:** Correctly updates dashboard data widgets based on user-selected date ranges (FR-30).
 
 ## 3. Asset Inventory Management (SF-03)
-- [ ] **Metrics & visual charts:** Accurately display metrics for Web Apps, APIs, and Servers, including Pie/Donut charts for Risk levels and IPv4/v6 (FR-31, FR-32).
-- [ ] **Data Table Operations:** The main inventory table is fully sortable and searchable by Asset Name, URL, IP, Risk, Cert Status, Key length, etc. (FR-33).
-- [ ] **Nameserver records:** Accurately shown for assets (FR-34).
-- [ ] **Manual Addition:** "Add Asset" modal works properly and queues the new asset for background scanning (FR-35).
-- [ ] **Trigger Scans:** The "Scan All" action correctly initiates bulk sequential scans across inventoried assets (FR-35).
-- [ ] **Bulk Import:** CSV/JSON target lists are properly parsed and ingested without errors (FR-36).
+- [x] **Metrics & visual charts:** Accurately display metrics for Web Apps, APIs, and Servers, including Pie/Donut charts for Risk levels and IPv4/v6 (FR-31, FR-32).
+- [x] **Data Table Operations:** The main inventory table is fully sortable and searchable by Asset Name, URL, IP, Risk, Cert Status, Key length, etc. (FR-33).
+- [x] **Nameserver records:** Accurately shown for assets (FR-34).
+- [x] **Manual Addition:** "Add Asset" modal works properly and queues the new asset for background scanning (FR-35).
+- [x] **Trigger Scans:** The "Scan All" action correctly initiates bulk sequential scans across inventoried assets (FR-35).
+- [x] **Bulk Import:** CSV/JSON target lists are properly parsed and ingested without errors (FR-36).
 
-## 4. Asset Discovery Engine (SF-04)
+## 4. Scan Engine & Execution Engine (SF-04)
 - [ ] **Asset Categorization:** Appropriately bins assets into Domains, SSL Certificates, IPs/Subnets, and Software (FR-37).
 - [ ] **Status Filtering:** Can filter assets by New, False Positive/Ignore, Confirmed, and All (FR-38).
 - [ ] **False Positives:** Users can mark assets to be ignored and excluded from future tracking (FR-38).

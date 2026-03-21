@@ -30,6 +30,8 @@ async def list_assets(
     asset_type: Optional[str] = Query(None),
     start: Optional[str] = Query(None),
     end: Optional[str] = Query(None),
+    sort_by: Optional[str] = Query("created_at"),
+    sort_dir: Optional[str] = Query("desc"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
@@ -56,7 +58,14 @@ async def list_assets(
     total_q = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_q.scalar()
 
-    query = query.offset((page - 1) * page_size).limit(page_size).order_by(Asset.created_at.desc())
+    # Apply sorting
+    sort_col = getattr(Asset, sort_by, Asset.created_at)
+    if sort_dir == "asc":
+        query = query.order_by(sort_col.asc())
+    else:
+        query = query.order_by(sort_col.desc())
+
+    query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
     assets = result.scalars().all()
 
@@ -200,13 +209,25 @@ async def update_discovery_status(
 
 @router.get("/nameservers")
 async def list_nameservers(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(10, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
     """FR-34: Nameserver records."""
-    result = await db.execute(select(NameserverRecord))
+    total_q = await db.execute(select(func.count()).select_from(NameserverRecord))
+    total = total_q.scalar()
+
+    query = select(NameserverRecord).offset((page - 1) * page_size).limit(page_size).order_by(NameserverRecord.id.desc())
+    result = await db.execute(query)
     records = result.scalars().all()
-    return [{"id": r.id, "domain": r.domain, "hostname": r.hostname, "ip_address": r.ip_address,
-             "record_type": r.record_type, "ipv6_address": r.ipv6_address,
-             "ttl": r.ttl, "key_length": r.key_length,
-             "cipher_suite_tls": r.cipher_suite_tls, "certificate_authority": r.certificate_authority} for r in records]
+    
+    return {
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "records": [{"id": r.id, "domain": r.domain, "hostname": r.hostname, "ip_address": r.ip_address,
+                    "record_type": r.record_type, "ipv6_address": r.ipv6_address,
+                    "ttl": r.ttl, "key_length": r.key_length,
+                    "cipher_suite_tls": r.cipher_suite_tls, "certificate_authority": r.certificate_authority} for r in records]
+    }

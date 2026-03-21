@@ -5,12 +5,14 @@ Mounts all routers, initializes DB, serves templates + static files.
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Depends
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.dependencies import require_admin, require_any_role
 from app.models.user import User
+from fastapi import HTTPException
+from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db, get_db
@@ -70,8 +72,17 @@ app.include_router(reports.router)
 app.include_router(webhooks.router)
 app.include_router(ws.router)
 
+@app.exception_handler(HTTPException)
+async def custom_http_exception_handler(request: Request, exc: HTTPException):
+    """Redirect to login on 401 if it's a browser navigation, else return standard JSON."""
+    if exc.status_code == 401:
+        accept = request.headers.get("accept", "")
+        # If it's a direct browser request (like a page load or direct link clicking)
+        if "text/html" in accept or "application/xhtml+xml" in accept:
+            return RedirectResponse(url="/login")
+    return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
 
-# ─── Page routes (serve Jinja2 templates) ────────────────────────────────────
+# ─── Page routes (serve Jinja2 templates) ─────────────────────────────────────────
 
 @app.get("/", response_class=HTMLResponse)
 async def root():

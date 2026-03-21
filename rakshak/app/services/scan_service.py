@@ -334,6 +334,43 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
         )
         db.add(asset)
 
+    await db.flush()
+
+    # Create/Update NameserverRecord based on real DNS enumeration
+    hostname = target.replace("https://", "").replace("http://", "").split("/")[0]
+    try:
+        import socket
+        from app.models.asset import NameserverRecord
+
+        ais = socket.getaddrinfo(hostname, None)
+        ips = list(set([ai[4][0] for ai in ais]))
+        for ip in ips:
+            record_type = "AAAA" if ":" in ip else "A"
+            # check if exists
+            existing_ns_query = await db.execute(
+                select(NameserverRecord).where(
+                    NameserverRecord.domain == hostname,
+                    NameserverRecord.ip_address == (ip if record_type == "A" else None),
+                    NameserverRecord.ipv6_address == (ip if record_type == "AAAA" else None)
+                )
+            )
+            if not existing_ns_query.scalar_one_or_none():
+                ns = NameserverRecord(
+                    domain=hostname,
+                    hostname=hostname,
+                    ip_address=ip if record_type == "A" else None,
+                    ipv6_address=ip if record_type == "AAAA" else None,
+                    record_type=record_type,
+                    asset_id=asset.id,
+                    ttl=3600,
+                    key_length=cert.get("key_length"),
+                    cipher_suite_tls=data.get("negotiated_cipher"),
+                    certificate_authority=cert.get("issuer_name")
+                )
+                db.add(ns)
+    except Exception as e:
+        logger.error(f"DNS lookup failed for {hostname}: {e}")
+
     await db.commit()
     logger.info(f"Saved result for {target}: {data.get('pqc_label')}")
 

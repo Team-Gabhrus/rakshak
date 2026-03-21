@@ -47,8 +47,16 @@
     <div class="rk-table-wrap">
       <table class="rk-table">
         <thead><tr>
-          <th>Asset Name</th><th>URL</th><th>IPv4/IPv6</th><th>Type</th><th>Owner</th>
-          <th>Risk</th><th>PQC Label</th><th>TLS</th><th>Key Len</th><th>Last Scan</th>
+          <th class="sortable" onclick="sortBy('name')">Asset Name <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('url')">URL <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('ipv4')">IPv4/IPv6 <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('asset_type')">Type <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('owner')">Owner <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('risk_level')">Risk <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('pqc_label')">PQC Label <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('tls_version')">TLS <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('key_length')">Key Len <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortBy('last_scan')">Last Scan <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
         </tr></thead>
         <tbody id="assetBody"><tr><td colspan="10" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
@@ -67,6 +75,10 @@
         <thead><tr><th>Domain</th><th>Hostname</th><th>IP</th><th>Type</th><th>TTL</th><th>Key Length</th><th>Cipher Suite TLS</th><th>CA</th></tr></thead>
         <tbody id="nsBody"><tr><td colspan="8" class="text-center text-muted py-3">No nameserver records</td></tr></tbody>
       </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-3 px-2">
+      <span class="fs-12 text-muted" id="nsCount"></span>
+      <div id="nsPagination"></div>
     </div>
   </div>
 </div>
@@ -120,6 +132,8 @@
 {% block extra_js %}
 <script>
 let currentPage = 1;
+let currentSortCol = 'created_at';
+let currentSortDir = 'desc';
 let searchTimer;
 
 async function loadMetrics() {
@@ -150,7 +164,7 @@ async function loadAssets(page=1) {
   const search = document.getElementById('assetSearch').value;
   const risk = document.getElementById('riskFilter').value;
   const type = document.getElementById('typeFilter').value;
-  let url = `/api/assets?page=${page}&page_size=15`;
+  let url = `/api/assets?page=${page}&page_size=10`;
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (risk)   url += `&risk=${risk}`;
   if (type)   url += `&asset_type=${type}`;
@@ -158,6 +172,8 @@ async function loadAssets(page=1) {
     if (window._timeFilter.start) url += `&start=${window._timeFilter.start}`;
     if (window._timeFilter.end)   url += `&end=${window._timeFilter.end}`;
   }
+  url += `&sort_by=${currentSortCol}&sort_dir=${currentSortDir}`;
+
   const res = await API.get(url);
   if (!res) return;
   const d = await res.json();
@@ -177,17 +193,34 @@ async function loadAssets(page=1) {
       <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
     </tr>`).join('');
   document.getElementById('assetCount').textContent = `Showing ${d.assets.length} of ${d.total} assets`;
-  const totalPages = Math.ceil(d.total/15);
+  const totalPages = Math.ceil(d.total/10);
   renderPagination('assetPagination', currentPage, totalPages, 'loadAssets');
 }
 
-async function loadNameservers() {
-  const res = await API.get('/api/assets/nameservers');
+let nsPage = 1;
+async function loadNameservers(page = 1) {
+  nsPage = page;
+  const res = await API.get(`/api/assets/nameservers?page=${page}&page_size=10`);
   if (!res) return;
-  const records = await res.json();
+  const d = await res.json();
+  const records = d.records || [];
   const tbody = document.getElementById('nsBody');
-  if (!records.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No records</td></tr>'; return; }
-  tbody.innerHTML = records.map(r => `<tr><td>${r.domain}</td><td>${r.hostname}</td><td>${r.ip_address||'—'}</td><td>${r.record_type}</td><td>${r.ttl||'—'}</td><td>${r.key_length||'—'}</td><td>${r.cipher_suite_tls||'—'}</td><td>${r.certificate_authority||'—'}</td></tr>`).join('');
+  if (!records.length) { tbody.innerHTML = '<tr><td colspan="8" class="text-center text-muted py-3">No records</td></tr>'; document.getElementById('nsCount').textContent=''; document.getElementById('nsPagination').innerHTML=''; return; }
+  tbody.innerHTML = records.map(r => `<tr><td>${r.domain}</td><td>${r.hostname}</td><td>${r.ip_address||r.ipv6_address||'—'}</td><td>${r.record_type}</td><td>${r.ttl||'—'}</td><td>${r.key_length||'—'}</td><td>${r.cipher_suite_tls||'—'}</td><td>${r.certificate_authority||'—'}</td></tr>`).join('');
+  
+  document.getElementById('nsCount').textContent = `Showing ${records.length} of ${d.total} records`;
+  const totalPages = Math.ceil(d.total/10);
+  renderPagination('nsPagination', nsPage, totalPages, 'loadNameservers');
+}
+
+function sortBy(col) {
+  if (currentSortCol === col) {
+    currentSortDir = currentSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    currentSortCol = col;
+    currentSortDir = 'asc';
+  }
+  loadAssets(currentPage);
 }
 
 function searchAssets(q) { clearTimeout(searchTimer); searchTimer = setTimeout(()=>loadAssets(1), 400); }
@@ -211,6 +244,7 @@ async function bulkImport() {
   const res = await fetch('/api/scan/bulk-import', {
     method:'POST', headers:{'Content-Type':'text/plain','Authorization':'Bearer '+API.token}, body: raw
   });
+  if (res.status === 401) { logout(); return; }
   const d = await res.json();
   if (res.ok) { showToast(`Bulk import: ${d.target_count} targets queued as Scan #${d.scan_id}`,'success'); bootstrap.Modal.getInstance(document.getElementById('bulkModal')).hide(); }
   else showToast(d.detail||'Import failed','danger');
@@ -223,6 +257,7 @@ async function scanAll() {
   const targets = d.assets.map(a=>a.url);
   if (!targets.length) { showToast('No assets to scan','warning'); return; }
   const scanRes = await API.post('/api/scan', {targets});
+  if (!scanRes) return;
   const scanData = await scanRes.json();
   showToast(`Scan All started — Scan #${scanData.scan_id}, ${targets.length} targets`,'success');
 }
