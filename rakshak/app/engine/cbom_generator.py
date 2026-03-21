@@ -9,44 +9,6 @@ from datetime import datetime
 from typing import Optional
 
 
-def build_algorithm_entry(cipher_info: dict) -> dict:
-    """Build Annexure-A Algorithm entry from cipher suite data."""
-    name = cipher_info.get("encryption", "Unknown")
-    mode = "GCM" if "GCM" in name else ("CBC" if "CBC" in name else "N/A")
-
-    crypto_functions = []
-    if "AES" in name or "ChaCha" in name:
-        crypto_functions = ["key generation", "encryption", "decryption", "authentication tag generation"]
-    elif "SHA" in name:
-        crypto_functions = ["hashing", "integrity verification"]
-
-    oid_map = {
-        "AES-256-GCM": "2.16.840.1.101.3.4.1.46",
-        "AES-256-CBC": "2.16.840.1.101.3.4.1.42",
-        "AES-128-GCM": "2.16.840.1.101.3.4.1.6",
-        "AES-128-CBC": "2.16.840.1.101.3.4.1.2",
-        "SHA-256": "2.16.840.1.101.3.4.2.1",
-        "SHA-384": "2.16.840.1.101.3.4.2.2",
-        "SHA-512": "2.16.840.1.101.3.4.2.3",
-        "ChaCha20-Poly1305": "1.2.840.113549.1.9.16.3.18",
-        "ML-KEM-768": "2.16.840.1.101.3.4.4.2",
-        "ML-DSA-65": "2.16.840.1.101.3.4.3.18",
-    }
-
-    bits = cipher_info.get("bits", 0)
-    classical_security = bits if bits else 256
-
-    return {
-        "name": name,
-        "asset_type": "algorithm",
-        "primitive": "symmetric-encryption",
-        "mode": mode,
-        "crypto_functions": crypto_functions,
-        "classical_security_level": f"{classical_security} bits",
-        "oid": oid_map.get(name, "unknown"),
-        "list": [name],
-    }
-
 
 def build_key_entry(cipher_info: dict, cert_info: Optional[dict] = None) -> dict:
     """Build Annexure-A Key entry."""
@@ -114,27 +76,78 @@ def generate_cbom(
 
     # Algorithms — from negotiated cipher and all cipher suites
     seen_algs = set()
-    for cs in cipher_suites:
-        alg_entry = build_algorithm_entry(cs)
-        if alg_entry["name"] not in seen_algs:
-            algorithms.append(alg_entry)
-            seen_algs.add(alg_entry["name"])
+    
+    # Internal helper to add alg
+    def add_alg(name, primitive, funcs):
+        if not name or name == "Unknown" or name in seen_algs:
+            return
+        
+        # Determine classical security approximation
+        sec_level = "256 bits"
+        if "384" in name: sec_level = "384 bits"
+        elif "128" in name or "160" in name: sec_level = "128 bits"
+        
+        oid_map = {
+            "AES-256-GCM": "2.16.840.1.101.3.4.1.46",
+            "AES-256-CBC": "2.16.840.1.101.3.4.1.42",
+            "AES-128-GCM": "2.16.840.1.101.3.4.1.6",
+            "AES-128-CBC": "2.16.840.1.101.3.4.1.2",
+            "SHA-256": "2.16.840.1.101.3.4.2.1",
+            "SHA-384": "2.16.840.1.101.3.4.2.2",
+            "SHA-512": "2.16.840.1.101.3.4.2.3",
+            "ChaCha20-Poly1305": "1.2.840.113549.1.9.16.3.18",
+            "CAMELLIA-256-CBC": "1.2.392.200011.61.1.1.1.4",
+            "CAMELLIA-128-CBC": "1.2.392.200011.61.1.1.1.2",
+            "ARIA-256-GCM": "1.2.410.200046.1.1.37",
+            "ARIA-128-GCM": "1.2.410.200046.1.1.34",
+            "ARIA-256-CBC": "1.2.410.200046.1.1.13",
+            "ARIA-128-CBC": "1.2.410.200046.1.1.8",
 
-        # Hashing algorithm entry
-        hsh = cs.get("hashing", "")
-        if hsh and hsh not in seen_algs:
-            algorithms.append({
-                "name": hsh,
-                "asset_type": "algorithm",
-                "primitive": "hash",
-                "mode": "N/A",
-                "crypto_functions": ["hashing", "integrity"],
-                "classical_security_level": "256 bits" if "256" in hsh else ("384 bits" if "384" in hsh else "160 bits"),
-                "oid": {"SHA-256": "2.16.840.1.101.3.4.2.1", "SHA-384": "2.16.840.1.101.3.4.2.2",
-                        "SHA-512": "2.16.840.1.101.3.4.2.3", "SHA-1": "1.3.14.3.2.26"}.get(hsh, "unknown"),
-                "list": [hsh],
-            })
-            seen_algs.add(hsh)
+            "CAMELLIA-256-CBC": "1.2.392.200011.61.1.1.1.4",
+            "CAMELLIA-128-CBC": "1.2.392.200011.61.1.1.1.2",
+            "ARIA-256-GCM": "1.2.410.200046.1.1.37",
+            "ARIA-128-GCM": "1.2.410.200046.1.1.34",
+            "ARIA-256-CBC": "1.2.410.200046.1.1.13",
+            "ARIA-128-CBC": "1.2.410.200046.1.1.8",
+
+            "ML-KEM": "2.16.840.1.101.3.4.4.1",  # Approximate OID mapping
+            "ML-DSA": "2.16.840.1.101.3.4.3.17", # Approximate OID mapping
+            "RSA": "1.2.840.113549.1.1.1",
+            "ECDSA": "1.2.840.10045.2.1",
+            "ECDHE": "1.3.132.1.12"
+        }
+        
+        algorithms.append({
+            "name": name,
+            "asset_type": "algorithm",
+            "primitive": primitive,
+            "mode": "GCM" if "GCM" in name else ("CBC" if "CBC" in name else "N/A"),
+            "crypto_functions": funcs,
+            "classical_security_level": sec_level,
+            "oid": oid_map.get(name, "unknown"),
+            "list": [name],
+        })
+        seen_algs.add(name)
+
+    for cs in cipher_suites:
+        # 1. Encryption
+        enc = cs.get("encryption", "Unknown")
+        funcs_enc = []
+        if "AES" in enc or "ChaCha" in enc or "CAMELLIA" in enc or "ARIA" in enc:
+            funcs_enc = ["key generation", "encryption", "decryption", "authentication tag generation"]
+        add_alg(enc, "symmetric-encryption", funcs_enc)
+
+        # 2. Hashing
+        hsh = cs.get("hashing", "Unknown")
+        add_alg(hsh, "hash", ["hashing", "integrity verification"])
+        
+        # 3. Key Exchange
+        kex = cs.get("key_exchange", "Unknown")
+        add_alg(kex, "key-exchange", ["key generation", "key encapsulation", "agreement"])
+        
+        # 4. Authentication
+        auth = cs.get("authentication", "Unknown")
+        add_alg(auth, "signature", ["digital signature", "authentication"])
 
     # Protocols
     protocols.append(build_protocol_entry(tls_version, cipher_suites))

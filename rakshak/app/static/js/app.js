@@ -258,11 +258,27 @@ function renderPagination(containerId, currentPage, totalPages, onPageChange) {
 }
 
 // ── Date formatter ────────────────────────────────────────────────────────
+
+
+
+
+
+
+
+function shiftToIST(dt) {
+    if (!dt) return null;
+    let d = new Date(dt);
+    // Add 5 hours and 30 minutes (330 minutes) to convert from GMT to IST natively in the frontend
+    d.setMinutes(d.getMinutes() + 330);
+    return d;
+}
+
 function fmtDate(dt) {
     if (!dt) return '—';
-    return new Date(dt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
+    return shiftToIST(dt).toLocaleDateString('en-IN', { day:'2-digit', month:'short', year:'numeric' });
 }
+
 function fmtDateTime(dt) {
     if (!dt) return '—';
-    return new Date(dt).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+    return shiftToIST(dt).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
 }

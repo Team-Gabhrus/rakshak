@@ -84,7 +84,20 @@ def parse_cipher_name(cipher_name: str) -> CipherSuiteInfo:
     elif "CHACHA20" in name_upper:
         enc = "ChaCha20-Poly1305"
         bits = 256
+    elif "CAMELLIA_256" in name_upper or "CAMELLIA256" in name_upper:
+        enc = "CAMELLIA-256-CBC"
+        bits = 256
+    elif "CAMELLIA_128" in name_upper or "CAMELLIA128" in name_upper:
+        enc = "CAMELLIA-128-CBC"
+        bits = 128
+    elif "ARIA_256" in name_upper or "ARIA256" in name_upper:
+        enc = "ARIA-256-GCM" if "GCM" in name_upper else "ARIA-256-CBC"
+        bits = 256
+    elif "ARIA_128" in name_upper or "ARIA128" in name_upper:
+        enc = "ARIA-128-GCM" if "GCM" in name_upper else "ARIA-128-CBC"
+        bits = 128
     elif "3DES" in name_upper:
+
         enc = "3DES"
         bits = 112
     elif "RC4" in name_upper:
