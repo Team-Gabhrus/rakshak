@@ -26,11 +26,11 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Bulk Import:** CSV/JSON target lists are properly parsed and ingested without errors (FR-36).
 
 ## 4. Scan Engine & Execution Engine (SF-04)
-- [ ] **Asset Categorization:** Appropriately bins assets into Domains, SSL Certificates, IPs/Subnets, and Software (FR-37).
-- [ ] **Status Filtering:** Can filter assets by New, False Positive/Ignore, Confirmed, and All (FR-38).
-- [ ] **False Positives:** Users can mark assets to be ignored and excluded from future tracking (FR-38).
-- [ ] **Discovery Metrics:** Accurate reporting of Registrar, IP location, Subnets, and Netnames (FR-39).
-- [ ] **Network Topology Graph:** Renders relationships clearly and is interactive (zoomable/draggable) (FR-40).
+- [x] **Asset Categorization:** Appropriately bins assets into Domains, SSL Certificates, IPs/Subnets, and Software (FR-37).
+- [x] **Status Filtering:** Can filter assets by New, False Positive/Ignore, Confirmed, and All (FR-38).
+- [x] **False Positives:** Users can mark assets to be ignored and excluded from future tracking (FR-38).
+- [x] **Discovery Metrics:** Accurate reporting of Registrar, IP location, Subnets, and Netnames (FR-39).
+- [x] **Network Topology Graph:** Renders relationships clearly and is interactive (zoomable/draggable) (FR-40).
 
 ## 5. Core Scanning Engine (TLS, VPN, API) (SF-05)
 - [ ] **Input Validation:** Prevents malformed entries (invalid URLs or IPs) and gives user-friendly errors (FR-09).

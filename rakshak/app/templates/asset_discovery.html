@@ -67,10 +67,10 @@ let discCurrentPage = 1;
 const discPageSize = 10;
 
 const HEADERS = {
-  domain:     ['Name','Value','Status','Registration Date','Registrar','Discovered','Actions'],
-  ssl_cert:   ['Name','Value','Status','Fingerprint','Certificate Authority','Discovered','Actions'],
-  ip_subnet:  ['Name','Value','Status','Location','ASN','Netname','Discovered','Actions'],
-  software:   ['Name','Value','Status','Version','Vendor','Discovered','Actions'],
+  domain:     ['Name','Value','Status','Source','Registrar','Discovered','Actions'],
+  ssl_cert:   ['Name','Value','Status','Fingerprint / Type','Certificate Authority','Discovered','Actions'],
+  ip_subnet:  ['Name','Value','Status','Location','Subnet','Netname','Discovered','Actions'],
+  software:   ['Name','Value','Status','Version','Product / Vendor','Discovered','Actions'],
 };
 
 function switchTab(cat, btn) {
@@ -125,10 +125,16 @@ function renderDiscPage() {
   tbody.innerHTML = pageData.map(item => {
     const meta = item.metadata || {};
     let extraCols = '';
-    if (currentCategory === 'domain')    extraCols = `<td class="text-muted fs-12">${meta.registration_date||'—'}</td><td class="text-muted fs-12">${meta.registrar||'—'}</td>`;
-    if (currentCategory === 'ssl_cert')  extraCols = `<td class="text-muted fs-12" title="${item.value||''}">${(item.value||'').substring(0,25)}…</td><td class="text-muted fs-12">${meta.ca||'—'}</td>`;
-    if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.location||'—'}</td><td class="text-muted fs-12">${meta.asn||'—'}</td><td class="text-muted fs-12">${meta.netname||'—'}</td>`;
-    if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.vendor||'—'}</td>`;
+    if (currentCategory === 'domain')    extraCols = `<td class="text-muted fs-12">${meta.source||'—'}</td><td class="text-muted fs-12">${meta.registrar||'—'}</td>`;
+    if (currentCategory === 'ssl_cert') {
+        const status = meta.pqc_status || 'unknown';
+        const isSafe = status === 'quantum_safe' || status === 'fully_quantum_safe' || status === 'pqc_ready';
+        const badgeColor = isSafe ? 'text-success' : (status === 'unknown' ? 'text-warning' : 'text-muted');
+        const badgeText = isSafe ? 'Post-Quantum' : (status === 'unknown' ? 'Unknown' : 'Standard');
+        extraCols = `<td class="${badgeColor} fs-12 fw-500" title="${item.value||''}">${badgeText}</td><td class="text-muted fs-12">${meta.issuer||'—'}</td>`;
+    }
+    if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.ip_location||'—'}</td><td class="text-muted fs-12">${meta.subnets||'—'}</td><td class="text-muted fs-12">${meta.netnames||'—'}</td>`;
+    if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.product||'—'}</td>`;
     
     return `<tr>
       <td><strong>${item.name||'—'}</strong></td>
@@ -179,23 +185,25 @@ async function triggerDiscover() {
 
 function renderTopology(items) {
   const canvas = document.getElementById('topoCanvas');
-  document.getElementById('topoLoading').style.display = 'none';
+  const loadingEl = document.getElementById('topoLoading');
+  loadingEl.classList.remove('d-flex');
+  loadingEl.classList.add('d-none');
   const ctx = canvas.getContext('2d');
   canvas.width = canvas.offsetWidth;
   canvas.height = canvas.offsetHeight;
 
   const nodes = items.slice(0,20).map((item, i) => ({
-    x: 60 + (i % 5) * 160,
-    y: 60 + Math.floor(i / 5) * 120,
+    x: 80 + (i % 5) * 160,
+    y: 80 + Math.floor(i / 5) * 120,
     label: (item.name||item.value||'').substring(0,16),
     color: item.status==='confirmed'?'#2ECC71':item.status==='new'?'#3498DB':'#7D8590',
   }));
 
-  ctx.fillStyle = '#0D1117';
-  ctx.fillRect(0,0,canvas.width,canvas.height);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
 
   // Draw edges between all nodes
-  ctx.strokeStyle = 'rgba(44,133,216,0.15)';
+  const isLightMode = document.documentElement.getAttribute('data-theme') === 'light';
+  ctx.strokeStyle = isLightMode ? 'rgba(0,0,0,0.1)' : 'rgba(44,133,216,0.15)';
   ctx.lineWidth = 1;
   for (let i=0; i<nodes.length-1; i++) {
     ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[i+1].x,nodes[i+1].y); ctx.stroke();
@@ -206,7 +214,7 @@ function renderTopology(items) {
     ctx.beginPath(); ctx.arc(n.x,n.y,20,0,Math.PI*2);
     ctx.fillStyle = n.color+'33'; ctx.fill();
     ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = '#E6EDF3'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillStyle = isLightMode ? '#333' : '#E6EDF3'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'center';
     ctx.fillText(n.label, n.x, n.y+35);
   });
 }
