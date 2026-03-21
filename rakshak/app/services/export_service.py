@@ -152,14 +152,15 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
         if "cbom" in data and data["cbom"]:
             story.append(Spacer(1, 10))
             story.append(Paragraph("Latest CBOM Snapshots", styles["Heading2"]))
+            cbom_cell_style = ParagraphStyle("CBOMCell", parent=styles["Normal"], fontSize=9, wordWrap='CJK')
             cbom_data = [["Target", "PQC Label", "Created At"]]
             for snap in data["cbom"][:20]:
                 cbom_data.append([
-                    str(snap.get("target", ""))[:40],
+                    Paragraph(str(snap.get("target", "")), cbom_cell_style),
                     str(snap.get("pqc_label", "")),
                     str(snap.get("created_at", ""))[:19]
                 ])
-            t2 = Table(cbom_data, colWidths=[200, 100, 120])
+            t2 = Table(cbom_data, colWidths=[240, 100, 120])
             t2.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), HexColor("#3B6A99")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), white),
@@ -174,17 +175,18 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
         # Asset Inventory
         if "inventory" in data and data["inventory"]:
             story.append(Paragraph("Asset Inventory", styles["Heading1"]))
+            cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8, wordWrap='CJK')
             inv_data = [["Name", "URL", "PQC Label", "Risk Level", "TLS Version", "Last Scan"]]
             for asset in data["inventory"][:50]:  # limit for PDF
                 inv_data.append([
-                    str(asset.get("name", ""))[:30],
-                    str(asset.get("url", ""))[:40],
+                    Paragraph(str(asset.get("name", "")), cell_style),
+                    Paragraph(str(asset.get("url", "")), cell_style),
                     str(asset.get("pqc_label", "")),
                     str(asset.get("risk", "")),
                     str(asset.get("tls_version", "")),
                     str(asset.get("last_scan", ""))[:19],
                 ])
-            t = Table(inv_data, colWidths=[80, 120, 80, 60, 60, 80])
+            t = Table(inv_data, colWidths=[110, 150, 70, 60, 50, 80])
             t.setStyle(TableStyle([
                 ("BACKGROUND", (0, 0), (-1, 0), HexColor("#2C5F8A")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), white),
