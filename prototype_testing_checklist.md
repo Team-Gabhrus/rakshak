@@ -57,9 +57,9 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Certificate Chain Visualization:** Displays interactive tree mapping with quantum-safety indicators assigned correctly to each node level (FR-14).
 
 ## 8. Cyber Rating System (SF-08)
-- [ ] **Score Generation:** Automatically computes the Consolidated Enterprise-Level Cyber-Rating Score out of 1000 correctly based on assets (FR-47).
-- [ ] **Status Mapping:** The classification table accurately categorizes results into Tiers (Elite to Critical) (FR-48, FR-49).
-- [ ] **Historical Trend Line:** Time-series plotting correctly displays upward/downward organizational progress over days/weeks (FR-50).
+- [x] **Score Generation:** Automatically computes the Consolidated Enterprise-Level Cyber-Rating Score out of 1000 correctly based on assets (FR-47).
+- [x] **Status Mapping:** The classification table accurately categorizes results into Tiers (Elite to Critical) (FR-48, FR-49).
+- [x] **Historical Trend Line:** Time-series plotting correctly displays upward/downward organizational progress over days/weeks (FR-50).
 
 ## 9. Enterprise Reporting & Export (SF-09)
 - [ ] **Exports Output:** Test downloads for JSON, XML, CSV, and PDF complete successfully (FR-15).
