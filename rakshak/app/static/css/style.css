@@ -318,7 +318,7 @@ body.rk-body {
 /* ── Gauge / Score dial ───────────────────────────────── */
 .rk-gauge-wrap { position: relative; display: inline-flex; align-items: center; justify-content: center; }
 .rk-gauge-score {
-    text-align: center;
+    text-align: center; margin-top: 40px;
     font-size: 36px; font-weight: 900; color: var(--rk-text);
 }
 .rk-gauge-label { font-size: 12px; color: var(--rk-text-muted); margin-top: 4px; }

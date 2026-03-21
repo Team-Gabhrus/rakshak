@@ -70,9 +70,9 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Real-time API Webhooks:** The scanner successfully POSTs to a configured endpoint on critical findings or scan completions (FR-21).
 
 ## 10. Non-Functional & System Considerations
-- [ ] **Execution Speed Limit:** A single target endpoint fully scans in under **30 seconds**.
-- [ ] **Concurrency Validation:** The core algorithm handles multiple target executions efficiently (aiming toward 50 concurrent scale).
-- [ ] **Frontend Performance:** Dashboard metrics and UI renders complete within **3 seconds**.
-- [ ] **Report Execution TTT:** On-demand exports structure and build completely in under **5 seconds**.
-- [ ] **System Failover Recovery:** If a mock failure is triggered mid-scan, the system restarts cleanly with its last state pulled up safely via the DB without data corruption.
-- [ ] **Passive Scanning Integrity:** Ensure the scanner does not attempt any payload injection, modify state, or leave residual artifacts on target banking applications.
+- [x] **Execution Speed Limit:** A single target endpoint fully scans in under **30 seconds**.
+- [x] **Concurrency Validation:** The core algorithm handles multiple target executions efficiently (aiming toward 50 concurrent scale).
+- [x] **Frontend Performance:** Dashboard metrics and UI renders complete within **3 seconds**.
+- [x] **Report Execution TTT:** On-demand exports structure and build completely in under **5 seconds**.
+- [x] **System Failover Recovery:** If a mock failure is triggered mid-scan, the system restarts cleanly with its last state pulled up safely via the DB without data corruption.
+- [x] **Passive Scanning Integrity:** Ensure the scanner does not attempt any payload injection, modify state, or leave residual artifacts on target banking applications.

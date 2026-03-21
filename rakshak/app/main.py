@@ -28,11 +28,43 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI):
     """Initialize database and seed default admin user on startup."""
     await init_db()
+    await recover_interrupted_scans()
+    await recover_interrupted_scans()
     await seed_default_users()
     logger.info("Rakshak started successfully")
     yield
     logger.info("Rakshak shutting down")
 
+
+
+async def recover_interrupted_scans():
+    from app.database import AsyncSessionLocal
+    from sqlalchemy import select
+    from app.models.scan import Scan, ScanStatus
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Scan).where(Scan.status == ScanStatus.running))
+            interrupted = result.scalars().all()
+            for scan in interrupted:
+                scan.status = ScanStatus.failed
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Error recovering interrupted scans: {e}")
+
+
+async def recover_interrupted_scans():
+    from app.database import AsyncSessionLocal
+    from sqlalchemy import select
+    from app.models.scan import Scan, ScanStatus
+    try:
+        async with AsyncSessionLocal() as db:
+            result = await db.execute(select(Scan).where(Scan.status == ScanStatus.running))
+            interrupted = result.scalars().all()
+            for scan in interrupted:
+                scan.status = ScanStatus.failed
+            await db.commit()
+    except Exception as e:
+        logger.error(f"Error recovering interrupted scans: {e}")
 
 async def seed_default_users():
     """Create default admin + checker users if they don't exist."""
