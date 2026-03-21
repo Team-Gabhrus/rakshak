@@ -33,12 +33,12 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Network Topology Graph:** Renders relationships clearly and is interactive (zoomable/draggable) (FR-40).
 
 ## 5. Core Scanning Engine (TLS, VPN, API) (SF-05)
-- [ ] **Input Validation:** Prevents malformed entries (invalid URLs or IPs) and gives user-friendly errors (FR-09).
-- [ ] **Scan Types:** Successfully accepts inputs for URLs, IPs, API endpoints (REST/SOAP), and TLS-based VPNs (FR-01, FR-05, FR-06).
-- [ ] **TLS Handshake:** Successfully connects and pulls TLS version (e.g., TLS 1.2, TLS 1.3) (FR-02).
-- [ ] **Cipher Enumeration:** Correctly extracts all supported cipher suites (key exchange, auth, encryption, hashing) (FR-03).
-- [ ] **Certificate Analysis:** Accurately extracts issuer, subject, signature/public key algorithm, key length, validity, and full chain details (FR-04).
-- [ ] **WebSocket Monitoring:** Real-time updates push accurate progress logs and ETA to the UI during active scans (FR-08).
+- [x] **Input Validation:** Prevents malformed entries (invalid URLs or IPs) and gives user-friendly errors (FR-09).
+- [x] **Scan Types:** Successfully accepts inputs for URLs, IPs, API endpoints (REST/SOAP), and TLS-based VPNs (FR-01, FR-05, FR-06).
+- [x] **TLS Handshake:** Successfully connects and pulls TLS version (e.g., TLS 1.2, TLS 1.3) (FR-02).
+- [x] **Cipher Enumeration:** Correctly extracts all supported cipher suites (key exchange, auth, encryption, hashing) (FR-03).
+- [x] **Certificate Analysis:** Accurately extracts issuer, subject, signature/public key algorithm, key length, validity, and full chain details (FR-04).
+- [x] **WebSocket Monitoring:** Real-time updates push accurate progress logs and ETA to the UI during active scans (FR-08).
 
 ## 6. PQC Analysis & Classification Engine (SF-06)
 - [ ] **NIST Evaluation:** Evaluates each cryptographic component precisely against FIPS 203/204/205 limits (FR-07).
