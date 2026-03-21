@@ -1,0 +1,16 @@
+name,url,pqc_label,risk,tls_version,last_scan
+internetbanking.pnbindia.in,https://internetbanking.pnbindia.in,not_quantum_safe,critical,,2026-03-21 07:18:03.653752
+tls13.cloudflare.com,https://tls13.cloudflare.com,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:18:03.622184
+newsapi.org,https://newsapi.org/v2/everything?q=Apple&from=2026-03-17&sortBy=popularity&apiKey=e2e16856be41429bbef71c0c9a0c42b0,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:17:52.741750
+kgts-dev-backend.vercel.app,https://kgts-dev-backend.vercel.app/api/events?page=1&limit=3,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:17:45.241203
+kgts-dev-backend.vercel.app,https://kgts-dev-backend.vercel.app/api/blogs,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:17:32.098771
+Test Asset,https://badssl.com,not_quantum_safe,critical,TLS 1.2,2026-03-21 07:17:18.745895
+example.com,https://example.com,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:16:03.411139
+Test PQC Safe Asset,https://safe.pnb.in,not_quantum_safe,critical,,2026-03-21 07:15:48.218739
+Test Legacy Asset,https://legacy.pnb.in,not_quantum_safe,critical,,2026-03-21 07:15:48.214185
+Test Safe Asset,https://safe.test.pnb.in,not_quantum_safe,critical,,2026-03-21 07:15:48.209489
+cloudflare.com,https://cloudflare.com,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:15:48.202119
+,,unknown,unknown,,None
+Cloudflare PQ API,https://pq.cloudflareresearch.com,pqc_ready,medium,TLS 1.3,2026-03-21 07:15:38.193493
+GitHub API,https://api.github.com,not_quantum_safe,critical,TLS 1.3,2026-03-21 07:15:22.404033
+OQS Test Server,https://test.openquantumsafe.org,fully_quantum_safe,low,TLS 1.3,2026-03-21 07:15:07.970475

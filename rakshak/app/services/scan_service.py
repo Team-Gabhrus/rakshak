@@ -8,6 +8,7 @@ import json
 import re
 import ipaddress
 import logging
+from app.services.webhook_service import trigger_webhooks
 from datetime import datetime
 from typing import Optional, Callable
 from sqlalchemy.ext.asyncio import AsyncSession

@@ -62,12 +62,12 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **Historical Trend Line:** Time-series plotting correctly displays upward/downward organizational progress over days/weeks (FR-50).
 
 ## 9. Enterprise Reporting & Export (SF-09)
-- [ ] **Exports Output:** Test downloads for JSON, XML, CSV, and PDF complete successfully (FR-15).
-- [ ] **PDF Protection:** Configured PDF exports securely require the user-defined password to open and contain graphs/charts (FR-20).
-- [ ] **On-Demand Reporting:** Selectively includes only the modules chosen in the configuration checks (FR-18).
-- [ ] **Scheduled Reporting:** Works correctly according to the cron/interval selected (Daily/Weekly/Monthly) (FR-17).
-- [ ] **Delivery Channels:** Reports reach configured local directories, Emails, and/or Slack webhooks correctly (FR-19).
-- [ ] **Real-time API Webhooks:** The scanner successfully POSTs to a configured endpoint on critical findings or scan completions (FR-21).
+- [x] **Exports Output:** Test downloads for JSON, XML, CSV, and PDF complete successfully (FR-15).
+- [x] **PDF Protection:** Configured PDF exports securely require the user-defined password to open and contain graphs/charts (FR-20).
+- [x] **On-Demand Reporting:** Selectively includes only the modules chosen in the configuration checks (FR-18).
+- [x] **Scheduled Reporting:** Works correctly according to the cron/interval selected (Daily/Weekly/Monthly) (FR-17).
+- [x] **Delivery Channels:** Reports reach configured local directories, Emails, and/or Slack webhooks correctly (FR-19).
+- [x] **Real-time API Webhooks:** The scanner successfully POSTs to a configured endpoint on critical findings or scan completions (FR-21).
 
 ## 10. Non-Functional & System Considerations
 - [ ] **Execution Speed Limit:** A single target endpoint fully scans in under **30 seconds**.
