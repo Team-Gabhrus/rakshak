@@ -1,8 +1,8 @@
 [phases.setup]
-nixPkgs = ["python311", "gcc"]
+nixPkgs = ["python311", "gcc", "stdenv.cc.cc.lib"]
 
 [phases.install]
-cmds = ["python -m venv /opt/venv", ". /opt/venv/bin/activate && cd rakshak && pip install -U pip && pip install -r requirements.txt"]
+cmds = ["python -m venv /opt/venv", ". /opt/venv/bin/activate && cd rakshak && pip install -U pip && pip install greenlet && pip install -r requirements.txt"]
 
 [start]
 cmd = ". /opt/venv/bin/activate && cd rakshak && uvicorn app.main:app --host 0.0.0.0 --port $PORT"
