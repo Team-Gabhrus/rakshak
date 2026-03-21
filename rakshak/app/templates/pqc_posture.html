@@ -85,7 +85,9 @@ async function loadPQCPosture() {
 
   renderPQCTable(currentPQCTab);
   renderRecommendations(pqcData.improvement_recommendations || []);
-  renderRiskTimeline();
+  if (pqcData.risk_timeline) {
+      renderRiskTimeline(pqcData.risk_timeline);
+  }
 }
 
 function switchPQCTab(tab, btn) {
@@ -154,39 +156,59 @@ function nextPQCPage() {
 function renderRecommendations(recs) {
   if (!recs.length) { document.getElementById('improveRecs').innerHTML = '<p class="text-muted fs-13">Run a scan to generate recommendations.</p>'; return; }
   const priorityColor = {Critical:'#E74C3C',High:'#E67E22',Medium:'#F1C40F',Informational:'#7D8590'};
-  document.getElementById('improveRecs').innerHTML = recs.slice(0,10).map(r => `
-    <div class="d-flex align-items-start gap-3 py-3" style="border-bottom:1px solid var(--rk-border)">
-      <span class="rk-badge-label" style="background:${priorityColor[r.priority]||'#7D8590'}22;color:${priorityColor[r.priority]||'#7D8590'};border:1px solid ${priorityColor[r.priority]||'#7D8590'}44;white-space:nowrap">${r.priority}</span>
-      <div>
-        <div class="fs-13 fw-700">${r.component||'General'}</div>
-        <div class="fs-12 text-muted">${r.action}</div>
-        <div class="fs-12 text-muted mt-1">↳ ${r.target||''}</div>
+  const iconMap = {'Key Exchange': 'bi-key', 'Authentication': 'bi-person-badge', 'Encryption': 'bi-shield-lock', 'Hashing': 'bi-hash', 'General': 'bi-info-circle'};
+
+  document.getElementById('improveRecs').innerHTML = `<div class="row g-3">` + recs.slice(0,10).map(r => `
+    <div class="col-md-6 col-lg-12">
+      <div class="rk-card p-3 h-100" style="border-left: 4px solid ${priorityColor[r.priority]||'#7D8590'}">
+        <div class="d-flex justify-content-between align-items-start mb-2">
+          <div class="d-flex align-items-center gap-2">
+            <div style="width: 32px; height: 32px; border-radius: 8px; background: ${priorityColor[r.priority]||'#7D8590'}15; color: ${priorityColor[r.priority]||'#7D8590'}; display: flex; align-items: center; justify-content: center;">
+              <i class="bi ${iconMap[r.component] || iconMap['General']} fs-5"></i>
+            </div>
+            <strong class="fs-14">${r.component||'General'}</strong>
+          </div>
+          <span class="badge" style="background:${priorityColor[r.priority]||'#7D8590'}22;color:${priorityColor[r.priority]||'#7D8590'}; border: 1px solid ${priorityColor[r.priority]||'#7D8590'}44;">${r.priority.toUpperCase()}</span>
+        </div>
+        <p class="fs-13 mb-3 text-body-secondary lh-sm">${r.action}</p>
+        <div class="mt-auto pt-2 fs-12 text-muted" style="border-top: 1px dashed var(--rk-border);">
+          <i class="bi bi-link-45deg me-1"></i> Affected Asset: <span class="text-truncate d-inline-block align-bottom" style="max-width: 250px;">${r.target||''}</span>
+        </div>
       </div>
-    </div>`).join('');
+    </div>
+  `).join('') + `</div>`;
 }
 
-function renderRiskTimeline() {
-  const phases = [
-    {year:'2024–2026',label:'Immediate',desc:'Inventory cryptographic assets. Identify HNDL-exposed data. Clone CBOM baseline.',color:'#E74C3C'},
-    {year:'2026–2028',label:'Short-Term',desc:'Deploy hybrid PQC+classical TLS. Prioritize long-lived secrets and sensitive data channels.',color:'#E67E22'},
-    {year:'2028–2032',label:'Medium-Term',desc:'Full ML-KEM and ML-DSA migration across all public-facing systems.',color:'#F1C40F'},
-    {year:'2032+',    label:'Long-Term',desc:'Operate fully quantum-safe infrastructure. Monitor NIST PQC evolution.',color:'#2ECC71'},
-  ];
-  document.getElementById('riskTimeline').innerHTML = `
-    <div class="p-3" style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.2);border-radius:10px;margin-bottom:16px">
-      <div class="d-flex align-items-center gap-2 mb-1">
-        <i class="bi bi-exclamation-triangle-fill text-red"></i>
-        <strong class="text-red">HNDL Risk — Active Now</strong>
+function renderRiskTimeline(timelineData) {
+  if (!timelineData || !timelineData.phases) return;
+  const riskColor = {critical:'#E74C3C',high:'#E67E22',medium:'#F1C40F',low:'#2ECC71'};
+  
+  let exposureHtml = '';
+  if (timelineData.hndl_exposure) {
+     exposureHtml = `
+      <div class="p-3 mb-3" style="background:rgba(231,76,60,0.05);border:1px solid rgba(231,76,60,0.2);border-radius:8px">
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <i class="bi bi-exclamation-triangle-fill text-red"></i>
+          <strong class="text-red">HNDL Risk — ${timelineData.hndl_exposure.risk} (${timelineData.hndl_exposure.year_range})</strong>
+        </div>
+        <p class="fs-12 text-muted mb-0">${timelineData.hndl_exposure.description}</p>
+        ${timelineData.vulnerable_kex || timelineData.vulnerable_auth ? '<div class="text-red fs-12 mt-2 fw-bold"><i class="bi bi-shield-x me-1"></i> Vulnerable classical algorithms detected in environment!</div>' : '<div class="text-green fs-12 mt-2 fw-bold"><i class="bi bi-shield-check me-1"></i> No vulnerable classical KX/Auth detected currently.</div>'}
       </div>
-      <p class="fs-12 text-muted mb-0">Adversaries may be intercepting encrypted traffic today for future quantum decryption. Prioritize high-sensitivity channels immediately.</p>
-    </div>
+     `;
+  }
+
+  document.getElementById('riskTimeline').innerHTML = `
+    ${exposureHtml}
     <div class="d-flex gap-3 flex-wrap">
-      ${phases.map(p=>`<div class="rk-card" style="flex:1;min-width:180px;border-left:3px solid ${p.color}">
-        <div class="fs-12 text-muted">${p.year}</div>
-        <div class="fw-700 mb-1" style="color:${p.color}">${p.label}</div>
-        <div class="fs-12 text-muted">${p.desc}</div>
-      </div>`).join('')}
-    </div>`;
+      ${timelineData.phases.map(p => `
+        <div class="rk-card" style="flex:1;min-width:180px;border-left:3px solid ${riskColor[p.risk_level] || '#7D8590'}">
+          <div class="fs-12 text-muted">${p.year}</div>
+          <div class="fw-700 mb-1" style="color:${riskColor[p.risk_level] || '#7D8590'}">${p.phase}</div>
+          <div class="fs-12 text-muted">${p.action}</div>
+        </div>
+      `).join('')}
+    </div>
+  `;
 }
 
 async function loadPlaybook(assetId) {

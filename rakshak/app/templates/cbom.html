@@ -16,13 +16,12 @@
     <div class="col-6 col-xl"><div class="rk-stat-card"><div class="rk-stat-icon rk-icon-red"><i class="bi bi-exclamation-octagon-fill"></i></div><div><div class="rk-stat-value" id="mCertIssues">—</div><div class="rk-stat-label">Cert Issues</div></div></div></div>
   </div>
 
-  <!-- Analytical charts -->
-  <div class="row g-3 mb-4">
-    <div class="col-md-6"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Cipher Usage Distribution</div><div class="rk-chart-body"><canvas id="cipherChart"></canvas></div></div></div>
-    <div class="col-md-6"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Key Length Distribution</div><div class="rk-chart-body"><canvas id="keyLenChart"></canvas></div></div></div>
-  </div>
-
-  <!-- CBOM Table -->
+    <!-- Analytical charts -->
+    <div class="row g-3 mb-4">
+      <div class="col-md-4"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Cipher Usage Distribution</div><div class="rk-chart-body"><canvas id="cipherChart"></canvas></div></div></div>
+      <div class="col-md-4"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Key Length Distribution</div><div class="rk-chart-body"><canvas id="keyLenChart"></canvas></div></div></div>
+      <div class="col-md-4"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Encryption Protocols</div><div class="rk-chart-body"><canvas id="protocolChart"></canvas></div></div></div>
+    </div>  <!-- CBOM Table -->
   <div class="rk-card mb-4">
     <div class="rk-section-title">CBOM Snapshots</div>
     <div class="rk-table-wrap">
@@ -91,44 +90,50 @@ let currentCBOM = null;
 let cbomCurrentPage = 1;
 const cbomPageSize = 10;
 
-async function loadCBOMMetrics() {
-  const res = await API.get('/api/cbom/metrics');
-  if (!res) return;
-  const d = await res.json();
-  document.getElementById('mTotalApps').textContent = d.total_applications||0;
-  document.getElementById('mSitesSurveyed').textContent = d.sites_surveyed||0;
-  document.getElementById('mActiveCerts').textContent = d.active_certificates||0;
-  document.getElementById('mWeakCrypto').textContent = d.weak_cryptography||0;
-  document.getElementById('mCertIssues').textContent = d.certificate_issues||0;
-}
+  async function loadCBOMMetrics() {
+    const res = await API.get('/api/cbom/metrics');
+    if (!res) return;
+    const d = await res.json();
+    document.getElementById('mTotalApps').textContent = d.total_applications||0;
+    document.getElementById('mSitesSurveyed').textContent = d.sites_surveyed||0;
+    document.getElementById('mActiveCerts').textContent = d.active_certificates||0;
+    document.getElementById('mWeakCrypto').textContent = d.weak_cryptography||0;
+    document.getElementById('mCertIssues').textContent = d.certificate_issues||0;
 
-async function loadCBOMList() {
-  const res = await API.get('/api/cbom');
-  if (!res) return;
-  cbomSnapshots = await res.json();
-  
-  if (!cbomSnapshots.length) { 
-    document.getElementById('cbomBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No CBOM snapshots yet. Run a scan first.</td></tr>'; 
-    document.getElementById('cbomPagination').classList.add('d-none');
-    return; 
+    if (d.cipher_dist && Object.keys(d.cipher_dist).length) {
+      const topCiphers = Object.entries(d.cipher_dist).sort((a,b)=>b[1]-a[1]).slice(0,6);
+      createBarChart('cipherChart', topCiphers.map(x=>x[0]), [{label:'Usage', data:topCiphers.map(x=>x[1]), backgroundColor:'rgba(44,133,216,0.7)'}]);
+    }
+    if (d.key_length_dist && Object.keys(d.key_length_dist).length) {
+      const kl = d.key_length_dist;
+      const klLabels = ['1024','2048','3072','4096'];
+      const klData = klLabels.map(l => kl[l] || 0);
+      createBarChart('keyLenChart', klLabels, [{label:'Keys', data:klData, backgroundColor:['#E74C3C','#F1C40F','#3498DB','#2ECC71']}]);
+    }
+    if (d.protocol_dist && Object.keys(d.protocol_dist).length) {
+      const topProtos = Object.entries(d.protocol_dist).sort((a,b)=>b[1]-a[1]).slice(0,6);
+      createBarChart('protocolChart', topProtos.map(x=>x[0]), [{label:'Endpoints', data:topProtos.map(x=>x[1]), backgroundColor:['#8E44AD','#9B59B6','#2980B9','#3498DB','#1ABC9C']}]);
+    }
   }
 
-  cbomCurrentPage = 1;
-  renderCBOMPage();
+  async function loadCBOMList() {
+    const res = await API.get('/api/cbom');
+    if (!res) return;
+    cbomSnapshots = await res.json();
+    
+    if (!cbomSnapshots.length) { 
+      document.getElementById('cbomBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No CBOM snapshots yet. Run a scan first.</td></tr>';
+      document.getElementById('cbomPagination').classList.add('d-none');
+      return; 
+    }
 
-  // Charts from snapshot data
-  const ciphers = {};
-  const keyLens = {'1024':0,'2048':0,'3072':0,'4096':0};
-  cbomSnapshots.forEach(s => {
-    if (s.target) ciphers[s.target.replace('https://','').split('/')[0]] = (ciphers[s.target]||0)+1;
-  });
-  createBarChart('cipherChart', Object.keys(ciphers).slice(0,6), [{label:'Snapshots',data:Object.values(ciphers).slice(0,6),backgroundColor:'rgba(44,133,216,0.7)'}]);
-  createBarChart('keyLenChart',['1024','2048','3072','4096'],[{label:'Assets',data:[1,cbomSnapshots.length,2,1],backgroundColor:['#E74C3C','#F1C40F','#3498DB','#2ECC71']}]);
+    cbomCurrentPage = 1;
+    renderCBOMPage();
 
-  // Snapshot selectors for comparison
-  const opts = cbomSnapshots.map(s=>`<option value="${s.id}">#${s.id} — ${s.target} (${fmtDate(s.created_at)})</option>`).join('');
-  document.getElementById('snapA').innerHTML = opts;
-  document.getElementById('snapB').innerHTML = opts;
+    // Snapshot selectors for comparison
+    const opts = cbomSnapshots.map(s=>`<option value="${s.id}">#${s.id} — ${s.target} (${fmtDate(s.created_at)})</option>`).join('');
+    document.getElementById('snapA').innerHTML = opts;
+    document.getElementById('snapB').innerHTML = opts;
 }
 
 function renderCBOMPage() {

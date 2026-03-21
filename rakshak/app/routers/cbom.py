@@ -36,12 +36,18 @@ async def cbom_metrics(
     weak_crypto = 0
     cert_issues = 0
 
+    cipher_dist = {}
+    key_length_dist = {}
+    protocol_dist = {}
+
+    from datetime import datetime
     for s in snaps:
         if s.pqc_label in ("not_quantum_safe", "quantum_safe"):
             weak_crypto += 1
+        
+        # Cert issues and total certs
         certs = json.loads(s.certificates_json or "[]")
         active_certs += len(certs)
-        from datetime import datetime
         for cert in certs:
             exp = cert.get("not_valid_after")
             if exp:
@@ -51,36 +57,37 @@ async def cbom_metrics(
                 except Exception:
                     pass
 
+        # Cipher dist
+        algs = json.loads(s.algorithms_json or "[]")
+        for alg in algs:
+            name = alg.get("name")
+            if name:
+                cipher_dist[name] = cipher_dist.get(name, 0) + 1
+
+        # Key dist
+        keys = json.loads(s.keys_json or "[]")
+        for k in keys:
+            size_str = k.get("size", "")
+            if size_str:
+                size = size_str.replace(" bits", "")
+                key_length_dist[size] = key_length_dist.get(size, 0) + 1
+
+        # Protocol dist
+        protos = json.loads(s.protocols_json or "[]")
+        for p in protos:
+            version = p.get("version", "Unknown")
+            if version:
+                protocol_dist[version] = protocol_dist.get(version, 0) + 1
+
     return {
         "total_applications": total_apps,
         "sites_surveyed": len(snaps),
         "active_certificates": active_certs,
         "weak_cryptography": weak_crypto,
         "certificate_issues": cert_issues,
-    }
-
-
-@router.get("/{snap_id}")
-async def get_cbom(
-    snap_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(require_any_role),
-):
-    """FR-10: Full CBOM for a specific snapshot."""
-    result = await db.execute(select(CBOMSnapshot).where(CBOMSnapshot.id == snap_id))
-    snap = result.scalar_one_or_none()
-    if not snap:
-        raise HTTPException(status_code=404, detail="CBOM snapshot not found")
-    return {
-        "id": snap.id,
-        "target": snap.target_url,
-        "pqc_label": snap.pqc_label,
-        "created_at": snap.created_at,
-        "snapshot_hash": snap.snapshot_hash,
-        "algorithms": json.loads(snap.algorithms_json or "[]"),
-        "keys": json.loads(snap.keys_json or "[]"),
-        "protocols": json.loads(snap.protocols_json or "[]"),
-        "certificates": json.loads(snap.certificates_json or "[]"),
+        "cipher_dist": cipher_dist,
+        "key_length_dist": key_length_dist,
+        "protocol_dist": protocol_dist,
     }
 
 
@@ -116,6 +123,30 @@ async def compare_snapshots(
         "certificates": json.loads(b.certificates_json or "[]"),
     }
     return diff_cbom_snapshots(snap_a_dict, snap_b_dict)
+
+
+@router.get("/{snap_id}")
+async def get_cbom(
+    snap_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """FR-10: Full CBOM for a specific snapshot."""
+    result = await db.execute(select(CBOMSnapshot).where(CBOMSnapshot.id == snap_id))
+    snap = result.scalar_one_or_none()
+    if not snap:
+        raise HTTPException(status_code=404, detail="CBOM snapshot not found")
+    return {
+        "id": snap.id,
+        "target": snap.target_url,
+        "pqc_label": snap.pqc_label,
+        "created_at": snap.created_at,
+        "snapshot_hash": snap.snapshot_hash,
+        "algorithms": json.loads(snap.algorithms_json or "[]"),
+        "keys": json.loads(snap.keys_json or "[]"),
+        "protocols": json.loads(snap.protocols_json or "[]"),
+        "certificates": json.loads(snap.certificates_json or "[]"),
+    }
 
 
 @router.get("/cert-chain/{snap_id}")

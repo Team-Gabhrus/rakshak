@@ -66,10 +66,24 @@ async def get_pqc_posture(
                         "target": sr.target_url,
                     })
 
+    # FR-45 & FR-46 Dynamic Timeline
+    has_vulnerable_kex = False
+    has_vulnerable_auth = False
+    for sr in scan_results:
+        kex = sr.key_exchange or ""
+        auth = sr.authentication or ""
+        if kex and kex not in ["ML-KEM", "ML-KEM-768", "ML-KEM-1024", "Unknown"]:
+            has_vulnerable_kex = True
+        if auth and auth not in ["ML-DSA", "SLH-DSA", "Unknown"]:
+            has_vulnerable_auth = True
+
+    dynamic_timeline = generate_risk_timeline("RSA" if has_vulnerable_kex else "ML-KEM", "RSA" if has_vulnerable_auth else "ML-DSA")
+
     return {
         "categories": categories,
         "counts": {k: len(v) for k, v in categories.items()},
         "improvement_recommendations": recommendations_summary[:20],
+        "risk_timeline": dynamic_timeline,
     }
 
 

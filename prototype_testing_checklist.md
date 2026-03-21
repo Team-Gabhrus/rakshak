@@ -41,20 +41,20 @@ This checklist is an exhaustive list derived directly from the Software Requirem
 - [x] **WebSocket Monitoring:** Real-time updates push accurate progress logs and ETA to the UI during active scans (FR-08).
 
 ## 6. PQC Analysis & Classification Engine (SF-06)
-- [ ] **NIST Evaluation:** Evaluates each cryptographic component precisely against FIPS 203/204/205 limits (FR-07).
-- [ ] **Labeling (🔴 Not Quantum-Safe):** Applied properly to vulnerable classical algorithms like RSA key exchange or SHA-1 (FR-11).
-- [ ] **Labeling (🟡 Quantum-Safe):** Applied if symmetric/hash is safe but key exchange/auth is classical (FR-11).
-- [ ] **Labeling (🔵 PQC Ready):** Applied when key exchange or auth is NIST standard (e.g., ML-KEM) while others are classical (FR-11).
-- [ ] **Labeling (🟢 Fully Quantum Safe):** Applied when all components are PQC/safe (FR-11).
-- [ ] **Remediation:** Generates accurate, algorithmic step-by-step recommendation steps (FR-12).
-- [ ] **Migration Playbooks:** Auto-generates customized templates containing effort and risk estimations (FR-46).
-- [ ] **Quantum Risk Timeline:** Renders a time graph highlighting when specific algorithms become exposed to HNDL (FR-45).
+- [x] **NIST Evaluation:** Evaluates each cryptographic component precisely against FIPS 203/204/205 limits (FR-07).
+ - [x] **Labeling (🔴 Not Quantum-Safe):** Applied properly to vulnerable classical algorithms like RSA key exchange or SHA-1 (FR-11).
+ - [x] **Labeling (🟡 Quantum-Safe):** Applied if symmetric/hash is safe but key exchange/auth is classical (FR-11).
+ - [x] **Labeling (🔵 PQC Ready):** Applied when key exchange or auth is NIST standard (e.g., ML-KEM) while others are classical (FR-11).
+ - [x] **Labeling (🟢 Fully Quantum Safe):** Applied when all components are PQC/safe (FR-11).
+- [x] **Remediation:** Generates accurate, algorithmic step-by-step recommendation steps (FR-12).
+- [x] **Migration Playbooks:** Auto-generates customized templates containing effort and risk estimations (FR-46).
+- [x] **Quantum Risk Timeline:** Renders a time graph highlighting when specific algorithms become exposed to HNDL (FR-45).
 
 ## 7. CBOM Generator (SF-07)
-- [ ] **CERT-IN Annexure-A Format:** Strictly validates generated CBOM across all 4 sections (Algorithms, Keys, Protocols, Certificates) with no missing mandatory fields (FR-10).
-- [ ] **CBOM Visuals:** Graphical distribution of Cipher Usage, Key Lengths, and Encryption protocols is correct (FR-32).
-- [ ] **Snapshot Comparison:** Can compare dates and accurately output an intuitive "diff" highlighting new, removed, and updated assets (FR-13).
-- [ ] **Certificate Chain Visualization:** Displays interactive tree mapping with quantum-safety indicators assigned correctly to each node level (FR-14).
+- [x] **CERT-IN Annexure-A Format:** Strictly validates generated CBOM across all 4 sections (Algorithms, Keys, Protocols, Certificates) with no missing mandatory fields (FR-10).
+- [x] **CBOM Visuals:** Graphical distribution of Cipher Usage, Key Lengths, and Encryption protocols is correct (FR-32).
+- [x] **Snapshot Comparison:** Can compare dates and accurately output an intuitive "diff" highlighting new, removed, and updated assets (FR-13).
+- [x] **Certificate Chain Visualization:** Displays interactive tree mapping with quantum-safety indicators assigned correctly to each node level (FR-14).
 
 ## 8. Cyber Rating System (SF-08)
 - [ ] **Score Generation:** Automatically computes the Consolidated Enterprise-Level Cyber-Rating Score out of 1000 correctly based on assets (FR-47).
