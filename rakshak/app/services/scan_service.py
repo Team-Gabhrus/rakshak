@@ -102,8 +102,11 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
 
         completed = 0
         failed = 0
-
-        for idx, target in enumerate(targets):
+        
+        sem = asyncio.Semaphore(50)  # FR-10: Concurrency setup (aiming up to 50)
+        
+        async def process_target(idx, target):
+            nonlocal completed, failed
             await push_progress(scan_id, {
                 "phase": "scanning",
                 "target": target,
@@ -112,38 +115,46 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 "pct": round((idx / len(targets)) * 100),
                 "message": f"Scanning {target}...",
             })
-
+            
             try:
-                # Run TLS scan in thread pool to avoid blocking event loop
                 loop = asyncio.get_event_loop()
-                scan_result_raw = await loop.run_in_executor(
-                    None,
-                    lambda t=target: asyncio.run(_scan_single(t))
-                )
-
-                # Save scan result
-                await save_scan_result(db, scan_id, target, scan_result_raw)
-                completed += 1
-
-                await push_progress(scan_id, {
-                    "phase": "completed_target",
-                    "target": target,
-                    "current": idx + 1,
-                    "total": len(targets),
-                    "pct": round(((idx + 1) / len(targets)) * 100),
-                    "label": scan_result_raw.get("pqc_label", "unknown"),
-                    "message": f"Completed: {target} → {scan_result_raw.get('pqc_label', 'unknown')}",
-                })
-
+                async with sem:
+                    scan_result_raw = await loop.run_in_executor(
+                        None,
+                        lambda t=target: asyncio.run(_scan_single(t))
+                    )
+                return idx, target, True, scan_result_raw
             except Exception as e:
                 logger.exception(f"Error scanning {target}")
+                return idx, target, False, e
+
+        tasks = [process_target(idx, target) for idx, target in enumerate(targets)]
+        
+        for coro in asyncio.as_completed(tasks):
+            idx, target, success, result_or_err = await coro
+            if success:
+                try:
+                    await save_scan_result(db, scan_id, target, result_or_err)
+                    completed += 1
+                    await push_progress(scan_id, {
+                        "phase": "completed_target",
+                        "target": target,
+                        "current": idx + 1,
+                        "total": len(targets),
+                        "pct": round(((idx + 1) / len(targets)) * 100),
+                        "label": result_or_err.get("pqc_label", "unknown"),
+                        "message": f"Completed: {target} → {result_or_err.get('pqc_label', 'unknown')}",
+                    })
+                except Exception as e:
+                    logger.exception(f"Error saving {target}")
+                    failed += 1
+            else:
                 failed += 1
-                # Save failed result
                 failed_result = ScanResult(
                     scan_id=scan_id,
                     target_url=target,
                     status="failed",
-                    error_message=str(e),
+                    error_message=str(result_or_err),
                 )
                 db.add(failed_result)
                 await db.commit()
@@ -151,7 +162,7 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 await push_progress(scan_id, {
                     "phase": "failed_target",
                     "target": target,
-                    "message": f"Failed: {target} — {str(e)}",
+                    "message": f"Failed: {target} — {str(result_or_err)}",
                 })
 
         # Recompute cyber rating
