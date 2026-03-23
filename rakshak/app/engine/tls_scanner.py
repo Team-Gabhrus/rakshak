@@ -14,8 +14,17 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-# ── OQS Docker Fallback Probe ───────────────────────────────────────
+# ── OQS Docker Probe ────────────────────────────────────────────────
 OQS_DOCKER_IMAGE = "openquantumsafe/curl:latest"
+
+# Known PQC public-key sizes (bytes) for display
+PQC_KEY_SIZES = {
+    "ML-DSA-44": 1312, "ML-DSA-65": 1952, "ML-DSA-87": 2592,
+    "MLDSA44": 1312, "MLDSA65": 1952, "MLDSA87": 2592,
+    "Falcon-512": 897, "Falcon-1024": 1793,
+    "FALCON512": 897, "FALCON1024": 1793,
+    "SLH-DSA-128s": 32, "SLH-DSA-128f": 32,
+}
 
 def _docker_available() -> bool:
     """Check if Docker CLI is available."""
@@ -24,7 +33,8 @@ def _docker_available() -> bool:
 def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    Parses openssl s_client -brief output for Signature type, Server Temp Key, etc.
+    Runs full `openssl s_client` (no -brief) to get complete cert chain,
+    Signature Algorithm, Public-Key size, subject/issuer details.
     Returns dict with parsed fields or None on failure.
     """
     if not _docker_available():
@@ -35,7 +45,7 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         cmd = [
             "docker", "run", "--rm", "-i",
             OQS_DOCKER_IMAGE,
-            "openssl", "s_client", "-connect", f"{host}:{port}", "-brief",
+            "openssl", "s_client", "-connect", f"{host}:{port}",
         ]
         logger.info(f"OQS probe cmd: {' '.join(cmd)}")
         proc = subprocess.run(
@@ -43,40 +53,77 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         )
         output = (proc.stdout.decode("utf-8", errors="replace") +
                   proc.stderr.decode("utf-8", errors="replace"))
-        logger.info(f"OQS probe raw output for {host}:{port}:\n{output[:500]}")
+        logger.info(f"OQS probe raw output for {host}:{port} ({len(output)} chars)")
 
-        if "CONNECTION ESTABLISHED" not in output:
-            logger.info(f"OQS probe to {host}:{port} did not establish connection")
+        if "CONNECTED" not in output:
+            logger.info(f"OQS probe to {host}:{port} did not connect")
             return None
 
         result = {}
 
-        # Parse key fields from -brief output
+        # Parse from the full s_client output
         for line in output.splitlines():
-            line = line.strip()
-            if line.startswith("Signature type:"):
-                result["signature_type"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Server Temp Key:"):
-                result["server_temp_key"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Ciphersuite:"):
-                result["ciphersuite"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Protocol version:"):
-                result["tls_version"] = line.split(":", 1)[1].strip()
-            elif line.startswith("Peer certificate:"):
-                result["peer_cert"] = line.split(":", 1)[1].strip()
+            stripped = line.strip()
 
-        # Parse intermediate CA CN from depth lines (e.g., "depth=1 CN=oqstest_intermediate_mldsa44")
-        chain_sigs = []
+            # "New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384"
+            if "Cipher is " in stripped:
+                m = re.search(r"Cipher is (\S+)", stripped)
+                if m:
+                    result["ciphersuite"] = m.group(1)
+
+            # "Protocol  : TLSv1.3"
+            if "Protocol" in stripped and ":" in stripped and "TLS" in stripped:
+                m = re.search(r"Protocol\s*:\s*(\S+)", stripped)
+                if m:
+                    result["tls_version"] = m.group(1)
+
+            # "Server Temp Key: X25519, 253 bits"
+            if stripped.startswith("Server Temp Key:"):
+                result["server_temp_key"] = stripped.split(":", 1)[1].strip()
+
+            # "Peer signing digest: ..." or "Signature type: ..." or "Peer signature type: mldsa44"
+            if stripped.startswith("Signature type:") or stripped.startswith("Peer signature type:"):
+                result["signature_type"] = stripped.split(":", 1)[1].strip()
+
+            # "Signature Algorithm: mldsa44"
+            if "Signature Algorithm:" in stripped:
+                sig_algo = stripped.split(":", 1)[1].strip()
+                result.setdefault("signature_algorithms", []).append(sig_algo)
+
+            # "Public-Key: (1312 bit)" or "Public Key Algorithm: mldsa44"
+            if "Public-Key:" in stripped:
+                m = re.search(r"\((\d+) bit\)", stripped)
+                if m:
+                    result.setdefault("public_key_bits", []).append(int(m.group(1)))
+
+            if "Public Key Algorithm:" in stripped:
+                algo = stripped.split(":", 1)[1].strip()
+                result.setdefault("public_key_algos", []).append(algo)
+
+        # Parse depth lines: "depth=0 CN=test.openquantumsafe.org"
+        # and "verify" lines for the chain
+        chain_entries = []
         for line in output.splitlines():
-            m = re.search(r"depth=(\d+)\s+CN=(\S+)", line)
+            m = re.search(r"depth=(\d+)\s+(.+)", line.strip())
             if m:
                 depth = int(m.group(1))
-                cn = m.group(2)
-                chain_sigs.append({"depth": depth, "cn": cn})
+                dn = m.group(2).strip()
+                # Extract CN from the DN string
+                cn_match = re.search(r"CN\s*=\s*(\S+)", dn)
+                cn = cn_match.group(1) if cn_match else dn
+                chain_entries.append({"depth": depth, "cn": cn, "dn": dn})
 
-        result["chain_info"] = sorted(chain_sigs, key=lambda x: x["depth"])
+        # Deduplicate (same depth appears in verify + main output)
+        seen_depths = {}
+        for entry in chain_entries:
+            seen_depths[entry["depth"]] = entry
+        result["chain_info"] = sorted(seen_depths.values(), key=lambda x: x["depth"])
 
-        logger.info(f"OQS probe success for {host}:{port}: sig={result.get('signature_type')}")
+        # Determine the signature type for each chain cert from Signature Algorithm lines
+        sig_algos = result.get("signature_algorithms", [])
+        pk_algos = result.get("public_key_algos", [])
+
+        logger.info(f"OQS probe success: sig_algos={sig_algos}, pk_algos={pk_algos}, chain={result.get('chain_info')}")
         return result
 
     except subprocess.TimeoutExpired:
@@ -350,6 +397,12 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
     oqs_data = _oqs_probe(host, port)
     if oqs_data:
         sig_type = oqs_data.get("signature_type", "")
+        if not _is_pqc_sig(sig_type):
+            for algo in oqs_data.get("signature_algorithms", []):
+                if _is_pqc_sig(algo):
+                    sig_type = algo
+                    break
+                    
         ciphersuite = oqs_data.get("ciphersuite", "")
         tls_ver = oqs_data.get("tls_version", "")
         server_key = oqs_data.get("server_temp_key", "")
@@ -378,11 +431,18 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
             cn = entry.get("cn", "")
             is_pqc_cn = any(p in cn.lower() for p in ["mldsa", "ml-dsa", "dilithium", "falcon", "sphincs", "slh-dsa"])
             sig_ref = oqs_auth if is_pqc_cn else "RSA"
+            
+            key_len = 0
+            if is_pqc_cn and sig_ref:
+                key_len = PQC_KEY_SIZES.get(sig_ref, PQC_KEY_SIZES.get(sig_ref.upper(), 1024))
+            elif not is_pqc_cn:
+                key_len = 2048  # Default classical fallback for mock chain
+
             oqs_chain.append({
                 "name": cn,
                 "signature_algorithm_reference": sig_ref,
                 "key_algorithm": "PQC" if is_pqc_cn else "RSA",
-                "key_length": 0,
+                "key_length": key_len,
                 "asset_type": "certificate",
             })
 

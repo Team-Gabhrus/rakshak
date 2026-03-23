@@ -199,27 +199,36 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             except Exception as e:
                 logger.error(f"Failed to update intermediate db progress: {e}")
 
-        # Recompute cyber rating
-        await recompute_cyber_rating(db)
+        # Recompute cyber rating safely
+        try:
+            await recompute_cyber_rating(db)
+        except Exception as e:
+            logger.error(f"Failed to recompute cyber rating: {e}")
 
         # Mark scan complete
-        result = await db.execute(select(Scan).where(Scan.id == scan_id))
-        scan = result.scalar_one_or_none()
-        if scan:
-            scan.status = ScanStatus.completed
-            scan.completed_at = datetime.utcnow()
-            scan.completed_count = completed
-            scan.failed_count = failed
-            scan.progress_pct = 100.0
-            await db.commit()
+        try:
+            result = await db.execute(select(Scan).where(Scan.id == scan_id))
+            scan = result.scalar_one_or_none()
+            if scan:
+                scan.status = ScanStatus.completed
+                scan.completed_at = datetime.utcnow()
+                scan.completed_count = completed
+                scan.failed_count = failed
+                scan.progress_pct = 100.0
+                await db.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark scan as complete in DB: {e}")
 
-        await push_progress(scan_id, {
-            "phase": "done",
-            "total": len(targets),
-            "completed": completed,
-            "failed": failed,
-            "message": f"Scan complete: {completed} succeeded, {failed} failed.",
-        })
+        try:
+            await push_progress(scan_id, {
+                "phase": "done",
+                "total": len(targets),
+                "completed": completed,
+                "failed": failed,
+                "message": f"Scan complete: {completed} succeeded, {failed} failed.",
+            })
+        except Exception as e:
+            logger.error(f"Failed to push final done progress: {e}")
 
 
 async def _scan_single(target: str) -> dict:

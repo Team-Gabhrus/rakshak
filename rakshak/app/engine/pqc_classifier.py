@@ -33,7 +33,7 @@ PQC_AUTHENTICATION = {"ML-DSA", "ML-DSA-44", "ML-DSA-65", "ML-DSA-87",
                        "DILITHIUM", "SPHINCS+", "FALCON", "FN-DSA"}
 
 # Classical algorithms vulnerable to Shor's algorithm
-CLASSICAL_KX_VULNERABLE = {"RSA", "ECDHE", "ECDH", "DH", "DHE"}
+CLASSICAL_KX_VULNERABLE = {"RSA", "ECDHE", "ECDH", "DH", "DHE", "X25519", "X448", "P-256", "P-384", "P-521"}
 CLASSICAL_AUTH_VULNERABLE = {"RSA", "ECDSA", "DSA"}
 
 
@@ -174,11 +174,10 @@ def classify(
     if leaf_pqc and auth_status != "pqc":
         auth_status = "pqc"
 
-    # If the leaf cert uses a PQC public key / signature, the server
-    # clearly supports PQC — elevate KEX status as well since the TLS
-    # handshake with this server inherently uses PQC key material.
-    if leaf_pqc and kex_status != "pqc":
-        kex_status = "pqc"
+    # NOTE: We do NOT elevate kex_status from cert data. The key exchange
+    # algorithm (X25519, ECDHE-P256 etc.) is determined by the TLS handshake,
+    # not the certificate. A server can have a PQC cert but still use
+    # classical key exchange — this is common today.
 
     details = {
         "key_exchange": {"value": kex, "status": kex_status},
