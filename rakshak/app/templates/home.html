@@ -117,8 +117,17 @@
             <span id="scanMsg">Initializing…</span>
             <span id="scanPct">0%</span>
           </div>
-          <div class="rk-progress"><div class="rk-progress-bar" id="scanBar" style="width:0%"></div></div>
-          <div id="scanLog" class="mt-2 p-2 rounded fs-12 text-muted" style="background:var(--rk-bg);max-height:120px;overflow-y:auto;font-family:monospace"></div>
+          <div class="rk-progress" style="position:relative;overflow:hidden">
+            <div class="rk-progress-bar" id="scanBar" style="width:0%;transition:width 0.4s ease"></div>
+            <div id="scanShimmer" style="position:absolute;top:0;left:-100%;width:100%;height:100%;background:linear-gradient(90deg,transparent,rgba(255,255,255,0.15),transparent);animation:shimmer 1.8s infinite;"></div>
+          </div>
+          <style>
+            @keyframes shimmer { to { left: 100%; } }
+            @keyframes pulse-glow { 0%, 100% { box-shadow: 0 0 4px rgba(52,152,219,0.3); } 50% { box-shadow: 0 0 12px rgba(52,152,219,0.7); } }
+            .rk-progress.scanning { animation: pulse-glow 1.5s ease-in-out infinite; }
+          </style>
+          <div id="scanSubPhase" class="mt-1 fs-12" style="color:var(--rk-accent);font-weight:500;min-height:18px"></div>
+          <div id="scanLog" class="mt-2 p-2 rounded fs-12" style="background:var(--rk-bg);max-height:150px;overflow-y:auto;font-family:monospace;line-height:1.7"></div>
         </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
@@ -153,8 +162,8 @@ async function loadPageData() {
   // PQC donut chart
   const bp = d.pqc_breakdown || {};
   createDonutChart('pqcChart',
-    ['🟢 Fully QS','🔵 PQC Ready','🟡 Quantum-Safe','🔴 Not QS','⚪ Unknown'],
-    [bp.fully_quantum_safe||0, bp.pqc_ready||0, bp.quantum_safe||0, bp.not_quantum_safe||0, bp.unknown||0],
+    ['🟢 Fully QS','🔵 PQC Ready','🟡 Partially QS','❌ Not QS','⚪ Unknown'],
+    [bp.fully_quantum_safe||0, bp.pqc_ready||0, bp.partially_quantum_safe||0, bp.not_quantum_safe||0, bp.unknown||0],
     ['#2ECC71','#3498DB','#F1C40F','#E74C3C','#7D8590']
   );
 
@@ -225,7 +234,9 @@ async function startScan() {
   if (!targets.length) { showToast('Please enter at least one target', 'danger'); return; }
 
   document.getElementById('startScanBtn').disabled = true;
-  document.getElementById('scanProgress').classList.remove('d-none');
+  const progressEl = document.getElementById('scanProgress');
+  progressEl.classList.remove('d-none');
+  document.querySelector('.rk-progress').classList.add('scanning');
 
   const res = await API.post('/api/scan', { targets });
   if (!res) return;
@@ -238,15 +249,34 @@ async function startScan() {
   // WebSocket progress
   const ws = new WebSocket(`ws://${location.host}/ws/scan/${scanId}`);
   const log = document.getElementById('scanLog');
+  const subPhaseEl = document.getElementById('scanSubPhase');
+
   ws.onmessage = (e) => {
     const msg = JSON.parse(e.data);
-    document.getElementById('scanMsg').textContent = msg.message || '';
+    document.getElementById('scanMsg').textContent = `Target ${msg.current||'?'} / ${msg.total||'?'}`;
     document.getElementById('scanPct').textContent = (msg.pct||0) + '%';
     document.getElementById('scanBar').style.width = (msg.pct||0) + '%';
-    log.innerHTML += `<div>${msg.message}</div>`;
+
+    // Sub-phase live status
+    if (msg.sub_phase) {
+      subPhaseEl.textContent = msg.message || '';
+    }
+
+    // Color-coded log entries
+    let logColor = 'var(--rk-text-muted)';
+    let logPrefix = '';
+    if (msg.phase === 'completed_target') { logColor = '#2ECC71'; }
+    else if (msg.phase === 'failed_target') { logColor = '#E74C3C'; }
+    else if (msg.sub_phase === 'oqs') { logColor = '#3498DB'; }
+
+    log.innerHTML += `<div style="color:${logColor};padding:1px 0">${msg.message}</div>`;
     log.scrollTop = log.scrollHeight;
+
     if (msg.phase === 'done') {
       document.getElementById('startScanBtn').disabled = false;
+      document.querySelector('.rk-progress').classList.remove('scanning');
+      document.getElementById('scanShimmer').style.animation = 'none';
+      subPhaseEl.innerHTML = '<span style="color:#2ECC71">✅ Scan complete!</span>';
       showToast('Scan complete!', 'success');
       loadPageData(); loadScans();
     }

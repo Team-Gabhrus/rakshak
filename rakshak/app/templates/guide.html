@@ -26,26 +26,76 @@
                 <tbody>
                     <tr>
                         <td><span class="badge" style="background: rgba(231,76,60,0.1); color: #e74c3c; border: 1px solid #e74c3c; padding: 6px 10px; font-weight: 600;">❌ Not Quantum-Safe</span></td>
-                        <td class="fs-13 text-muted"><strong>HNDL Vulnerable.</strong> The system relies entirely on classical public-key cryptography (like ECDHE, RSA) that is fundamentally broken by a future Quantum Computer running Shor's algorithm.</td>
-                        <td class="fs-13">Classical key exchange (ECDHE or RSA) combined with any symmetric cipher (even AES-256).</td>
+                        <td class="fs-13 text-muted"><strong>No PQC Detected.</strong> No Post-Quantum Cryptography is detected anywhere — neither in the negotiated TLS cipher suite (key exchange) nor in the server's X.509 certificate chain (signature algorithm OIDs). The connection relies entirely on classical cryptography vulnerable to Shor's algorithm.</td>
+                        <td class="fs-13">ECDHE key exchange + RSA/ECDSA certificate + AES-256-GCM. Scan targets: <code>cloudflare.com</code>, <code>google.com</code>.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(241,196,15,0.1); color: #f1c40f; border: 1px solid #f1c40f; padding: 6px 10px; font-weight: 600;">🟡 Partially Quantum-Safe</span></td>
-                        <td class="fs-13 text-muted"><strong>HNDL Protected.</strong> The system deploys PQC protections in Key Exchange to neutralize the "Harvest Now, Decrypt Later" threat, but still relies on classical cryptography for Authentication.</td>
-                        <td class="fs-13">Hybrid PQC Key Exchange (X25519+ML-KEM-768) combined with an RSA-2048 identity certificate.</td>
+                        <td class="fs-13 text-muted"><strong>PQC Detected in One Layer.</strong> At least one PQC algorithm has been detected — either in the negotiated cipher suite (ML-KEM key exchange) or from the server's leaf certificate signature OID (ML-DSA, SLH-DSA). However, full PQC migration across the certificate trust chain is not yet complete.</td>
+                        <td class="fs-13">Server presenting an ML-DSA leaf certificate but with a classical RSA Intermediate CA. Or: ML-KEM key exchange with a classical RSA identity cert.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(52,152,219,0.1); color: #3498db; border: 1px solid #3498db; padding: 6px 10px; font-weight: 600;">🔵 PQC-Ready</span></td>
-                        <td class="fs-13 text-muted"><strong>Transitional Infrastructure.</strong> The underlying architecture supports PQC algorithms across critical layers (e.g. PQC KEX + PQC Authentication) but may still rely on legacy Root CAs.</td>
-                        <td class="fs-13">ML-KEM-768 Key Exchange bonded with an ML-DSA-65 certificate, signed by a legacy RSA Root CA.</td>
+                        <td class="fs-13 text-muted"><strong>PQC in KEX + Auth.</strong> Both the key exchange and the leaf certificate's authentication use PQC algorithms (detected via real X.509 OID parsing). However, at least one Intermediate or Root CA in the trust chain still uses a classical signature, preventing end-to-end quantum resilience.</td>
+                        <td class="fs-13">ML-DSA-65 leaf certificate (OID: 2.16.840.1.101.3.4.3.18) + PQC key exchange, but a Root CA signed with RSA-2048. Scan target: <code>test.openquantumsafe.org</code> (if Root CA is classical).</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(46,204,113,0.1); color: #2ecc71; border: 1px solid #2ecc71; padding: 6px 10px; font-weight: 600;">🟢 Fully Quantum-Safe</span></td>
-                        <td class="fs-13 text-muted"><strong>End-to-End Compliant.</strong> All cryptographic operations across every layer (including the entire Certificate Trust Chain and internal APIs) enforce NIST standardized PQC algorithms natively.</td>
-                        <td class="fs-13">ML-KEM-768 Key Exchange over AES-256-GCM, fully authenticated via an unbroken ML-DSA / SLH-DSA trust chain.</td>
+                        <td class="fs-13 text-muted"><strong>End-to-End PQC.</strong> Every certificate in the trust chain (Leaf → Intermediate → Root CA) uses a NIST-standardized PQC signature OID (ML-DSA, SLH-DSA, or FN-DSA). No classical asymmetric cryptography remains in any layer of the connection.</td>
+                        <td class="fs-13">ML-DSA-65 leaf + ML-DSA-87 Intermediate + ML-DSA-87 Root CA — entire chain verified via OID inspection. Scan target: <code>test.openquantumsafe.org</code> (if full chain is PQC).</td>
                     </tr>
                 </tbody>
             </table>
+        </div>
+    </div>
+
+    <!-- Scanning Architecture -->
+    <div class="rk-card">
+        <h3 class="rk-section-title mb-3"><i class="bi bi-diagram-3-fill me-2" style="color: var(--rk-blue);"></i>How It Works — Scanning Architecture</h3>
+        <p class="text-muted fs-14 mb-3">Rakshak uses a <strong>dual-engine scanning architecture</strong> to detect PQC usage in real-time — no hardcoded mocks or fake data:</p>
+        
+        <div class="table-responsive mb-3">
+            <table class="table table-sm" style="color: var(--rk-text); border-color: var(--rk-border);">
+                <thead><tr><th style="width:40px">#</th><th>Engine</th><th>What It Does</th><th>Detects</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td><span style="background:rgba(52,152,219,0.15);color:#3498db;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">1</span></td>
+                        <td><strong>sslyze (Primary)</strong></td>
+                        <td class="fs-13 text-muted">Performs a standard TLS handshake via the system's OpenSSL. Enumerates all supported cipher suites, TLS versions, and downloads the X.509 certificate chain.</td>
+                        <td class="fs-13 text-muted">Classical ciphers (ECDHE, RSA, AES), cert chain OIDs, TLS versions</td>
+                    </tr>
+                    <tr>
+                        <td><span style="background:rgba(46,204,113,0.15);color:#2ecc71;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">2</span></td>
+                        <td><strong>OQS Docker Probe 🐳</strong></td>
+                        <td class="fs-13 text-muted">Runs <code>openssl s_client -brief</code> inside the <code>openquantumsafe/curl</code> Docker container, which ships with liboqs-enabled OpenSSL capable of negotiating PQC cipher suites and parsing PQC certificates.</td>
+                        <td class="fs-13 text-muted">ML-DSA, Falcon, SLH-DSA signatures; ML-KEM key exchange; PQC cert chain depth</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="p-3 rounded mb-3" style="background:var(--rk-bg);border:1px solid var(--rk-border);font-family:monospace;font-size:13px;line-height:1.8">
+            <div><span style="color:#7D8590">── Scan Pipeline ──────────────────────────────────────────</span></div>
+            <div><span style="color:#3498db">🔍 Step 1:</span> User enters target (e.g., <code>test.openquantumsafe.org:6182</code>)</div>
+            <div><span style="color:#3498db">🔒 Step 2:</span> sslyze attempts TLS handshake via system OpenSSL</div>
+            <div><span style="color:#3498db">🐳 Step 3:</span> OQS Docker probe runs in parallel — detects PQC signatures</div>
+            <div><span style="color:#3498db">🏷️ Step 4:</span> Best result (classical or PQC) is selected → <code>pqc_classifier.classify()</code></div>
+            <div><span style="color:#3498db">📊 Step 5:</span> Classification walks the cert chain OIDs → assigns label</div>
+        </div>
+
+        <div class="d-flex gap-3 flex-wrap">
+            <div class="p-2 rounded flex-fill" style="background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.2)">
+                <div class="fs-12 fw-bold" style="color:#e74c3c">Why not just sslyze?</div>
+                <div class="fs-12 text-muted">Standard OpenSSL cannot negotiate PQC cipher suites or parse PQC certificates. The TLS handshake fails entirely on PQC-only servers.</div>
+            </div>
+            <div class="p-2 rounded flex-fill" style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.2)">
+                <div class="fs-12 fw-bold" style="color:#2ecc71">Why OQS Docker?</div>
+                <div class="fs-12 text-muted">The OQS container bundles liboqs + oqs-provider, enabling our scanner to speak PQC natively and detect ML-DSA, Falcon, ML-KEM algorithms from real connections.</div>
+            </div>
+            <div class="p-2 rounded flex-fill" style="background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.2)">
+                <div class="fs-12 fw-bold" style="color:#3498db">Dual-stack servers?</div>
+                <div class="fs-12 text-muted">Servers supporting both classical + PQC send classical certs to classical clients. The OQS probe discovers their hidden PQC capability and upgrades the classification.</div>
+            </div>
         </div>
     </div>
 
@@ -62,11 +112,9 @@
                     <div class="accordion-body fs-14 text-muted">
                         <p>Go to the <b>Home</b> or <b>Asset Inventory</b> page and scan these specific targets to prove the Deep Packet Inspection and grading matrix works perfectly:</p>
                         <ul class="mb-0">
-                            <li class="mb-2"><strong>🟢 Fully Quantum Safe:</strong> Scan <code>test.openquantumsafe.org</code> (Demonstrates ML-KEM + ML-DSA integration).</li>
-                            <li class="mb-2"><strong>🔵 PQC-Ready:</strong> Assessed via internal audit integration (e.g., confirming library/infrastructure agility).</li>
-                            <li class="mb-2"><strong>🟡 Partially Quantum-Safe:</strong> Scan <code>pq.cloudflareresearch.com</code> (Demonstrates ML-KEM hybrid key exchange blocking HNDL attacks).</li>
-                            <li class="mb-2"><strong>❌ Not Quantum-Safe:</strong> Scan <code>cloudflare.com</code> or <code>demo-qs.pnb.in</code> (Detects purely classical key exchange exposing the session to Harvest Now, Decrypt Later).</li>
-                            <li><strong>⚪ Unknown:</strong> Scan <code>192.0.2.1</code> (Demonstrates graceful failure for unreachable endpoints).</li>
+                            <li class="mb-2"><strong>🟢 Fully Quantum Safe:</strong> Scan <code>test.openquantumsafe.org:6182</code> — OQS Docker probe detects <strong>ML-DSA-44</strong> signature and PQC intermediate CA. Also try <code>:6095</code> (Falcon-512).</li>
+                            <li class="mb-2"><strong>❌ Not Quantum-Safe:</strong> Scan <code>cloudflare.com</code> or <code>google.com</code> — Classical RSA/ECDSA certs. OQS probe confirms no PQC signatures anywhere.</li>
+                            <li><strong>⚪ Unknown:</strong> Scan <code>192.0.2.1</code> — Demonstrates graceful failure for unreachable endpoints.</li>
                         </ul>
                     </div>
                 </div>

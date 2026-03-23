@@ -108,18 +108,36 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
         
         async def process_target(idx, target):
             nonlocal completed, failed
-            await push_progress(scan_id, {
-                "phase": "scanning",
-                "target": target,
-                "current": idx + 1,
-                "total": len(targets),
-                "pct": round((idx / len(targets)) * 100),
-                "message": f"Scanning {target}...",
-            })
-            
+            base_pct = round((idx / len(targets)) * 100)
+            step_pct = max(1, round(100 / len(targets)))
+
+            async def sub_progress(sub_phase, detail=""):
+                sub_pcts = {"resolve": 0.0, "tls": 0.15, "oqs": 0.45, "classify": 0.75, "save": 0.90}
+                sub_offset = sub_pcts.get(sub_phase, 0)
+                pct = min(99, base_pct + round(step_pct * sub_offset))
+                icons = {"resolve": "🔍", "tls": "🔒", "oqs": "🐳", "classify": "🏷️", "save": "💾"}
+                labels = {
+                    "resolve": f"Resolving {target}...",
+                    "tls": f"TLS handshake with {target}...",
+                    "oqs": f"OQS Docker probe for {target}...",
+                    "classify": f"Classifying PQC posture for {target}...",
+                    "save": f"Saving results for {target}...",
+                }
+                await push_progress(scan_id, {
+                    "phase": "scanning",
+                    "sub_phase": sub_phase,
+                    "target": target,
+                    "current": idx + 1,
+                    "total": len(targets),
+                    "pct": pct,
+                    "message": f"{icons.get(sub_phase,'')} {labels.get(sub_phase, detail)}",
+                })
+
+            await sub_progress("resolve")
             try:
                 loop = asyncio.get_event_loop()
                 async with sem:
+                    await sub_progress("tls")
                     scan_result_raw = await loop.run_in_executor(
                         None,
                         lambda t=target: asyncio.run(_scan_single(t))
@@ -137,14 +155,17 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 try:
                     await save_scan_result(db, scan_id, target, result_or_err)
                     completed += 1
+                    label = result_or_err.get("pqc_label", "unknown")
+                    label_icons = {"fully_quantum_safe": "🟢", "pqc_ready": "🔵", "partially_quantum_safe": "🟡", "not_quantum_safe": "❌", "unknown": "⚪"}
+                    label_display = result_or_err.get("pqc_label_display", label.replace('_', ' ').title())
                     await push_progress(scan_id, {
                         "phase": "completed_target",
                         "target": target,
                         "current": completed + failed,
                         "total": len(targets),
                         "pct": round(((completed + failed) / len(targets)) * 100),
-                        "label": result_or_err.get("pqc_label", "unknown"),
-                        "message": f"Completed: {target} → {result_or_err.get('pqc_label', 'unknown')}",
+                        "label": label,
+                        "message": f"✅ {target} → {label_icons.get(label, '')} {label_display}",
                     })
                 except Exception as e:
                     logger.exception(f"Error saving {target}")
@@ -232,6 +253,7 @@ async def _scan_single(target: str) -> dict:
         authentication=tls_result.authentication,
         encryption=tls_result.encryption,
         hashing=tls_result.hashing,
+        cert_chain=tls_result.cert_chain,
     )
 
     # CBOM generation

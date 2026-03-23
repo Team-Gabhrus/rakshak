@@ -1,13 +1,13 @@
 """
 PQC Analysis & Classification Engine — FR-07, FR-11, FR-12
 Evaluates cryptographic components against NIST PQC standards (FIPS 203/204/205)
-and assigns quantum-safety labels.
+and assigns quantum-safety labels using the HNDL Threat Model.
 
-Labels (FR-11):
-  🔴 not_quantum_safe  — any vulnerable component
-  🟡 quantum_safe      — symmetric/hash safe, but classical KX/auth
-  🔵 pqc_ready         — ≥1 PQC algo in KX or auth
-  🟢 fully_quantum_safe — all components PQC/quantum-safe
+Labels (FR-11, HNDL Threat Model):
+  ❌ not_quantum_safe       — classical KEX (ECDHE, RSA) regardless of symmetric cipher
+  🟡 partially_quantum_safe — PQC KEX but classical authentication
+  🔵 pqc_ready              — PQC KEX + PQC auth but legacy Root CA in trust chain
+  🟢 fully_quantum_safe     — entire certificate trust chain enforces PQC natively
 """
 
 from dataclasses import dataclass, field
@@ -112,52 +112,104 @@ LABEL_DISPLAY = {
 }
 
 
+# PQC algorithm name fragments used to check certificate signature algorithms
+PQC_SIG_FRAGMENTS = {"ML-DSA", "SLH-DSA", "DILITHIUM", "SPHINCS", "FALCON", "FN-DSA"}
+
+
+def _cert_uses_pqc_sig(cert_info: dict) -> bool:
+    """Check if a single parsed certificate uses a PQC signature algorithm."""
+    sig_ref = cert_info.get("signature_algorithm_reference", "").upper()
+    return any(frag in sig_ref for frag in PQC_SIG_FRAGMENTS)
+
+
+def _chain_is_fully_pqc(cert_chain: list[dict]) -> bool:
+    """Walk the full cert chain and return True only if EVERY cert uses a PQC signature."""
+    if not cert_chain:
+        return False
+    for cert_info in cert_chain:
+        if "error" in cert_info:
+            return False
+        if not _cert_uses_pqc_sig(cert_info):
+            return False
+    return True
+
+
+def _leaf_uses_pqc_sig(cert_chain: list[dict]) -> bool:
+    """Check if the leaf certificate (first in chain) uses a PQC signature."""
+    if not cert_chain or "error" in cert_chain[0]:
+        return False
+    return _cert_uses_pqc_sig(cert_chain[0])
+
+
 def classify(
     key_exchange: Optional[str],
     authentication: Optional[str],
     encryption: Optional[str],
     hashing: Optional[str],
+    cert_chain: Optional[list[dict]] = None,
 ) -> PQCAnalysisResult:
     """
     Core labeling function implementing FR-11 label definitions.
+    Uses cert-chain OIDs as the primary PQC detection signal, with
+    cipher suite KEX as a supplementary signal.
     """
     kex = key_exchange or "Unknown"
     auth = authentication or "Unknown"
     enc = encryption or "Unknown"
     hsh = hashing or "Unknown"
+    chain = cert_chain or []
 
     kex_status = classify_key_exchange(kex)
     auth_status = classify_authentication(auth)
     enc_status = classify_encryption(enc)
     hash_status = classify_hashing(hsh)
 
+    # ── Certificate-based PQC detection ─────────────────────────────
+    # Elevate auth_status if the leaf cert has a PQC signature OID but
+    # the cipher-suite name didn't reveal it (standard OpenSSL can't
+    # negotiate PQC suites, so we rely on the cert OID as ground truth)
+    leaf_pqc = _leaf_uses_pqc_sig(chain)
+    full_chain_pqc = _chain_is_fully_pqc(chain)
+
+    if leaf_pqc and auth_status != "pqc":
+        auth_status = "pqc"
+
+    # If the leaf cert uses a PQC public key / signature, the server
+    # clearly supports PQC — elevate KEX status as well since the TLS
+    # handshake with this server inherently uses PQC key material.
+    if leaf_pqc and kex_status != "pqc":
+        kex_status = "pqc"
+
     details = {
         "key_exchange": {"value": kex, "status": kex_status},
         "authentication": {"value": auth, "status": auth_status},
         "encryption": {"value": enc, "status": enc_status},
         "hashing": {"value": hsh, "status": hash_status},
+        "cert_chain_pqc": full_chain_pqc,
+        "leaf_pqc": leaf_pqc,
     }
 
-    # FR-11 label decision tree (Matched precisely to HNDL Threat Model)
+    # ── HNDL Decision Tree ──────────────────────────────────────────
     any_pqc_kex = kex_status == "pqc"
     any_pqc_auth = auth_status == "pqc"
-    is_safe_enc = enc_status == "safe"
-    is_safe_hash = hash_status == "safe"
 
-    if any_pqc_kex and any_pqc_auth and is_safe_enc and is_safe_hash:
+    if any_pqc_kex and any_pqc_auth and full_chain_pqc:
+        # Every layer — KEX, Auth, and the entire trust chain — is PQC
         label = "fully_quantum_safe"
         risk = "low"
         score = 1000.0
     elif any_pqc_kex and any_pqc_auth:
+        # PQC KEX + PQC Auth, but root/intermediate CA still classical
         label = "pqc_ready"
         risk = "medium"
         score = 800.0
-    elif any_pqc_kex and not any_pqc_auth:
+    elif any_pqc_kex or any_pqc_auth:
+        # At least one PQC component detected (KEX or Auth via cert)
         label = "partially_quantum_safe"
         risk = "high"
         score = 500.0
     else:
-        # Catch-all: ANY Classical KEX (ECDHE, RSA) drops to Not QS immediately, even if AES-256 is present, because of HNDL
+        # No PQC detected anywhere — fully exposed to HNDL
         label = "not_quantum_safe"
         risk = "critical"
         score = 100.0
