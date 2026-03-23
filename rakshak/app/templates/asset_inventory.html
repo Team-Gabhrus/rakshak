@@ -9,6 +9,7 @@
     </div>
     <div class="d-flex gap-2">
       <button class="rk-btn rk-btn-outline rk-btn-sm admin-only" onclick="openBulkImport()"><i class="bi bi-upload"></i> Bulk Import</button>
+      <button class="rk-btn rk-btn-outline admin-only" onclick="scanSelected()"><i class="bi bi-play-fill"></i> Scan Selected</button>
       <button class="rk-btn rk-btn-outline admin-only" onclick="scanAll()"><i class="bi bi-play-circle-fill"></i> Scan All</button>
       <button class="rk-btn rk-btn-primary admin-only" onclick="openAddAsset()"><i class="bi bi-plus-lg"></i> Add Asset</button>
     </div>
@@ -47,6 +48,7 @@
     <div class="rk-table-wrap">
       <table class="rk-table">
         <thead><tr>
+          <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAllAssets" onclick="toggleAll(this.checked)"></th>
           <th class="sortable" onclick="sortBy('name')">Asset Name <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
           <th class="sortable" onclick="sortBy('url')">URL <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
           <th class="sortable" onclick="sortBy('ipv4')">IPv4/IPv6 <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
@@ -57,8 +59,9 @@
           <th class="sortable" onclick="sortBy('tls_version')">TLS <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
           <th class="sortable" onclick="sortBy('key_length')">Key Len <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
           <th class="sortable" onclick="sortBy('last_scan')">Last Scan <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="text-end admin-only">Actions</th>
         </tr></thead>
-        <tbody id="assetBody"><tr><td colspan="10" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+        <tbody id="assetBody"><tr><td colspan="12" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
     </div>
     <div class="d-flex justify-content-between align-items-center mt-3 px-2">
@@ -178,9 +181,10 @@ async function loadAssets(page=1) {
   if (!res) return;
   const d = await res.json();
   const tbody = document.getElementById('assetBody');
-  if (!d.assets?.length) { tbody.innerHTML = '<tr><td colspan="10" class="text-center text-muted py-4">No assets found</td></tr>'; return; }
+  if (!d.assets?.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>'; document.getElementById('selectAllAssets').checked = false; return; }
   tbody.innerHTML = d.assets.map(a => `
     <tr>
+      <td><input type="checkbox" class="form-check-input asset-checkbox" value="${a.url}" onchange="updateSelectAll()"></td>
       <td><strong>${a.name||'—'}</strong></td>
       <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
       <td class="text-muted fs-12">${a.ipv4||'—'}</td>
@@ -191,10 +195,14 @@ async function loadAssets(page=1) {
       <td class="text-muted fs-12">${a.tls_version||'—'}</td>
       <td class="text-muted fs-12">${a.key_length ? a.key_length+'b' : '—'}</td>
       <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
+      <td class="text-end admin-only">
+        <button class="btn btn-sm text-danger px-1" title="Delete Asset" onclick="deleteAsset(${a.id})"><i class="bi bi-trash"></i></button>
+      </td>
     </tr>`).join('');
   document.getElementById('assetCount').textContent = `Showing ${d.assets.length} of ${d.total} assets`;
   const totalPages = Math.ceil(d.total/10);
   renderPagination('assetPagination', currentPage, totalPages, 'loadAssets');
+  updateSelectAll();
 }
 
 let nsPage = 1;
@@ -260,6 +268,50 @@ async function scanAll() {
   if (!scanRes) return;
   const scanData = await scanRes.json();
   showToast(`Scan All started — Scan #${scanData.scan_id}, ${targets.length} targets`,'success');
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('.asset-checkbox').forEach(cb => cb.checked = checked);
+}
+
+function updateSelectAll() {
+  const all = document.querySelectorAll('.asset-checkbox');
+  const checked = document.querySelectorAll('.asset-checkbox:checked');
+  const selectAllCb = document.getElementById('selectAllAssets');
+  if (selectAllCb) {
+    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
+  }
+}
+
+async function scanSelected() {
+  const checked = document.querySelectorAll('.asset-checkbox:checked');
+  if (checked.length === 0) {
+    showToast('Please select at least one asset to scan.', 'warning');
+    return;
+  }
+  const targets = Array.from(checked).map(cb => cb.value);
+  const scanRes = await API.post('/api/scan', {targets});
+  if (!scanRes) return;
+  const scanData = await scanRes.json();
+  showToast(`Scan Selected started — Scan #${scanData.scan_id}, ${targets.length} targets.`,'success');
+  toggleAll(false);
+}
+
+async function deleteAsset(id) {
+  if (!confirm('Are you sure you want to delete this asset? All associated scan records will be removed. This cannot be undone.')) return;
+  const res = await fetch('/api/assets/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
+  if (res.ok) {
+    showToast('Asset deleted successfully', 'success');
+    loadAssets(currentPage);
+    loadMetrics();
+  } else {
+    try {
+      const d = await res.json();
+      showToast(d.detail || 'Failed to delete asset', 'danger');
+    } catch(e) {
+      showToast('Failed to delete asset', 'danger');
+    }
+  }
 }
 
 const params = new URLSearchParams(window.location.search);

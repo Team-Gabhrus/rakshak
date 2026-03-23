@@ -62,6 +62,7 @@ def validate_targets(targets: list[str]) -> tuple[list[str], list[str]]:
         if url_pattern.match(t):
             if not t.startswith("http"):
                 t = "https://" + t
+            t = t.rstrip("/")
             valid.append(t)
         else:
             errors.append(f"Invalid target format: '{t}'. Expected URL, IP address, or CIDR notation.")
@@ -139,9 +140,9 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                     await push_progress(scan_id, {
                         "phase": "completed_target",
                         "target": target,
-                        "current": idx + 1,
+                        "current": completed + failed,
                         "total": len(targets),
-                        "pct": round(((idx + 1) / len(targets)) * 100),
+                        "pct": round(((completed + failed) / len(targets)) * 100),
                         "label": result_or_err.get("pqc_label", "unknown"),
                         "message": f"Completed: {target} → {result_or_err.get('pqc_label', 'unknown')}",
                     })
@@ -164,6 +165,18 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                     "target": target,
                     "message": f"Failed: {target} — {str(result_or_err)}",
                 })
+
+            # Intermediate DB commit for progress tracking via polling API
+            try:
+                result = await db.execute(select(Scan).where(Scan.id == scan_id))
+                scan = result.scalar_one_or_none()
+                if scan:
+                    scan.completed_count = completed
+                    scan.failed_count = failed
+                    scan.progress_pct = round(((completed + failed) / len(targets)) * 100)
+                    await db.commit()
+            except Exception as e:
+                logger.error(f"Failed to update intermediate db progress: {e}")
 
         # Recompute cyber rating
         await recompute_cyber_rating(db)
@@ -191,6 +204,27 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
 async def _scan_single(target: str) -> dict:
     """Run a full scan on one target and return enriched result dict."""
     tls_result = await tls_scanner.scan_target(target)
+
+    if not tls_result.success:
+        return {
+            "target": target,
+            "success": False,
+            "error": tls_result.error,
+            "tls_version": None,
+            "supported_tls_versions": [],
+            "negotiated_cipher": None,
+            "cipher_suites": [],
+            "key_exchange": None,
+            "authentication": None,
+            "encryption": None,
+            "hashing": None,
+            "cert_chain": [],
+            "pqc_label": "unknown",
+            "pqc_details": {"error": tls_result.error},
+            "recommendations": [{"component": "Network", "action": "Target unreachable. Verify URL/IP and ensure port 443 is open.", "priority": "Critical", "effort": "Low"}],
+            "cbom": {},
+            "playbook": {},
+        }
 
     # PQC classification
     pqc_result = pqc_classifier.classify(
@@ -307,7 +341,7 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
     asset = existing.scalar_one_or_none()
     label_map = {
         "not_quantum_safe": PQCLabel.not_quantum_safe,
-        "quantum_safe": PQCLabel.quantum_safe,
+        "partially_quantum_safe": PQCLabel.partially_quantum_safe,
         "pqc_ready": PQCLabel.pqc_ready,
         "fully_quantum_safe": PQCLabel.fully_quantum_safe,
     }
@@ -396,7 +430,7 @@ async def recompute_cyber_rating(db: AsyncSession):
     counts = {
         "fully_quantum_safe": labels.count("fully_quantum_safe"),
         "pqc_ready": labels.count("pqc_ready"),
-        "quantum_safe": labels.count("quantum_safe"),
+        "partially_quantum_safe": labels.count("partially_quantum_safe"),
         "not_quantum_safe": labels.count("not_quantum_safe"),
         "unknown": labels.count("unknown"),
     }
@@ -408,7 +442,7 @@ async def recompute_cyber_rating(db: AsyncSession):
         total_assets=rating["total_assets"],
         fully_quantum_safe=counts["fully_quantum_safe"],
         pqc_ready=counts["pqc_ready"],
-        quantum_safe=counts["quantum_safe"],
+        partially_quantum_safe=counts["partially_quantum_safe"],
         not_quantum_safe=counts["not_quantum_safe"],
     )
     db.add(history)

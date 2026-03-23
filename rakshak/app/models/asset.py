@@ -22,7 +22,7 @@ class RiskLevel(str, enum.Enum):
 
 class PQCLabel(str, enum.Enum):
     not_quantum_safe = "not_quantum_safe"
-    quantum_safe = "quantum_safe"
+    partially_quantum_safe = "partially_quantum_safe"
     pqc_ready = "pqc_ready"
     fully_quantum_safe = "fully_quantum_safe"
     unknown = "unknown"

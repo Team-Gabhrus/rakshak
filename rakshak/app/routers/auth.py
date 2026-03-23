@@ -34,7 +34,23 @@ async def login(req: LoginRequest, response: Response, request: Request, db: Asy
     user.last_login = datetime.utcnow()
     await db.commit()
 
-    await log_event(db, "user_login", f"User {user.username} logged in", user.id, user.username, request.client.host if request.client else None)
+    real_ip = request.headers.get("X-Forwarded-For", request.headers.get("X-Real-IP", request.client.host if request.client else "Unknown")).split(",")[0].strip()
+    user_agent = request.headers.get("User-Agent", "Unknown Device")
+    location = "Local"
+    if real_ip not in ("127.0.0.1", "localhost", "0.0.0.0", "::1", "Unknown"):
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=2.0) as client:
+                resp = await client.get(f"http://ip-api.com/json/{real_ip}")
+                if resp.status_code == 200:
+                    data = resp.json()
+                    if data.get("status") == "success":
+                        location = f"{data.get('city', '')}, {data.get('country', '')}".strip(", ")
+        except Exception:
+            location = "Unknown Location"
+            
+    details = f"Browser: {user_agent} | Location: {location}"
+    await log_event(db, "user_login", details, user.id, user.username, real_ip)
 
     return {"access_token": token, "token_type": "bearer", "role": user.role.value, "username": user.username}
 

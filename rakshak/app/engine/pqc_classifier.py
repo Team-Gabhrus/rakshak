@@ -30,7 +30,7 @@ NOT_SAFE_HASH = {"SHA-1", "MD5", "MD4"}
 PQC_KEY_EXCHANGE = {"ML-KEM", "ML-KEM-512", "ML-KEM-768", "ML-KEM-1024", "KYBER", "KYBER-768"}
 PQC_AUTHENTICATION = {"ML-DSA", "ML-DSA-44", "ML-DSA-65", "ML-DSA-87",
                        "SLH-DSA", "SLH-DSA-128s", "SLH-DSA-128f",
-                       "DILITHIUM", "SPHINCS+"}
+                       "DILITHIUM", "SPHINCS+", "FALCON", "FN-DSA"}
 
 # Classical algorithms vulnerable to Shor's algorithm
 CLASSICAL_KX_VULNERABLE = {"RSA", "ECDHE", "ECDH", "DH", "DHE"}
@@ -104,8 +104,8 @@ class PQCAnalysisResult:
 
 
 LABEL_DISPLAY = {
-    "not_quantum_safe": "🔴 Not Quantum-Safe",
-    "quantum_safe":     "🟡 Quantum-Safe",
+    "not_quantum_safe": "❌ Not Quantum-Safe",
+    "partially_quantum_safe": "🟡 Partially Quantum-Safe",
     "pqc_ready":        "🔵 PQC Ready",
     "fully_quantum_safe": "🟢 Fully Quantum Safe",
     "unknown":          "⚪ Unknown",
@@ -138,32 +138,26 @@ def classify(
         "hashing": {"value": hsh, "status": hash_status},
     }
 
-    # FR-11 label decision tree
-    any_vulnerable = (
-        kex_status == "vulnerable" or
-        auth_status == "vulnerable" or
-        enc_status == "weak" or
-        hash_status == "weak"
-    )
+    # FR-11 label decision tree (Matched precisely to HNDL Threat Model)
     any_pqc_kex = kex_status == "pqc"
     any_pqc_auth = auth_status == "pqc"
-    all_safe_enc = enc_status in ("safe",)
-    all_safe_hash = hash_status in ("safe",)
+    is_safe_enc = enc_status == "safe"
+    is_safe_hash = hash_status == "safe"
 
-    if any_pqc_kex and any_pqc_auth and all_safe_enc and all_safe_hash:
+    if any_pqc_kex and any_pqc_auth and is_safe_enc and is_safe_hash:
         label = "fully_quantum_safe"
         risk = "low"
         score = 1000.0
-    elif any_pqc_kex or any_pqc_auth:
+    elif any_pqc_kex and any_pqc_auth:
         label = "pqc_ready"
         risk = "medium"
-        score = 700.0
-    elif not any_vulnerable and all_safe_enc and all_safe_hash:
-        # Classical KX/auth but symmetric/hash are quantum-safe
-        label = "quantum_safe"
+        score = 800.0
+    elif any_pqc_kex and not any_pqc_auth:
+        label = "partially_quantum_safe"
         risk = "high"
-        score = 400.0
+        score = 500.0
     else:
+        # Catch-all: ANY Classical KEX (ECDHE, RSA) drops to Not QS immediately, even if AES-256 is present, because of HNDL
         label = "not_quantum_safe"
         risk = "critical"
         score = 100.0

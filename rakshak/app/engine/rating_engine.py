@@ -9,7 +9,7 @@ from typing import Optional
 LABEL_SCORE = {
     "fully_quantum_safe": 1000,
     "pqc_ready": 700,
-    "quantum_safe": 400,
+    "partially_quantum_safe": 400,
     "not_quantum_safe": 100,
     "unknown": 200,
 }
@@ -109,7 +109,7 @@ def get_risk_level_from_label(label: str) -> str:
     mapping = {
         "fully_quantum_safe": "low",
         "pqc_ready": "medium",
-        "quantum_safe": "high",
+        "partially_quantum_safe": "high",
         "not_quantum_safe": "critical",
         "unknown": "unknown",
     }

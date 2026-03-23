@@ -9,6 +9,25 @@ from cryptography.hazmat.primitives.asymmetric import rsa, ec, ed25519, ed448
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15
 
+PQC_OIDS = {
+    # ML-DSA / Dilithium OIDs
+    "1.3.6.1.4.1.2.267.12.4.4": "ML-DSA-44",
+    "1.3.6.1.4.1.2.267.12.4.6": "ML-DSA-65",
+    "1.3.6.1.4.1.2.267.12.4.8": "ML-DSA-87",
+    "2.16.840.1.101.3.4.3.17": "ML-DSA-44",
+    "2.16.840.1.101.3.4.3.18": "ML-DSA-65",
+    "2.16.840.1.101.3.4.3.19": "ML-DSA-87",
+    # SLH-DSA / SPHINCS+ OIDs
+    "1.3.9999.6.4.13": "SLH-DSA-128s", 
+    "1.3.9999.6.4.16": "SLH-DSA-128s",
+    # MLDSA + RSA / ECDSA Hybrids
+    "1.3.9999.2.7.1": "RSA3072-ML-DSA-44",
+    # Falcon / FN-DSA
+    "1.3.9999.3.6": "Falcon-512",
+    "1.3.9999.3.9": "Falcon-1024",
+    "2.16.840.1.101.3.4.3.20": "FN-DSA-512",
+    "2.16.840.1.101.3.4.3.21": "FN-DSA-1024",
+}
 
 def get_key_info(public_key) -> tuple[str, int]:
     """Extract algorithm name and key length from a public key."""
@@ -40,12 +59,19 @@ def get_oid_for_algorithm(sig_algo_name: str) -> str:
 
 def parse_single_cert(cert: x509.Certificate) -> dict:
     """Parse a single X.509 certificate into CBOM-ready fields (FR-04, Annexure-A Certificates)."""
-    pub_key = cert.public_key()
-    key_algo, key_length = get_key_info(pub_key)
+    try:
+        pub_key = cert.public_key()
+        key_algo, key_length = get_key_info(pub_key)
+    except Exception:
+        key_algo = "PQC / Unrecognized"
+        key_length = 0
 
     try:
         sig_algo = cert.signature_algorithm_oid.dotted_string
-        sig_algo_name = cert.signature_hash_algorithm.name if cert.signature_hash_algorithm else "unknown"
+        if sig_algo in PQC_OIDS:
+            sig_algo_name = PQC_OIDS[sig_algo]
+        else:
+            sig_algo_name = getattr(cert.signature_hash_algorithm, "name", "unknown") if hasattr(cert, 'signature_hash_algorithm') and cert.signature_hash_algorithm else "unknown"
     except Exception:
         sig_algo = "unknown"
         sig_algo_name = "unknown"

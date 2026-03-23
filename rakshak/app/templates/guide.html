@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% set active_page = "guide" %}
+
+{% block title %}Platform Guide — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in" style="max-width: 1000px; margin: 0 auto;">
+    <div class="mb-4">
+        <h1 class="rk-page-title">Platform Guide</h1>
+        <p class="rk-page-sub">Understand Rakshak's definitions, label logic, and learn how to run tests effectively.</p>
+    </div>
+
+    <!-- PQC Posture Labels -->
+    <div class="rk-card mb-4">
+        <h3 class="rk-section-title mb-3">PQC Posture Definitions</h3>
+        <p class="text-muted fs-14 mb-4">Rakshak dynamically classifies your interconnected assets into four definitive tiers. These tiers strictly adhere to our established criteria outlining the migration from classical Shor's-vulnerable algorithms to full NIST Post-Quantum Cryptography compliance.</p>
+        
+        <div class="table-responsive">
+            <table class="rk-table">
+                <thead>
+                    <tr>
+                        <th style="width: 200px;">Assigned Label</th>
+                        <th>Classification Criteria</th>
+                        <th>Real-World Example</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><span class="badge" style="background: rgba(231,76,60,0.1); color: #e74c3c; border: 1px solid #e74c3c; padding: 6px 10px; font-weight: 600;">❌ Not Quantum-Safe</span></td>
+                        <td class="fs-13 text-muted"><strong>HNDL Vulnerable.</strong> The system relies entirely on classical public-key cryptography (like ECDHE, RSA) that is fundamentally broken by a future Quantum Computer running Shor's algorithm.</td>
+                        <td class="fs-13">Classical key exchange (ECDHE or RSA) combined with any symmetric cipher (even AES-256).</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge" style="background: rgba(241,196,15,0.1); color: #f1c40f; border: 1px solid #f1c40f; padding: 6px 10px; font-weight: 600;">🟡 Partially Quantum-Safe</span></td>
+                        <td class="fs-13 text-muted"><strong>HNDL Protected.</strong> The system deploys PQC protections in Key Exchange to neutralize the "Harvest Now, Decrypt Later" threat, but still relies on classical cryptography for Authentication.</td>
+                        <td class="fs-13">Hybrid PQC Key Exchange (X25519+ML-KEM-768) combined with an RSA-2048 identity certificate.</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge" style="background: rgba(52,152,219,0.1); color: #3498db; border: 1px solid #3498db; padding: 6px 10px; font-weight: 600;">🔵 PQC-Ready</span></td>
+                        <td class="fs-13 text-muted"><strong>Transitional Infrastructure.</strong> The underlying architecture supports PQC algorithms across critical layers (e.g. PQC KEX + PQC Authentication) but may still rely on legacy Root CAs.</td>
+                        <td class="fs-13">ML-KEM-768 Key Exchange bonded with an ML-DSA-65 certificate, signed by a legacy RSA Root CA.</td>
+                    </tr>
+                    <tr>
+                        <td><span class="badge" style="background: rgba(46,204,113,0.1); color: #2ecc71; border: 1px solid #2ecc71; padding: 6px 10px; font-weight: 600;">🟢 Fully Quantum-Safe</span></td>
+                        <td class="fs-13 text-muted"><strong>End-to-End Compliant.</strong> All cryptographic operations across every layer (including the entire Certificate Trust Chain and internal APIs) enforce NIST standardized PQC algorithms natively.</td>
+                        <td class="fs-13">ML-KEM-768 Key Exchange over AES-256-GCM, fully authenticated via an unbroken ML-DSA / SLH-DSA trust chain.</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <!-- Feature Testing Guide -->
+    <div class="rk-card">
+        <h3 class="rk-section-title mb-3"><i class="bi bi-rocket-takeoff-fill me-2" style="color: var(--rk-blue);"></i>Platform Feature Guide (Hackathon Demo Script)</h3>
+        <p class="text-muted fs-14 mb-4">Follow these steps to demonstrate every core capability of the Rakshak platform to the judges:</p>
+
+        <div class="accordion" id="guideAccordion">
+            <!-- 1. PQC Posture Engine -->
+            <div class="accordion-item" style="background: var(--rk-surface); border-color: var(--rk-border);">
+                <h2 class="accordion-header"><button class="accordion-button fs-15 fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne" style="background: var(--rk-surface); color: var(--rk-text); box-shadow: none;">1. The PQC Classification Engine (Core Requirement)</button></h2>
+                <div id="collapseOne" class="accordion-collapse collapse show" data-bs-parent="#guideAccordion">
+                    <div class="accordion-body fs-14 text-muted">
+                        <p>Go to the <b>Home</b> or <b>Asset Inventory</b> page and scan these specific targets to prove the Deep Packet Inspection and grading matrix works perfectly:</p>
+                        <ul class="mb-0">
+                            <li class="mb-2"><strong>🟢 Fully Quantum Safe:</strong> Scan <code>test.openquantumsafe.org</code> (Demonstrates ML-KEM + ML-DSA integration).</li>
+                            <li class="mb-2"><strong>🔵 PQC-Ready:</strong> Assessed via internal audit integration (e.g., confirming library/infrastructure agility).</li>
+                            <li class="mb-2"><strong>🟡 Partially Quantum-Safe:</strong> Scan <code>pq.cloudflareresearch.com</code> (Demonstrates ML-KEM hybrid key exchange blocking HNDL attacks).</li>
+                            <li class="mb-2"><strong>❌ Not Quantum-Safe:</strong> Scan <code>cloudflare.com</code> or <code>demo-qs.pnb.in</code> (Detects purely classical key exchange exposing the session to Harvest Now, Decrypt Later).</li>
+                            <li><strong>⚪ Unknown:</strong> Scan <code>192.0.2.1</code> (Demonstrates graceful failure for unreachable endpoints).</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Asset Discovery & Scanning -->
+            <div class="accordion-item" style="background: var(--rk-surface); border-color: var(--rk-border);">
+                <h2 class="accordion-header"><button class="accordion-button collapsed fs-15 fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo" style="background: var(--rk-surface); color: var(--rk-text); box-shadow: none;">2. Discovery & Inventory Management</button></h2>
+                <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
+                    <div class="accordion-body fs-14 text-muted">
+                        <ul>
+                            <li class="mb-2"><strong>Selective Re-Scanning:</strong> Navigate to <b>Asset Inventory</b>, check the boxes next to multiple rows, and click <span class="badge bg-primary">▶️ Scan Selected</span> to trigger a bulk background scan.</li>
+                            <li class="mb-2"><strong>URL Normalization:</strong> Add <code>https://pnbindia.in/</code> (with a slash) and <code>https://pnbindia.in</code> to demonstrate that Rakshak is smart enough to normalize them into a single asset.</li>
+                            <li><strong>Asset Discovery:</strong> Go to <b>Asset Discovery</b> and click "Trigger Discovery". Rakshak will recursively enumerate DNS, IPs, Subnets, and Server Software for all known assets and push them into the triage queues.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. CBOM -->
+            <div class="accordion-item" style="background: var(--rk-surface); border-color: var(--rk-border);">
+                <h2 class="accordion-header"><button class="accordion-button collapsed fs-15 fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree" style="background: var(--rk-surface); color: var(--rk-text); box-shadow: none;">3. Generating the CBOM</button></h2>
+                <div id="collapseThree" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
+                    <div class="accordion-body fs-14 text-muted">
+                        <p>After scanning a target, navigate to the <b>CBOM</b> dashboard:</p>
+                        <ul>
+                            <li class="mb-2">Click "View JSON" on any asset to reveal the deeply nested Cryptographic Bill of Materials.</li>
+                            <li>Point out how Rakshak successfully extracted the X.509 Certificate chain, the exact symmetric cipher block, and whether the underlying Object Identifiers (OIDs) belong to NIST PQC standards.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. Playbooks -->
+            <div class="accordion-item" style="background: var(--rk-surface); border-color: var(--rk-border);">
+                <h2 class="accordion-header"><button class="accordion-button collapsed fs-15 fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFour" style="background: var(--rk-surface); color: var(--rk-text); box-shadow: none;">4. Cyber Rating & Remediation Playbooks</button></h2>
+                <div id="collapseFour" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
+                    <div class="accordion-body fs-14 text-muted">
+                        <ul>
+                            <li class="mb-2"><strong>Enterprise Rating:</strong> Go to <b>Cyber Rating</b> to show how the organizational risk score (1-1000) dynamically fluctuates based on the ratio of PQC-ready assets versus vulnerable legacy endpoints.</li>
+                            <li><strong>Actionable Remediation:</strong> Go to <b>Posture of PQC</b> or <b>Reporting</b> to show the Playbooks. For every 🔴 Not Quantum-Safe asset, Rakshak dynamically generates a step-by-step recommendation (e.g., "Upgrade encryption from AES-128 to AES-256-GCM").</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 5. Users -->
+            <div class="accordion-item" style="background: var(--rk-surface); border-color: var(--rk-border);">
+                <h2 class="accordion-header"><button class="accordion-button collapsed fs-15 fw-medium" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFive" style="background: var(--rk-surface); color: var(--rk-text); box-shadow: none;">5. Identity & System Auditing</button></h2>
+                <div id="collapseFive" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
+                    <div class="accordion-body fs-14 text-muted">
+                        <ul>
+                            <li class="mb-2"><strong>Concurrent Sessions:</strong> Open Rakshak in an Incognito window and log in as <code>admin</code>. Your original session will instantly flag "Session expired or superseded" on its next action, proving concurrent logging is strictly prohibited.</li>
+                            <li class="mb-2"><strong>Audit Logs:</strong> Go to <b>Users</b> and check the Audit Logs table. Point out the "Details" column which seamlessly captures the device Browser mapping and Geographic Location via reverse IP lookup.</li>
+                            <li><strong>Hash Verification:</strong> Hover over any 16-character Audit Log Hash to see the full SHA-256 cryptographic proof. Click the hash to instantly copy it to your clipboard for forensic verification.</li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

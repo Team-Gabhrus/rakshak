@@ -125,8 +125,8 @@ function applyTimeFilter() {
 const PQC_BADGE_MAP = {
     'fully_quantum_safe': ['badge-fully-qs',  '🟢 Fully Quantum Safe'],
     'pqc_ready':          ['badge-pqc-ready', '🔵 PQC Ready'],
-    'quantum_safe':       ['badge-qs',         '🟡 Quantum-Safe'],
-    'not_quantum_safe':   ['badge-not-qs',     '🔴 Not Quantum-Safe'],
+    'partially_quantum_safe': ['badge-qs',    '🟡 Partially Quantum-Safe'],
+    'not_quantum_safe':   ['badge-not-qs',     '❌ Not Quantum-Safe'],
     'unknown':            ['badge-unknown',    '⚪ Unknown'],
 };
 
@@ -150,7 +150,7 @@ function riskBadge(risk) {
 const CHART_COLORS = {
     fully_quantum_safe: '#2ECC71',
     pqc_ready:          '#3498DB',
-    quantum_safe:       '#F1C40F',
+    partially_quantum_safe: '#F1C40F',
     not_quantum_safe:   '#E74C3C',
     unknown:            '#7D8590',
 };

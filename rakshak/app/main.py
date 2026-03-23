@@ -171,6 +171,11 @@ async def user_management_page(request: Request):
     return templates.TemplateResponse("user_management.html", {"request": request})
 
 
+@app.get("/guide", response_class=HTMLResponse)
+async def guide_page(request: Request):
+    return templates.TemplateResponse("guide.html", {"request": request})
+
+
 # ─── User management API routes ──────────────────────────────────────────────
 
 @app.get("/api/users")
@@ -265,7 +270,7 @@ async def home_summary(start: str = None, end: str = None, db: AsyncSession = De
     pqc_counts = {
         "fully_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.fully_quantum_safe),
         "pqc_ready": sum(1 for a in assets if a.pqc_label == PQCLabel.pqc_ready),
-        "quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.quantum_safe),
+        "partially_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.partially_quantum_safe),
         "not_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.not_quantum_safe),
         "unknown": sum(1 for a in assets if a.pqc_label == PQCLabel.unknown),
     }

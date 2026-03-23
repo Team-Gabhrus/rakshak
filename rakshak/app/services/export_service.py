@@ -63,7 +63,7 @@ async def collect_report_data(db: AsyncSession, modules: list) -> dict:
         counts = {
             "fully_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.fully_quantum_safe),
             "pqc_ready": sum(1 for a in assets if a.pqc_label == PQCLabel.pqc_ready),
-            "quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.quantum_safe),
+            "partially_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.partially_quantum_safe),
             "not_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.not_quantum_safe),
             "unknown": sum(1 for a in assets if a.pqc_label == PQCLabel.unknown),
         }

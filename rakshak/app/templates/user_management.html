@@ -108,7 +108,7 @@ async function loadAuditLogs(page = 1) {
       <td class="fs-12">${l.event_details||'—'}</td>
       <td class="text-muted fs-12">${l.ip_address||'—'}</td>
       <td class="text-muted fs-12">${fmtDateTime(l.timestamp)}</td>
-      <td style="font-family:monospace;font-size:11px;color:var(--rk-text-muted)">${(l.log_hash||'').substring(0,16)}…</td>
+      <td style="font-family:monospace;font-size:11px;color:var(--rk-text-muted);cursor:pointer;" title="${l.log_hash}" onclick="navigator.clipboard.writeText('${l.log_hash}'); showToast('Hash copied to clipboard!', 'success');">${(l.log_hash||'').substring(0,16)}…</td>
     </tr>`).join('');
   }
   

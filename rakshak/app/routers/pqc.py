@@ -42,7 +42,7 @@ async def get_pqc_posture(
             categories["elite_pqc_ready"].append(asset_info)
         elif label == "pqc_ready":
             categories["standard"].append(asset_info)
-        elif label == "quantum_safe":
+        elif label == "partially_quantum_safe":
             categories["legacy"].append(asset_info)
         else:
             categories["critical"].append(asset_info)
@@ -56,13 +56,21 @@ async def get_pqc_posture(
         if sr.recommendations_json:
             recs = json.loads(sr.recommendations_json)
             for rec in recs:
-                action = rec.get("action", "")
+                if isinstance(rec, dict):
+                    action = rec.get("action", "")
+                    component = rec.get("component", "")
+                    priority = rec.get("priority", "")
+                else:
+                    action = str(rec)
+                    component = "Network"
+                    priority = "Critical"
+
                 if action not in rec_set:
                     rec_set.add(action)
                     recommendations_summary.append({
-                        "component": rec.get("component", ""),
+                        "component": component,
                         "action": action,
-                        "priority": rec.get("priority", ""),
+                        "priority": priority,
                         "target": sr.target_url,
                     })
 

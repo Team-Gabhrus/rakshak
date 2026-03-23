@@ -42,7 +42,7 @@ async def cbom_metrics(
 
     from datetime import datetime
     for s in snaps:
-        if s.pqc_label in ("not_quantum_safe", "quantum_safe"):
+        if s.pqc_label in ("not_quantum_safe", "partially_quantum_safe"):
             weak_crypto += 1
         
         # Cert issues and total certs

@@ -2,3 +2,4 @@ Rakshak SRS (Team Gabrus).pdf
 .env
 server.log
 .pytest_cache
+__pycache__/

@@ -97,6 +97,7 @@ async def add_asset(
     current_user: User = Depends(require_admin),
 ):
     """FR-35: Manually add asset."""
+    req.url = req.url.rstrip("/")
     existing = await db.execute(select(Asset).where(Asset.url == req.url))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="Asset with this URL already exists")
@@ -108,6 +109,23 @@ async def add_asset(
     await db.commit()
     await db.refresh(asset)
     return _asset_dict(asset)
+
+
+@router.delete("/{asset_id}")
+async def delete_asset(
+    asset_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """FR-36: Delete an asset."""
+    result = await db.execute(select(Asset).where(Asset.id == asset_id))
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+    
+    await db.delete(asset)
+    await db.commit()
+    return {"message": "Asset deleted successfully", "id": asset_id}
 
 
 @router.post("/discover")
