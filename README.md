@@ -2,32 +2,83 @@
 
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
-[![TailwindCSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)](https://tailwindcss.com/)
-[![Docker deployed](https://img.shields.io/badge/Deployed_on-Railway-0B0D0E?style=for-the-badge&logo=railway&logoColor=white)](https://railway.app/)
+[![Docker](https://img.shields.io/badge/Docker-OQS_Enabled-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/openquantumsafe/curl)
+[![Deployed on Railway](https://img.shields.io/badge/Deployed_on-Railway-0B0D0E?style=for-the-badge&logo=railway&logoColor=white)](https://railway.app/)
 
 > **Built for the PNB CyberSecurity Hackathon 2026 by Team Gabhrus**
 
-Rakshak is an automated Post-Quantum Cryptography (PQC) readiness and cyber-rating platform. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Store Now, Decrypt Later" (SNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
+Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform**. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
+
+---
 
 ## ✨ Key Features
 
-1. **Automated Asset Discovery:** Continuously maps assets (Domains, IPs) and comprehensively scrapes x.509 SSL/TLS certificates without manual intervention.
-2. **Dynamic CBOM Generation:** Instantly inventories all cryptographic assets (keys, hashing algorithms, cipher suites, expiration dates) and exports them (CSV/PDF) for compliance.
-3. **Proprietary Cyber Rating:** Evaluates networks against NIST PQC standards and assigns a proactive "Rakshak Health Score" (0-100) indicating current vulnerability.
-4. **AI Mitigation Playbooks:** Uses LLMs to generate step-by-step IT remediation scripts (e.g., specific OpenSSL commands) to upgrade weak legacy assets to PQC-resistant algorithms (like Kyber/Dilithium).
+| Feature | Description |
+|---|---|
+| **🔬 Dual-Engine PQC Scanner** | Combines **sslyze** (classical TLS) + **OQS Docker probe** (PQC-enabled OpenSSL) to detect ML-DSA, Falcon, SLH-DSA, and ML-KEM from real TLS connections — no mocks or hardcoded data. |
+| **📋 Dynamic CBOM Generation** | Inventories all cryptographic assets (cipher suites, X.509 certificate chains, OIDs, key lengths) and exports them as CSV/PDF for compliance. |
+| **🏷️ 4-Tier PQC Classification** | Classifies every asset as ❌ Not Quantum-Safe, 🟡 Partially QS, 🔵 PQC-Ready, or 🟢 Fully Quantum Safe based on real-time cert-chain OID analysis. |
+| **📊 Cyber Rating (0-1000)** | Computes an enterprise-wide quantum-risk score with tier classification (Excellent / Good / Satisfactory / Needs Improvement). |
+| **🗺️ Asset Discovery** | Recursively enumerates DNS, IPs, subnets, and server software for all known assets. |
+| **🛠️ AI Migration Playbooks** | Generates step-by-step remediation scripts to upgrade weak legacy assets to PQC-resistant algorithms. |
+
+---
+
+## 🔍 How PQC Detection Works
+
+Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real-time:
+
+```
+── Scan Pipeline ──────────────────────────────────────────────
+🔍 Step 1: User enters target (e.g., test.openquantumsafe.org:6182)
+🔒 Step 2: sslyze attempts TLS handshake via system OpenSSL
+🐳 Step 3: OQS Docker probe runs — detects PQC signatures via liboqs
+🏷️ Step 4: Best result (classical or PQC) is selected
+📊 Step 5: Classifier walks cert chain OIDs → assigns label
+```
+
+| Engine | What It Detects |
+|---|---|
+| **sslyze** (Primary) | Classical ciphers (ECDHE, RSA, AES), X.509 cert chain OIDs, TLS versions |
+| **OQS Docker Probe** 🐳 | ML-DSA, Falcon, SLH-DSA signatures; ML-KEM key exchange; PQC cert chain depth |
+
+> **Why two engines?** Standard OpenSSL cannot negotiate PQC cipher suites or parse PQC certificates. The OQS container bundles `liboqs` + `oqs-provider`, enabling Rakshak to detect PQC from real connections — including dual-stack servers that hide PQC certs from classical clients.
+
+### PQC Classification Decision Tree
+
+| Label | Criteria |
+|---|---|
+| ❌ **Not Quantum-Safe** | No PQC detected in cipher suite or certificate chain |
+| 🟡 **Partially Quantum-Safe** | PQC detected in one layer (KEX or Auth) |
+| 🔵 **PQC-Ready** | PQC in both KEX + Auth, but legacy Root CA in trust chain |
+| 🟢 **Fully Quantum Safe** | Every cert in the trust chain uses PQC signature OIDs |
+
+### Verified Test Targets
+
+| Target | Result |
+|---|---|
+| `test.openquantumsafe.org:6182` | 🟢 Fully QS — ML-DSA-44 via OQS probe |
+| `test.openquantumsafe.org:6095` | 🟢 Fully QS — Falcon-512 via OQS probe |
+| `cloudflare.com` | ❌ Not QS — classical ECDSA + ECDHE |
+| `google.com` | ❌ Not QS — classical RSA + ECDHE |
+
+---
 
 ## 🛠️ Technology Stack
 
-* **Backend:** Python, FastAPI (Asynchronous scanning), SQLAlchemy, SQLite
-* **Frontend:** HTML5, Tailwind CSS, Alpine.js / Vanilla JS
-* **Security & Scanning:** SSLyze, Sublist3r, Python `cryptography`
+* **Backend:** Python 3.11, FastAPI (async), SQLAlchemy, SQLite
+* **Frontend:** HTML5, Bootstrap 5, Vanilla JS, Chart.js
+* **Security & Scanning:** sslyze, OQS Docker (`openquantumsafe/curl`), Python `cryptography`
+* **PQC Detection:** X.509 OID parsing (ML-DSA, Falcon, SLH-DSA), liboqs via Docker
 * **Deployment:** Docker, Railway Cloud
+
+---
 
 ## 🚀 Running Rakshak Locally
 
 ### Prerequisites
 * Python 3.11+
-* OpenSSL installed on your system
+* **Docker Desktop** (required for PQC detection via OQS probe)
 
 ### Installation
 
@@ -39,7 +90,7 @@ Rakshak is an automated Post-Quantum Cryptography (PQC) readiness and cyber-rati
 
 2. **Create and activate a virtual environment:**
    ```bash
-   python3 -m venv venv
+   python -m venv venv
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    ```
 
@@ -48,37 +99,45 @@ Rakshak is an automated Post-Quantum Cryptography (PQC) readiness and cyber-rati
    pip install -r requirements.txt
    ```
 
-4. **Configure Environment Variables:**
-   Copy the example `.env` file and configure your API keys (e.g., for AI playbook generation).
+4. **Pull the OQS Docker image** (one-time, ~20MB):
    ```bash
-   cp .env.example .env
+   docker pull openquantumsafe/curl:latest
    ```
 
 5. **Run the FastAPI server:**
    ```bash
    python run.py
-   # OR
-   uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
    ```
 
 6. **Access the application:**
-   Open your browser and navigate to `http://localhost:8000/`. Default credentials are usually set upon first run (e.g., `admin` / `admin@123`).
+   Open `http://localhost:8000/` — Default credentials: `admin` / `admin@123`
+
+---
 
 ## 🐳 Docker Deployment
 
-To build and run the application using Docker:
-
 ```bash
+# Build the app image
 docker build -t rakshak-app .
-docker run -p 8000:8000 -v rakshak_data:/app/rakshak/data rakshak-app
+
+# Run with Docker socket (required for OQS probe)
+docker run -p 8000:8000 \
+  -v /var/run/docker.sock:/var/run/docker.sock \
+  -v rakshak_data:/app/rakshak/data \
+  rakshak-app
 ```
 
-## �� Team Gabhrus
-
-* **Akshat Jiwrajka** - Full-Stack & Security Engineer
-* **Sheersh Nigam** - Backend & ML Engineer
-* **Arunangshu Karmakar** - UI/UX & Frontend Engineer
-* **Simarpreet Singh** - DevOps & Cloud Engineer
+> **Note:** The `-v /var/run/docker.sock` mount enables the OQS Docker probe to launch `openquantumsafe/curl` containers for PQC detection.
 
 ---
+
+## 👥 Team Gabhrus
+
+* **Akshat Jiwrajka** — Full-Stack & Security Engineer
+* **Sheersh Nigam** — Backend & ML Engineer
+* **Arunangshu Karmakar** — UI/UX & Frontend Engineer
+* **Simarpreet Singh** — DevOps & Cloud Engineer
+
+---
+
 *Securing today's critical financial assets against tomorrow's quantum threats.*
