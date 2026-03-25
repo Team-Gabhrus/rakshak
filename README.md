@@ -53,15 +53,6 @@ Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real
 | 🔵 **PQC-Ready** | PQC in both KEX + Auth, but legacy Root CA in trust chain |
 | 🟢 **Fully Quantum Safe** | Every cert in the trust chain uses PQC signature OIDs |
 
-### Verified Test Targets
-
-| Target | Result |
-|---|---|
-| `test.openquantumsafe.org:6182` | 🟢 Fully QS — ML-DSA-44 via OQS probe |
-| `test.openquantumsafe.org:6095` | 🟢 Fully QS — Falcon-512 via OQS probe |
-| `cloudflare.com` | ❌ Not QS — classical ECDSA + ECDHE |
-| `google.com` | ❌ Not QS — classical RSA + ECDHE |
-
 ---
 
 ## 🛠️ Technology Stack
@@ -137,6 +128,16 @@ docker run -p 8000:8000 \
 * **Sheersh Nigam** — Backend & ML Engineer
 * **Arunangshu Karmakar** — UI/UX & Frontend Engineer
 * **Simarpreet Singh** — DevOps & Cloud Engineer
+
+---
+
+## 🧪 Testing with Local PQC Servers
+
+You can spawn your own local Post-Quantum test servers using Docker to verify the **🔵 PQC Ready** and **🟢 Fully Quantum Safe** labels in Rakshak.
+
+1. Read the full **[PQC Mini Server Setup Guide](pqc_server_setup.md)** to generate ML-DSA certificates and start the `openquantumsafe/curl` container with exposed ports (`-p 4433:4433 -p 4434:4434`).
+2. In the Rakshak UI, use `127.0.0.1:4433` or `127.0.0.1:4434` as your scan targets.
+   *(Note: If Rakshak is running inside Docker, use `host.docker.internal:4433` instead of `127.0.0.1`)*.
 
 ---
 

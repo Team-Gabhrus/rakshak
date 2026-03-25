@@ -285,7 +285,30 @@ function cbomRowSafety(item) {
     return 'ok'; // unknown — don't flag classical without evidence
   }
 
-  // ── Algorithm / Certificate: check all relevant string fields ────────────
+  // ── Certificate: evaluate key and signature separately ───────────────────
+  // If the item has both a signature and a key algorithm, it is a certificate.
+  // A hybrid certificate (PQC key signed by Classical CA) should show as 🔵 PQC Ready,
+  // not 🟠 Classical, as it is transitional.
+  if (item.signature_algorithm_reference && item.key_algorithm) {
+    const ka = (item.key_algorithm || '').toUpperCase().replace(/-/g,'').replace(/_/g,'');
+    const sig = (item.signature_algorithm_reference || '').toUpperCase().replace(/-/g,'').replace(/_/g,'');
+    
+    const PQC_SAFE  = ['MLDSA','MLKEM','KYBER','SLHDSA','SPHINCS','FALCON','FNDSA','DILITHIUM','PQC'];
+    const BROKEN    = ['SHA1','MD5','MD4','RC4','3DES','TRIPLEDES','DES','RC2','EXPORT'];
+
+    const isPqcKey = PQC_SAFE.some(p => ka.startsWith(p) || ka === p);
+    const isPqcSig = PQC_SAFE.some(p => sig.startsWith(p) || sig === p);
+    const isBrokenKey = BROKEN.some(p => ka.includes(p));
+    const isBrokenSig = BROKEN.some(p => sig.includes(p));
+
+    if (isBrokenKey || isBrokenSig) return 'broken';
+    if (isPqcKey && isPqcSig) return 'safe';     // 🟢 Fully PQC cert
+    if (isPqcKey) return 'ok';                   // 🔵 PQC key signed by classical CA (Hybrid)
+    if (isPqcSig) return 'ok';                   // 🔵 Classical key signed by PQC CA (Transitional)
+    return 'classical';                          // 🟠 Entirely classical cert (e.g. RSA signed by RSA)
+  }
+
+  // ── Algorithm: check all relevant string fields ────────────
   const parts = [
     item.name || '',
     item.algorithm || '',

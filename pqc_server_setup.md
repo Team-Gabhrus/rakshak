@@ -15,8 +15,8 @@ Open a terminal (e.g., PowerShell) and jump into the OQS sandbox shell:
 mkdir pqc_test_env
 cd pqc_test_env
 
-# Start an interactive shell inside the OQS container
-docker run -it --rm -v ${PWD}:/opt/test -w /opt/test openquantumsafe/curl sh
+# Start an interactive shell inside the OQS container, exposing ports for the host
+docker run -it --rm -p 4433:4433 -p 4434:4434 -v ${PWD}:/opt/test -w /opt/test openquantumsafe/curl sh
 ```
 
 *(You will run all the `openssl` commands below inside this container shell).*
@@ -58,7 +58,7 @@ openssl s_server -cert chain_pqc_ready.crt -key server_pqc.key -port 4433 -www -
 ```
 
 ### 4. Test it!
-Leave the server running in that terminal. Open a **new terminal** on your Windows host, point your scanner to `localhost:4433` (or whatever the IP of your Docker container is mapped to), and run the Rakshak scan. 
+Leave the server running in that terminal. Open your browser to the Rakshak UI, point your scanner to `https://127.0.0.1:4433` (or `https://host.docker.internal:4433` if your Rakshak backend is also running inside Docker), and run the Rakshak scan. 
 It should return **🔵 PQC Ready** because the KEX and Leaf are PQC, but the Root CA is RSA!
 
 ---
@@ -98,7 +98,7 @@ openssl s_server -cert chain_fully_qs.crt -key server_pure_pqc.key -port 4434 -w
 ```
 
 ### 4. Test it!
-Run the Rakshak scan targeting `localhost:4434`. 
+Run the Rakshak scan targeting `https://127.0.0.1:4434` (or `https://host.docker.internal:4434`). 
 Because the KEX (`kyber768`), the Leaf Certificate (`ML-DSA-44`), and the Root Certificate (`ML-DSA-44`) are ALL Post-Quantum, your scanner will correctly flag it as **🟢 Fully Quantum Safe**!
 
 ---
