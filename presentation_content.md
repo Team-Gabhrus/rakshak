@@ -50,6 +50,54 @@ While conventional vulnerability scanners look for known CVEs or misconfiguratio
 - **Reporting**: ReportLab (for high-fidelity offline PDF generation)
 
 ### Architecture Diagram and Dataflow:
+
+```mermaid
+graph LR
+    %% Styles
+    classDef client fill:#3498DB,stroke:#2980B9,stroke-width:2px,color:#fff
+    classDef core fill:#2ECC71,stroke:#27AE60,stroke-width:2px,color:#fff
+    classDef worker fill:#F39C12,stroke:#D35400,stroke-width:2px,color:#fff
+    classDef ext fill:#E74C3C,stroke:#C0392B,stroke-width:2px,color:#fff
+    classDef db fill:#9B59B6,stroke:#8E44AD,stroke-width:2px,color:#fff
+
+    %% Nodes
+    User(("🧑‍💻 Security<br>Admin")):::client
+    UI["💻 Rakshak Dashboard<br/>(Bootstrap/Chart.js)"]:::client
+    
+    subgraph "Backend Framework"
+        API["⚡ FastAPI Server<br/>(Orchestration & REST)"]:::core
+        WS["🟢 WebSockets<br/>(Live Progress)"]:::core
+    end
+    
+    DB[("🗄️ SQLite Database<br/>(CBOM Snapshots)")]:::db
+    
+    subgraph "Scanning Engine (Async Workers)"
+        TaskQ["📋 Background<br>Task Queue"]:::worker
+        SSL["🛡️ Classical Scanner<br/>(sslyze)"]:::worker
+        OQS["🐳 Quantum Probe<br/>(openquantumsafe/curl)"]:::worker
+        Engine["🧠 Analysis Engine<br/>(PQC Classifier)"]:::worker
+    end
+
+    Targets(("🌐 Target Servers<br/>(Internal/External)")):::ext
+
+    %% Connections
+    User -->|Target Input| UI
+    UI -->|REST/JSON| API
+    API <-->|State/CBOM| DB
+    API -->|Deploy Jobs| TaskQ
+    TaskQ --> SSL
+    TaskQ --> OQS
+    SSL -.->|TLS Handshake| Targets
+    OQS -.->|PQC Handshake| Targets
+    Targets -.->|Cert Chain & Ciphers| SSL
+    Targets -.->|Cert Chain & Ciphers| OQS
+    SSL --> Engine
+    OQS --> Engine
+    Engine -->|Update Scan Results| DB
+    API -.->|Push Updates| WS
+    WS -.->|Real-time UI| UI
+```
+
 1. **Discovery / Input**: The user inputs targets (Domains, IPs, CIDRs) via the UI or bulk CSV/JSON.
 2. **Orchestration**: FastAPI processes the request and queues background jobs.
 3. **Execution**: 
