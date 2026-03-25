@@ -25,3 +25,5 @@ raw_probe_4434.md
 raw_probe.py
 scan_out.txt
 test_scan.py
+badssl_output.txt
+check_badssl.py

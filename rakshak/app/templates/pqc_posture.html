@@ -226,6 +226,11 @@ async function loadPlaybook(assetId) {
         <div class="fs-13"><span class="text-muted">Estimated Effort:</span> <strong>${playbook.total_estimated_effort_days||0} days</strong></div>
       </div>
     </div>
+    ${(playbook.classification_rationale||[]).length ? `
+    <div class="mb-4 p-3" style="background:rgba(52,152,219,0.07);border-radius:10px;border-left:4px solid #3498db">
+      <div class="fw-700 fs-13 mb-2" style="color:#3498db"><i class="bi bi-info-circle-fill me-2"></i>Why is this asset <b>${pqcBadge(d.pqc_label)}</b> and not Fully Quantum Safe?</div>
+      ${(playbook.classification_rationale||[]).map(r=>`<div class="fs-13 mb-1">${r}</div>`).join('')}
+    </div>` : ''}
     ${steps.map(s=>`
       <div class="d-flex gap-3 mb-3 p-3" style="background:var(--rk-bg);border-radius:10px;border-left:3px solid ${effortColors[s.risk]||'#7D8590'}">
         <div style="width:28px;height:28px;border-radius:50%;background:var(--rk-surface2);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;flex-shrink:0">${s.step}</div>

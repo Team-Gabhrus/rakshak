@@ -358,16 +358,15 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 certs = snap.get("certificates", [])
                 if certs:
                     story.append(Paragraph("<b>Certificate Chain</b>", normal_style))
-                    cert_rows = [["Safety", "Subject", "Issuer", "Signature Algorithm", "Valid Until"]] + [
+                    cert_rows = [["Safety", "Issuer", "Signature Algorithm", "Valid Until"]] + [
                         [
                             Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(c, "certificates"))}">{cbom_row_safety(c, "certificates").upper()}</font></b>', cell_style),
-                            Paragraph(str(c.get("subject_name", "")), cell_style),
                             Paragraph(str(c.get("issuer_name", "")), cell_style),
                             str(c.get("signature_algorithm_reference", "")),
                             str(c.get("not_valid_after", ""))[:10]
                         ] for c in certs
                     ]
-                    t_cert = Table(cert_rows, colWidths=[60, 250, 220, 120, 80])
+                    t_cert = Table(cert_rows, colWidths=[80, 400, 150, 100])
                     t_cert.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), white),

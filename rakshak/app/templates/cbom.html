@@ -404,20 +404,61 @@ async function runCompare() {
   if (!res) return;
   const diff = await res.json();
   const categories = ['algorithms','keys','protocols','certificates'];
+
+  function renderItems(items, style) {
+    if (!items.length) return `<p class="text-muted fs-12 mb-0">None</p>`;
+    // show first 3 key fields of each item as badges
+    return items.map(item => {
+      const name = item.name || item.version || item.subject_name || JSON.stringify(item).slice(0,40);
+      return `<span class="badge me-1 mb-1" style="background:${style}22;color:${style};border:1px solid ${style}44;font-weight:500">${name}</span>`;
+    }).join('');
+  }
+
+  function renderChanged(changed) {
+    if (!changed.length) return `<p class="text-muted fs-12 mb-0">None</p>`;
+    return changed.map(c => {
+      const name = c.name;
+      const beforeFields = Object.entries(c.before||{}).filter(([k])=>!['asset_type','list'].includes(k));
+      const afterFields  = Object.entries(c.after ||{}).filter(([k])=>!['asset_type','list'].includes(k));
+      const fieldDiffs = beforeFields
+        .filter(([k,v]) => JSON.stringify(v) !== JSON.stringify((c.after||{})[k]))
+        .map(([k,v]) => `<div class="fs-12"><span class="text-muted">${k}:</span> <span class="text-red">${v}</span> → <span class="text-green">${(c.after||{})[k]??'—'}</span></div>`)
+        .join('');
+      return `<div class="mb-2 p-2" style="background:var(--rk-bg);border-radius:6px;border-left:3px solid #f1c40f">
+        <div class="fw-600 fs-12 mb-1">${name}</div>${fieldDiffs||'<div class="fs-12 text-muted">Metadata changed</div>'}
+      </div>`;
+    }).join('');
+  }
+
+  const catHtml = categories.map(cat => {
+    const d = diff[cat] || {};
+    const added = d.added || [];
+    const removed = d.removed || [];
+    const changed = d.changed || [];
+    const hasChanges = added.length || removed.length || changed.length;
+    return `<div class="mb-4">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <strong class="text-blue">${cat.toUpperCase()}</strong>
+        <span class="badge bg-success">${added.length} added</span>
+        <span class="badge bg-danger">${removed.length} removed</span>
+        <span class="badge bg-warning text-dark">${changed.length} changed</span>
+      </div>
+      ${!hasChanges ? `<p class="text-muted fs-12">No changes in this category.</p>` : `
+        ${added.length ? `<div class="mb-2"><div class="fs-12 text-muted mb-1">➕ Added</div>${renderItems(added,'#2ecc71')}</div>` : ''}
+        ${removed.length ? `<div class="mb-2"><div class="fs-12 text-muted mb-1">➖ Removed</div>${renderItems(removed,'#e74c3c')}</div>` : ''}
+        ${changed.length ? `<div class="mb-2"><div class="fs-12 text-muted mb-1">✏️ Changed</div>${renderChanged(changed)}</div>` : ''}
+      `}
+    </div>`;
+  }).join('<hr style="border-color:var(--rk-border)">');
+
   document.getElementById('compareResult').innerHTML = `
     <div class="rk-card mt-2">
-      <div class="d-flex gap-3 mb-3">
-        <span class="fs-13 text-muted">Before: <strong>${fmtDate(diff.summary?.snapshot_a_date)}</strong></span>
-        <span class="fs-13 text-muted">After: <strong>${fmtDate(diff.summary?.snapshot_b_date)}</strong></span>
-        ${diff.summary?.pqc_label_changed?`<span class="badge bg-warning text-dark">PQC Label Changed: ${diff.summary.pqc_label_before} → ${diff.summary.pqc_label_after}</span>`:''}
+      <div class="d-flex gap-3 flex-wrap mb-3">
+        <span class="fs-13 text-muted">Before: <strong>${fmtDateTime(diff.summary?.snapshot_a_date)}</strong></span>
+        <span class="fs-13 text-muted">After: <strong>${fmtDateTime(diff.summary?.snapshot_b_date)}</strong></span>
+        ${diff.summary?.pqc_label_changed ? `<span class="badge bg-warning text-dark">⚠ PQC Label Changed: <b>${diff.summary.pqc_label_before}</b> → <b>${diff.summary.pqc_label_after}</b></span>` : `<span class="badge bg-success">✓ PQC Label Unchanged</span>`}
       </div>
-      ${categories.map(cat=>{
-        const d=diff[cat]||{};
-        return `<div class="mb-3"><strong class="text-blue">${cat.toUpperCase()}</strong>
-          <span class="ms-3 badge bg-success">${(d.added||[]).length} added</span>
-          <span class="ms-2 badge bg-danger">${(d.removed||[]).length} removed</span>
-          <span class="ms-2 badge bg-warning text-dark">${(d.changed||[]).length} changed</span></div>`;
-      }).join('')}
+      ${catHtml}
     </div>`;
 }
 

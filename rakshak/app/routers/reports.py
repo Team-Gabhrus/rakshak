@@ -25,6 +25,7 @@ class GenerateReportRequest(BaseModel):
     password_protected: bool = False
     password: Optional[str] = None
     delivery_target: Optional[str] = None  # email / path / webhook
+    expires_in: str = "30 days"
 
 
 class ScheduleReportRequest(BaseModel):
@@ -46,6 +47,18 @@ async def generate_report(
     current_user: User = Depends(require_any_role),
 ):
     """FR-17: On-demand report generation."""
+    from datetime import timedelta
+    expires_at = None
+    if req.expires_in != "never":
+        if req.expires_in == "1 hour": expires_at = datetime.utcnow() + timedelta(hours=1)
+        elif req.expires_in == "5 hours": expires_at = datetime.utcnow() + timedelta(hours=5)
+        elif req.expires_in == "1 day": expires_at = datetime.utcnow() + timedelta(days=1)
+        elif req.expires_in == "1 week": expires_at = datetime.utcnow() + timedelta(weeks=1)
+        elif req.expires_in == "30 days": expires_at = datetime.utcnow() + timedelta(days=30)
+        elif req.expires_in == "90 days": expires_at = datetime.utcnow() + timedelta(days=90)
+        elif req.expires_in == "180 days": expires_at = datetime.utcnow() + timedelta(days=180)
+        elif req.expires_in == "365 days": expires_at = datetime.utcnow() + timedelta(days=365)
+
     report = Report(
         title=req.title,
         report_type="on_demand",
@@ -58,6 +71,7 @@ async def generate_report(
         delivery_target=req.delivery_target,
         created_by=current_user.id,
         status="generating",
+        expires_at=expires_at
     )
     db.add(report)
     await db.commit()
@@ -136,8 +150,33 @@ async def list_reports(
 ):
     result = await db.execute(select(Report).order_by(Report.created_at.desc()))
     reports = result.scalars().all()
-    return [{"id": r.id, "title": r.title, "format": r.format.value,
-             "status": r.status, "created_at": r.created_at, "file_path": r.file_path} for r in reports]
+    
+    out = []
+    now = datetime.utcnow()
+    changed = False
+    for r in reports:
+        # 1-hour timeout for stuck generation jobs
+        if r.status in ["generating", "pending"]:
+            if (now - r.created_at).total_seconds() > 3600:
+                r.status = "failed: timeout"
+                changed = True
+        
+        # Enforce Expiration
+        if r.expires_at and now > r.expires_at:
+            if r.status != "expired":
+                r.status = "expired"
+                changed = True
+                if r.file_path and os.path.exists(r.file_path):
+                    try: os.remove(r.file_path)
+                    except OSError: pass
+
+        out.append({"id": r.id, "title": r.title, "format": r.format.value,
+                    "status": r.status, "created_at": r.created_at, "file_path": r.file_path, "expires_at": r.expires_at})
+    
+    if changed:
+        await db.commit()
+        
+    return out
 
 
 @router.get("/export/{report_id}")
@@ -150,9 +189,32 @@ async def export_report(
     from fastapi.responses import FileResponse
     result = await db.execute(select(Report).where(Report.id == report_id))
     report = result.scalar_one_or_none()
-    if not report or not report.file_path or not os.path.exists(report.file_path):
-        raise HTTPException(status_code=404, detail="Report file not found")
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if report.status == "expired":
+        raise HTTPException(status_code=403, detail="Report link has expired.")
+    if not report.file_path or not os.path.exists(report.file_path):
+        raise HTTPException(status_code=404, detail="Report file not found or deleted")
     return FileResponse(report.file_path, filename=os.path.basename(report.file_path))
+
+@router.delete("/{report_id}")
+async def delete_report(
+    report_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    result = await db.execute(select(Report).where(Report.id == report_id))
+    report = result.scalar_one_or_none()
+    if not report: 
+        raise HTTPException(404, "Report not found")
+    
+    if report.file_path and os.path.exists(report.file_path):
+        try: os.remove(report.file_path)
+        except OSError: pass
+        
+    await db.delete(report)
+    await db.commit()
+    return {"message": "Report deleted successfully"}
 
 
 @router.get("/scheduled")

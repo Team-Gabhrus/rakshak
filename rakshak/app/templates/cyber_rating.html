@@ -114,11 +114,20 @@ async function loadHistory() {
   const res = await API.get('/api/rating/history');
   if (!res) return;
   const history = await res.json();
+  
+  // Destroy any existing chart instance on the canvas
+  const existing = Chart.getChart('trendChart');
+  if (existing) existing.destroy();
+
   if (!history.length) {
-    createLineChart('trendChart',['No data'],[{label:'Score',data:[0],borderColor:'#3498DB',backgroundColor:'rgba(52,152,219,0.1)'}]);
+    document.getElementById('trendChart').parentElement.innerHTML = `
+      <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted" style="min-height:200px">
+        <i class="bi bi-bar-chart-line fs-1 mb-2"></i>
+        <p class="fs-13">No history yet. Complete a scan to generate the first data point.</p>
+      </div>`;
     return;
   }
-  const labels = history.map(h => fmtDate(h.recorded_at));
+  const labels = history.map(h => fmtDateTime(h.recorded_at));
   const scores = history.map(h => h.score);
   createLineChart('trendChart', labels, [{
     label: 'Cyber Rating Score',
@@ -128,6 +137,7 @@ async function loadHistory() {
     fill: true,
     pointBackgroundColor: scores.map(s => s>=800?'#2ECC71':s>=600?'#3498DB':s>=300?'#F1C40F':'#E74C3C'),
     pointRadius: 5,
+    tension: 0.4,
   }]);
 }
 

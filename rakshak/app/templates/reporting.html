@@ -97,6 +97,20 @@
           <label class="rk-form-label">Delivery Target (email address if email)</label>
           <input class="rk-form-control" id="repTarget" placeholder="security@pnb.in">
         </div>
+        <div class="mb-3">
+          <label class="rk-form-label">Link Expiration (Expires in)</label>
+          <select class="rk-form-control" id="repExpires">
+            <option value="1 hour">1 hour</option>
+            <option value="5 hours">5 hours</option>
+            <option value="1 day">1 day</option>
+            <option value="1 week">1 week</option>
+            <option value="30 days" selected>30 days</option>
+            <option value="90 days">90 days</option>
+            <option value="180 days">180 days</option>
+            <option value="365 days">365 days</option>
+            <option value="never">Never</option>
+          </select>
+        </div>
         <div class="mb-3 d-flex align-items-center gap-3">
           <label class="d-flex align-items-center gap-2 fs-13"><input type="checkbox" id="repPwd"> Password Protect</label>
           <input class="rk-form-control d-none" id="repPwdVal" placeholder="Password" style="max-width:180px">
@@ -169,6 +183,7 @@ async function generateReport() {
     format: fmt,
     delivery_channel: document.getElementById('repDelivery').value,
     delivery_target: document.getElementById('repTarget').value || null,
+    expires_in: document.getElementById('repExpires').value,
     modules: selectedModules,
     include_charts: true,
     password_protected: document.getElementById('repPwd').checked,
@@ -198,6 +213,17 @@ async function scheduleReport() {
   }
 }
 
+async function deleteReport(id) {
+  if (!confirm("Are you sure you want to completely delete this report?")) return;
+  const res = await API.delete(`/api/reports/${id}`);
+  if (res?.ok) {
+    showToast('Report deleted successfully', 'success');
+    loadReports();
+  } else {
+    showToast('Failed to delete report', 'danger');
+  }
+}
+
 async function loadReports() {
   const res = await API.get('/api/reports');
   if (!res) return;
@@ -208,9 +234,12 @@ async function loadReports() {
     <td><code>#${r.id}</code></td>
     <td>${r.title}</td>
     <td><span class="badge bg-secondary">${r.format}</span></td>
-    <td><span class="badge ${r.status==='completed'?'bg-success':r.status==='generating'?'bg-warning text-dark':'bg-danger'}">${r.status}</span></td>
+    <td><span class="badge ${r.status==='completed'?'bg-success':(r.status==='expired'?'bg-dark text-white':(r.status==='generating'?'bg-warning text-dark':'bg-danger'))}">${r.status}</span></td>
     <td class="text-muted fs-12">${fmtDateTime(r.created_at)}</td>
-    <td>${r.status==='completed'?`<a href="/api/reports/export/${r.id}" class="rk-btn rk-btn-outline rk-btn-sm"><i class="bi bi-download"></i> Download</a>`:'<span class="text-muted fs-12">pending…</span>'}</td>
+    <td>
+      ${r.status==='completed'?`<a href="/api/reports/export/${r.id}" class="rk-btn rk-btn-outline rk-btn-sm me-2"><i class="bi bi-download"></i></a>`: (r.status==='expired'?'<span class="text-muted fs-12 me-2">expired</span>':'<span class="text-muted fs-12 me-2">pending…</span>')}
+      <button class="rk-btn rk-btn-danger rk-btn-sm px-2 py-1" onclick="deleteReport(${r.id})"><i class="bi bi-trash"></i></button>
+    </td>
   </tr>`).join('');
 }
 

@@ -98,10 +98,36 @@ def generate_playbook(
     })
     effort_total += 3
 
+    # Determine classification rationale
+    _PQC_KEX = ("ML-KEM", "MLKEM", "KYBER")
+    _PQC_AUTH = ("ML-DSA", "MLDSA", "SLH-DSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM")
+    def _is_pqc(s, lst): return s and any(str(s).upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in lst)
+
+    has_pqc_kex  = _is_pqc(key_exchange, _PQC_KEX)
+    has_pqc_auth = _is_pqc(authentication, _PQC_AUTH)
+
+    # For PQC Ready assets — explain why they're not Fully Quantum Safe yet
+    rationale_items = []
+    if pqc_label == "pqc_ready":
+        if has_pqc_kex and not has_pqc_auth:
+            rationale_items.append(f"✅ Key Exchange is already quantum-safe ({key_exchange})")
+            rationale_items.append(f"⚠️ Certificate authentication ({authentication or 'unknown'}) is still classical — a CRQC could forge signatures")
+            rationale_items.append("📋 To achieve Fully Quantum Safe: replace the certificate chain with ML-DSA or hybrid classical+PQC certificates")
+        elif has_pqc_auth and not has_pqc_kex:
+            rationale_items.append(f"✅ Certificate authentication is already quantum-safe ({authentication})")
+            rationale_items.append(f"⚠️ Key Exchange ({key_exchange or 'unknown'}) is still classical — vulnerable to HNDL/Shor's algorithm decryption")
+            rationale_items.append("📋 To achieve Fully Quantum Safe: deploy ML-KEM-768 or hybrid X25519+ML-KEM for key exchange")
+        else:
+            rationale_items.append("⚠️ One or more cryptographic components contribute to partial PQC compliance")
+            rationale_items.append("📋 Re-scan after each migration step to track progress towards Fully Quantum Safe")
+        if tls_version and tls_version != "TLS 1.3":
+            rationale_items.append(f"⚠️ {tls_version} detected — TLS 1.3 is required for full PQC support with FIPS 203/204 algorithms")
+
     return {
         "target": target_url,
         "current_label": pqc_label,
         "target_label": "fully_quantum_safe",
+        "classification_rationale": rationale_items,
         "total_estimated_effort_days": effort_total,
         "overall_risk": "High" if effort_total > 20 else "Medium" if effort_total > 5 else "Low",
         "steps": steps,
