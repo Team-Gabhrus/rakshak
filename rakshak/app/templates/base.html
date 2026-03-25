@@ -143,59 +143,57 @@
 {% block extra_js %}{% endblock %}
 
 <script>
-    function toggleTheme() {
-        const doc = document.documentElement;
-        const currentTheme = doc.getAttribute('data-theme') || 'dark';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        doc.setAttribute('data-theme', newTheme);
-        localStorage.setItem('rk-theme', newTheme);
+(function () {
+    // ── Icon update helper ───────────────────────────────────────────────────
+    function syncThemeIcon(theme) {
         const icon = document.getElementById('themeIcon');
-        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-        // Optional logic to reload charts if needed
-        if (typeof Chart !== 'undefined') location.reload(); // simple brute-force to re-render charts accurately
+        if (!icon) return;
+        icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
     }
-    document.addEventListener("DOMContentLoaded", () => {
-        const savedTheme = localStorage.getItem('rk-theme') || 'light';
-        const icon = document.getElementById('themeIcon');
-        if(icon) icon.className = savedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-    });
-</script>
 
-<script>
-    function toggleTheme() {
-        const doc = document.documentElement;
-        const currentTheme = doc.getAttribute('data-theme') || 'dark';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        doc.setAttribute('data-theme', newTheme);
-        localStorage.setItem('rk-theme', newTheme);
-        const icon = document.getElementById('themeIcon');
-        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-        // Optional logic to reload charts if needed
-        if (typeof Chart !== 'undefined') location.reload(); // simple brute-force to re-render charts accurately
-    }
-    document.addEventListener("DOMContentLoaded", () => {
-        const savedTheme = localStorage.getItem('rk-theme') || 'light';
-        const icon = document.getElementById('themeIcon');
-        if(icon) icon.className = savedTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
+    // ── Sync icon once DOM ready ────────────────────────────────────────────
+    document.addEventListener('DOMContentLoaded', () => {
+        syncThemeIcon(localStorage.getItem('rk-theme') || 'light');
     });
-</script>
 
-<script>
-    function toggleTheme() {
-        const doc = document.documentElement;
-        const currentTheme = doc.getAttribute('data-theme') || 'light';
-        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-        doc.setAttribute('data-theme', newTheme);
-        localStorage.setItem('rk-theme', newTheme);
-        const icon = document.getElementById('themeIcon');
-        icon.className = newTheme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-        if (typeof Chart !== 'undefined') location.reload(); 
-    }
-    document.addEventListener("DOMContentLoaded", () => {
-        const theme = localStorage.getItem('rk-theme') || 'light';
-        const icon = document.getElementById('themeIcon');
-        if(icon) icon.className = theme === 'dark' ? 'bi bi-moon-stars-fill' : 'bi bi-sun-fill';
-    });
+    // ── Toggle ───────────────────────────────────────────────────────────────
+    window.toggleTheme = function () {
+        const doc   = document.documentElement;
+        const cur   = doc.getAttribute('data-theme') || 'light';
+        const next  = cur === 'dark' ? 'light' : 'dark';
+
+        // Spin the button icon
+        const btn = document.getElementById('themeIcon');
+        if (btn) {
+            btn.classList.add('rk-theme-spin');
+            btn.addEventListener('animationend', () => btn.classList.remove('rk-theme-spin'), { once: true });
+        }
+
+        // Smooth cross-fade: briefly overlay page with a translucent wash
+        const wash = document.createElement('div');
+        wash.style.cssText = 'position:fixed;inset:0;background:var(--rk-bg);opacity:0;pointer-events:none;z-index:9999;transition:opacity 180ms ease';
+        document.body.appendChild(wash);
+        requestAnimationFrame(() => { wash.style.opacity = '0.55'; });
+
+        setTimeout(() => {
+            doc.setAttribute('data-theme', next);
+            localStorage.setItem('rk-theme', next);
+            syncThemeIcon(next);
+            wash.style.opacity = '0';
+            wash.addEventListener('transitionend', () => wash.remove(), { once: true });
+
+            // Re-render charts without reloading page
+            if (typeof Chart !== 'undefined') {
+                Object.values(Chart.instances).forEach(c => c.destroy());
+            }
+            ['loadPageData','loadMetrics','loadAssets','loadDiscoveries',
+             'loadCBOMMetrics','loadCBOMList','loadRating','loadHistory',
+             'loadPQCPosture','loadReports','loadScans'].forEach(fn => {
+                if (typeof window[fn] === 'function') window[fn]();
+            });
+        }, 140);
+    };
+})();
 </script>
 </body>
 
