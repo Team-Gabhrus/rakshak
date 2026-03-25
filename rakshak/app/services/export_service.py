@@ -50,12 +50,22 @@ async def collect_report_data(db: AsyncSession, modules: list) -> dict:
                                "tls_version": a.tls_version, "last_scan": str(a.last_scan)} for a in assets]
 
     if "cbom" in modules:
-        result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()).limit(50))
+        # Fetch the latest snapshot for each target (using a simple distinct by target logic or fetching all for now)
+        result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()))
         snaps = result.scalars().all()
+        seen_targets = set()
+        unique_snaps = []
+        for s in snaps:
+            if s.target_url not in seen_targets:
+                seen_targets.add(s.target_url)
+                unique_snaps.append(s)
+        
         data["cbom"] = [{"target": s.target_url, "pqc_label": s.pqc_label,
                           "created_at": str(s.created_at),
                           "algorithms": json.loads(s.algorithms_json or "[]"),
-                          "protocols": json.loads(s.protocols_json or "[]")} for s in snaps]
+                          "protocols": json.loads(s.protocols_json or "[]"),
+                          "certificates": json.loads(s.certificates_json or "[]"),
+                          "keys": json.loads(s.keys_json or "[]")} for s in unique_snaps]
 
     if "rating" in modules:
         result = await db.execute(select(Asset))
@@ -103,99 +113,215 @@ def _export_csv(data: dict, filepath: str):
             writer.writerow(["No inventory data available"])
 
 
+def _get_safety_color(safety: str) -> str:
+    s = str(safety).lower()
+    if s == 'safe': return "#2ecc71"
+    elif s == 'ok': return "#3498db"
+    elif s == 'warn': return "#f1c40f"
+    elif s == 'danger': return "#e67e22"
+    elif s == 'broken': return "#e74c3c"
+    return "#7f8c8d"
+
+def _get_pqc_label_color(label: str) -> str:
+    lbl = str(label).lower()
+    if "fully" in lbl or "pqc_ready" in lbl: return "#2ecc71"
+    if "partially" in lbl: return "#f1c40f"
+    if "not_" in lbl or "classical" in lbl: return "#e67e22"
+    if "broken" in lbl: return "#e74c3c"
+    return "#7f8c8d"
+
 def _export_pdf(data: dict, filepath: str, password: str = None):
     try:
-        from reportlab.lib.pagesizes import letter, A4
+        from reportlab.lib.pagesizes import A4, landscape
         from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-        from reportlab.lib.colors import HexColor, white, black
-        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable
+        from reportlab.lib.colors import HexColor, white, black, lightgrey
+        from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
         from reportlab.lib.units import inch
 
-        doc = SimpleDocTemplate(filepath, pagesize=A4)
+        # Generate landscape for wider tables
+        doc = SimpleDocTemplate(filepath, pagesize=landscape(A4), rightMargin=30, leftMargin=30, topMargin=30, bottomMargin=30)
         styles = getSampleStyleSheet()
         story = []
 
-        # Title
-        title_style = ParagraphStyle("Title", parent=styles["Title"], textColor=HexColor("#1E3A5F"), fontSize=24, spaceAfter=12)
-        story.append(Paragraph("🛡️ Rakshak Security Report", title_style))
-        story.append(Paragraph(f"Generated: {data['generated_at']}", styles["Normal"]))
-        story.append(Spacer(1, 20))
+        # PNB Branding Styles
+        title_style = ParagraphStyle("Title", parent=styles["Title"], textColor=HexColor("#A3112E"), fontSize=28, spaceAfter=20)
+        heading_style = ParagraphStyle("Heading", parent=styles["Heading1"], textColor=HexColor("#1A0509"), fontSize=18, spaceBefore=20, spaceAfter=10)
+        subheading_style = ParagraphStyle("SubHeading", parent=styles["Heading2"], textColor=HexColor("#A3112E"), fontSize=14, spaceBefore=15, spaceAfter=8)
+        normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, textColor=HexColor("#333333"))
+        cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=9, wordWrap='CJK')
+
+        # Cover Page / Header
+        story.append(Paragraph("<b>PNB Rakshak Security Report</b>", title_style))
+        story.append(Paragraph(f"<b>Generated:</b> {data['generated_at']}", normal_style))
+        story.append(Paragraph("<b>Scope:</b> Quantum-Proof Systems Scanner Annexure-A CBOM", normal_style))
+        story.append(Spacer(1, 30))
 
         # Cyber Rating
         if "cyber_rating" in data:
             rating = data["cyber_rating"]
-            story.append(Paragraph("Enterprise Cyber Rating", styles["Heading1"]))
-            rating_data = [
-                ["Score", "Tier", "Total Assets", "Fully Quantum Safe", "Not Quantum Safe"],
-                [
-                    str(rating.get("score", 0)),
-                    rating.get("tier_label", ""),
-                    str(rating.get("total_assets", 0)),
-                    str(rating.get("breakdown", {}).get("fully_quantum_safe", 0)),
-                    str(rating.get("breakdown", {}).get("not_quantum_safe", 0)),
-                ]
-            ]
-            t = Table(rating_data, colWidths=[80, 150, 80, 100, 100])
-            t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1E3A5F")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
-                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#CCCCCC")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
-            ]))
-            story.append(t)
+            story.append(Paragraph("Enterprise Cyber Rating", heading_style))
+            score_val = rating.get("score", 0)
+            tier_val = rating.get("tier_label", "Unknown")
+            
+            # Tier Coloring
+            tier_color = "#2ecc71" if score_val >= 90 else "#3498db" if score_val >= 70 else "#f1c40f" if score_val >= 50 else "#e74c3c"
+            
+            summary_html = f"""
+            <b>Score:</b> <font color="{tier_color}">{score_val}</font><br/>
+            <b>Tier:</b> <font color="{tier_color}">{tier_val}</font><br/>
+            <b>Total Assets Assessed:</b> {rating.get("total_assets", 0)}<br/>
+            <b>Fully Quantum Safe:</b> <font color="#2ecc71">{rating.get("breakdown", {}).get("fully_quantum_safe", 0)}</font><br/>
+            <b>PQC Ready:</b> <font color="#2ecc71">{rating.get("breakdown", {}).get("pqc_ready", 0)}</font><br/>
+            <b>Partially Quantum Safe:</b> <font color="#f1c40f">{rating.get("breakdown", {}).get("partially_quantum_safe", 0)}</font><br/>
+            <b>Classical:</b> <font color="#e67e22">{rating.get("breakdown", {}).get("not_quantum_safe", 0)}</font>
+            """
+            story.append(Paragraph(summary_html, normal_style))
             story.append(Spacer(1, 20))
 
-
-        # CBOM Snapshot Data
-        if "cbom" in data and data["cbom"]:
-            story.append(Spacer(1, 10))
-            story.append(Paragraph("Latest CBOM Snapshots", styles["Heading2"]))
-            cbom_cell_style = ParagraphStyle("CBOMCell", parent=styles["Normal"], fontSize=9, wordWrap='CJK')
-            cbom_data = [["Target", "PQC Label", "Created At"]]
-            for snap in data["cbom"][:20]:
-                cbom_data.append([
-                    Paragraph(str(snap.get("target", "")), cbom_cell_style),
-                    str(snap.get("pqc_label", "")),
-                    str(snap.get("created_at", ""))[:19]
-                ])
-            t2 = Table(cbom_data, colWidths=[240, 100, 120])
-            t2.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#3B6A99")),
-                ("TEXTCOLOR", (0, 0), (-1, 0), white),
-                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 9),
-                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#CCCCCC")),
-                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
-            ]))
-            story.append(t2)
-            story.append(Spacer(1, 20))
-
-        # Asset Inventory
+        # Asset Inventory Dashboard
         if "inventory" in data and data["inventory"]:
-            story.append(Paragraph("Asset Inventory", styles["Heading1"]))
-            cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=8, wordWrap='CJK')
-            inv_data = [["Name", "URL", "PQC Label", "Risk Level", "TLS Version", "Last Scan"]]
-            for asset in data["inventory"][:50]:  # limit for PDF
+            story.append(Paragraph("Asset Inventory Overview", heading_style))
+            inv_data = [["Name", "URL", "PQC Label", "Risk Level", "TLS Ver.", "Last Scan"]]
+            for asset in data["inventory"]:
+                label = asset.get('pqc_label') or 'Unknown'
+                lbl_color = _get_pqc_label_color(label)
+                pqc_para = Paragraph(f'<b><font color="{lbl_color}">{label.replace("_", " ").title()}</font></b>', cell_style)
+                
                 inv_data.append([
                     Paragraph(str(asset.get("name", "")), cell_style),
                     Paragraph(str(asset.get("url", "")), cell_style),
-                    str(asset.get("pqc_label", "")),
+                    pqc_para,
                     str(asset.get("risk", "")),
                     str(asset.get("tls_version", "")),
                     str(asset.get("last_scan", ""))[:19],
                 ])
-            t = Table(inv_data, colWidths=[110, 150, 70, 60, 50, 80])
+            
+            t = Table(inv_data, colWidths=[120, 250, 120, 80, 60, 110])
             t.setStyle(TableStyle([
-                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#2C5F8A")),
+                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1A0509")),
                 ("TEXTCOLOR", (0, 0), (-1, 0), white),
                 ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
-                ("FONTSIZE", (0, 0), (-1, -1), 8),
-                ("GRID", (0, 0), (-1, -1), 0.5, HexColor("#CCCCCC")),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
             ]))
             story.append(t)
+            story.append(PageBreak())
+
+        # CBOM Snapshot Details
+        if "cbom" in data and data["cbom"]:
+            story.append(Paragraph("Detailed Cryptographic Bill of Materials (CBOM)", heading_style))
+            
+            for snap in data["cbom"]:
+                target = snap.get("target") or "Unknown"
+                label = snap.get('pqc_label') or 'Unknown'
+                label = label.replace("_", " ").title()
+                lbl_color = _get_pqc_label_color(label)
+                
+                story.append(Paragraph(f"Target: {target} &nbsp;&bull;&nbsp; <font color='{lbl_color}'>[{label}]</font>", subheading_style))
+                story.append(Paragraph(f"<font size=8 color='#777777'>Scan Date: {snap.get('created_at', '')[:19]}</font>", normal_style))
+                story.append(Spacer(1, 10))
+
+                # --- Algorithms Table ---
+                algs = snap.get("algorithms", [])
+                if algs:
+                    story.append(Paragraph("<b>Algorithms Used</b>", normal_style))
+                    alg_header = [["Safety", "Name", "Type"]]
+                    alg_rows = alg_header + [
+                        [
+                            Paragraph(f'<b><font color="{_get_safety_color(a.get("safety", ""))}">{str(a.get("safety", "")).upper()}</font></b>', cell_style),
+                            str(a.get("name", "")),
+                            str(a.get("type", ""))
+                        ] for a in algs
+                    ]
+                    t_alg = Table(alg_rows, colWidths=[80, 200, 150])
+                    t_alg.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+                        ("TOPPADDING", (0, 0), (-1, -1), 4),
+                        ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                    ]))
+                    story.append(t_alg)
+                    story.append(Spacer(1, 10))
+
+                # --- Protocols Table ---
+                protos = snap.get("protocols", [])
+                if protos:
+                    story.append(Paragraph("<b>Connection Protocols</b>", normal_style))
+                    proto_rows = [["Safety", "Protocol", "Status"]] + [
+                        [
+                            Paragraph(f'<b><font color="{_get_safety_color(p.get("safety", ""))}">{str(p.get("safety", "")).upper()}</font></b>', cell_style),
+                            str(p.get("name", "")),
+                            "Active"
+                        ] for p in protos
+                    ]
+                    t_pro = Table(proto_rows, colWidths=[80, 200, 150])
+                    t_pro.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                    ]))
+                    story.append(t_pro)
+                    story.append(Spacer(1, 10))
+
+                # --- Certificates Table ---
+                certs = snap.get("certificates", [])
+                if certs:
+                    story.append(Paragraph("<b>Certificate Chain</b>", normal_style))
+                    cert_rows = [["Safety", "Subject", "Issuer", "Signature Algorithm", "Valid Until"]] + [
+                        [
+                            Paragraph(f'<b><font color="{_get_safety_color(c.get("safety", ""))}">{str(c.get("safety", "")).upper()}</font></b>', cell_style),
+                            Paragraph(str(c.get("subject", "")), cell_style),
+                            Paragraph(str(c.get("issuer", "")), cell_style),
+                            str(c.get("signature_algorithm", "")),
+                            str(c.get("not_after", ""))[:10]
+                        ] for c in certs
+                    ]
+                    t_cert = Table(cert_rows, colWidths=[60, 250, 220, 120, 80])
+                    t_cert.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                    ]))
+                    story.append(t_cert)
+                    story.append(Spacer(1, 10))
+                
+                story.append(Spacer(1, 15))
+
+        # Append Legend
+        story.append(PageBreak())
+        story.append(Paragraph("Appendix: Row Colour Legend", heading_style))
+        story.append(Paragraph("The safety column in the CBOM maps to the following NIST FIPS 203/204/205 quantum tier classifications:", normal_style))
+        story.append(Spacer(1, 10))
+        
+        legend_data = [
+            ["Tier", "Definition", "Examples"],
+            [Paragraph('<b><font color="#2ecc71">PQC SAFE</font></b>', cell_style), "NIST-standardised Post-Quantum Cryptography algorithm.", "ML-DSA, ML-KEM, SLH-DSA"],
+            [Paragraph('<b><font color="#3498db">SAFE</font></b>', cell_style), "Classical algorithm safe against Grover's (256-bit key). Not vulnerable to Shor's.", "AES-256-GCM, SHA-256, TLS 1.3"],
+            [Paragraph('<b><font color="#f1c40f">MARGINAL</font></b>', cell_style), "128-bit symmetric — halved to ~64 bits by Grover's algorithm.", "AES-128-GCM, TLS 1.2"],
+            [Paragraph('<b><font color="#e67e22">CLASSICAL (DANGER)</font></b>', cell_style), "Vulnerable to Shor's algorithm on a CRQC.", "RSA, ECDSA, X25519"],
+            [Paragraph('<b><font color="#e74c3c">BROKEN</font></b>', cell_style), "Broken by classical cryptanalysis. Immediate remediation required.", "MD5, SHA-1, RC4, TLS 1.0"]
+        ]
+        t_leg = Table(legend_data, colWidths=[120, 350, 250])
+        t_leg.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1A0509")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(t_leg)
 
         doc.build(story)
 
