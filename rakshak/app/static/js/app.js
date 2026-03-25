@@ -175,17 +175,31 @@ const CHART_COLORS = {
     unknown:            '#7D8590',
 };
 
-function createDonutChart(canvasId, labels, values, colors) {
+function createDonutChart(canvasId, labels, values, colors, onClick) {
     const ctx = document.getElementById(canvasId)?.getContext('2d');
     if (!ctx) return;
-    return new Chart(ctx, {
+    
+    // Destroy existing chart if it exists to prevent overlap
+    if (window[canvasId + 'Inst']) {
+        window[canvasId + 'Inst'].destroy();
+    }
+    
+    const chart = new Chart(ctx, {
         type: 'doughnut',
         data: { labels, datasets: [{ data: values, backgroundColor: colors, borderWidth: 0, hoverOffset: 6 }] },
         options: {
             responsive: true, maintainAspectRatio: false, cutout: '65%',
-            plugins: { legend: { position: 'right', labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 }, padding: 12, boxWidth: 12 } } }
+            plugins: { legend: { position: 'right', labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 }, padding: 12, boxWidth: 12 } } },
+            onClick: onClick ? onClick : undefined,
+            onHover: (event, chartElement) => {
+                if (onClick) {
+                    event.native.target.style.cursor = chartElement[0] ? 'pointer' : 'default';
+                }
+            }
         }
     });
+    window[canvasId + 'Inst'] = chart;
+    return chart;
 }
 
 function createBarChart(canvasId, labels, datasets) {

@@ -420,10 +420,10 @@ async function runCompare() {
   function renderItems(items, style) {
     if (!items.length) return `<p class="text-muted fs-12 mb-0">None</p>`;
     // show first 3 key fields of each item as badges
-    return items.map(item => {
+    return `<div class="d-flex flex-wrap gap-1">` + items.map(item => {
       const name = item.name || item.version || item.subject_name || JSON.stringify(item).slice(0,40);
-      return `<span class="badge me-1 mb-1" style="background:${style}22;color:${style};border:1px solid ${style}44;font-weight:500">${name}</span>`;
-    }).join('');
+      return `<span class="badge text-wrap text-break text-start" style="max-width: 100%; background:${style}22;color:${style};border:1px solid ${style}44;font-weight:500">${name}</span>`;
+    }).join('') + `</div>`;
   }
 
   function renderChanged(changed) {
@@ -434,10 +434,10 @@ async function runCompare() {
       const afterFields  = Object.entries(c.after ||{}).filter(([k])=>!['asset_type','list'].includes(k));
       const fieldDiffs = beforeFields
         .filter(([k,v]) => JSON.stringify(v) !== JSON.stringify((c.after||{})[k]))
-        .map(([k,v]) => `<div class="fs-12"><span class="text-muted">${k}:</span> <span class="text-red">${v}</span> → <span class="text-green">${(c.after||{})[k]??'—'}</span></div>`)
+        .map(([k,v]) => `<div class="fs-12 text-break"><span class="text-muted">${k}:</span> <span class="text-red">${v}</span> → <span class="text-green">${(c.after||{})[k]??'—'}</span></div>`)
         .join('');
-      return `<div class="mb-2 p-2" style="background:var(--rk-bg);border-radius:6px;border-left:3px solid #f1c40f">
-        <div class="fw-600 fs-12 mb-1">${name}</div>${fieldDiffs||'<div class="fs-12 text-muted">Metadata changed</div>'}
+      return `<div class="mb-2 p-2 overflow-hidden text-break" style="background:var(--rk-bg);border-radius:6px;border-left:3px solid #f1c40f">
+        <div class="fw-600 fs-12 mb-1 text-wrap">${name}</div>${fieldDiffs||'<div class="fs-12 text-muted">Metadata changed</div>'}
       </div>`;
     }).join('');
   }

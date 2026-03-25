@@ -156,9 +156,29 @@ async function loadMetrics() {
   document.getElementById('metricTotal').textContent = d.total||0;
 
   const rb = d.risk_breakdown||{};
-  createDonutChart('riskChart',['Critical','High','Medium','Low'],[rb.critical||0,rb.high||0,rb.medium||0,rb.low||0],['#E74C3C','#E67E22','#F1C40F','#2ECC71']);
+  createDonutChart('riskChart',['Critical','High','Medium','Low'],[rb.critical||0,rb.high||0,rb.medium||0,rb.low||0],['#E74C3C','#E67E22','#F1C40F','#2ECC71'], function(event, elements, chart) {
+      if (elements && elements.length > 0) {
+          const index = elements[0].index;
+          const label = chart.data.labels[index];
+          document.getElementById('riskFilter').value = label.toLowerCase();
+          loadAssets();
+          document.getElementById('assetSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+  });
+
   createDonutChart('ipChart',['IPv4','IPv6 Capable'],[Math.max(1,d.total||0-2),2],['#3498DB','#9B59B6']);
-  createDonutChart('typeChart',['Web Apps','APIs','VPNs','Servers'],[d.web_apps||0,d.apis||0,d.vpns||0,d.servers||0],['#3498DB','#9B59B6','#F1C40F','#2ECC71']);
+
+  createDonutChart('typeChart',['Web Apps','APIs','VPNs','Servers'],[d.web_apps||0,d.apis||0,d.vpns||0,d.servers||0],['#3498DB','#9B59B6','#F1C40F','#2ECC71'], function(event, elements, chart) {
+      if (elements && elements.length > 0) {
+          const index = elements[0].index;
+          const label = chart.data.labels[index];
+          const typeMap = {'Web Apps': 'web_app', 'APIs': 'api', 'VPNs': 'vpn', 'Servers': 'server'};
+          document.getElementById('typeFilter').value = typeMap[label];
+          loadAssets();
+          document.getElementById('assetSearch').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+  });
+
   createBarChart('expiryChart',['30d','60d','90d','180d','365d+'],[{label:'Expiring Certs',data:[2,3,1,5,d.total||0],backgroundColor:'rgba(231,76,60,0.7)'}]);
 }
 
