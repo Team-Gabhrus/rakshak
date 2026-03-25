@@ -25,6 +25,6 @@ class CyberRatingHistory(Base):
     total_assets: Mapped[int] = mapped_column(default=0)
     fully_quantum_safe: Mapped[int] = mapped_column(default=0)
     pqc_ready: Mapped[int] = mapped_column(default=0)
-    quantum_safe: Mapped[int] = mapped_column(default=0)
+    partially_quantum_safe: Mapped[int] = mapped_column(default=0)
     not_quantum_safe: Mapped[int] = mapped_column(default=0)
     recorded_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)

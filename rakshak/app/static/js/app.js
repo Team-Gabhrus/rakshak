@@ -195,7 +195,7 @@ function createLineChart(canvasId, labels, datasets) {
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { labels: { color: getComputedStyle(document.documentElement).getPropertyValue('--rk-text').trim(), font: { size: 12 } } } },
             scales: {
-                x: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.3)' } },
+                x: { ticks: { color: '#7D8590', maxTicksLimit: 8 }, grid: { color: 'rgba(45,63,85,0.3)' } },
                 y: { ticks: { color: '#7D8590' }, grid: { color: 'rgba(45,63,85,0.3)' } },
             },
             elements: { line: { tension: 0.4 } }

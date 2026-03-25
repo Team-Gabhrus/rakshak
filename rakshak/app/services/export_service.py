@@ -218,7 +218,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
             tier_val = rating.get("tier_label", "Unknown")
             
             # Tier Coloring
-            tier_color = "#2ecc71" if score_val >= 90 else "#3498db" if score_val >= 70 else "#f1c40f" if score_val >= 50 else "#e74c3c"
+            tier_color = "#2ecc71" if score_val >= 800 else "#3498db" if score_val >= 600 else "#f1c40f" if score_val >= 300 else "#e74c3c"
             
             summary_html = f"""
             <b>Score:</b> <font color="{tier_color}">{score_val}</font><br/>
@@ -281,6 +281,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 algs = snap.get("algorithms", [])
                 if algs:
                     story.append(Paragraph("<b>Algorithms Used</b>", normal_style))
+                    story.append(Spacer(1, 5))
                     alg_header = [["Safety", "Name", "Type"]]
                     alg_rows = alg_header + [
                         [
@@ -289,7 +290,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                             str(a.get("primitive", ""))
                         ] for a in algs
                     ]
-                    t_alg = Table(alg_rows, colWidths=[80, 200, 150])
+                    t_alg = Table(alg_rows, colWidths=[80, 200, 150], hAlign="LEFT")
                     t_alg.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), white),
@@ -308,6 +309,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 protos = snap.get("protocols", [])
                 if protos:
                     story.append(Paragraph("<b>Connection Protocols</b>", normal_style))
+                    story.append(Spacer(1, 5))
                     proto_rows = [["Safety", "Protocol", "Status"]] + [
                         [
                             Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(p, "protocols"))}">{cbom_row_safety(p, "protocols").upper()}</font></b>', cell_style),
@@ -315,7 +317,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                             "Active"
                         ] for p in protos
                     ]
-                    t_pro = Table(proto_rows, colWidths=[80, 200, 150])
+                    t_pro = Table(proto_rows, colWidths=[80, 200, 150], hAlign="LEFT")
                     t_pro.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), white),
@@ -332,6 +334,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 if klist:
                     import textwrap
                     story.append(Paragraph("<b>Cryptographic Keys</b>", normal_style))
+                    story.append(Spacer(1, 5))
                     key_rows = [["Safety", "Key Name", "Algorithm", "Size", "Validity"]] + [
                         [
                             Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(k, "keys"))}">{cbom_row_safety(k, "keys").upper()}</font></b>', cell_style),
@@ -341,7 +344,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                             str(k.get("state", "")).title()
                         ] for k in klist
                     ]
-                    t_key = Table(key_rows, colWidths=[80, 220, 80, 75, 75])
+                    t_key = Table(key_rows, colWidths=[80, 220, 80, 75, 75], hAlign="LEFT")
                     t_key.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), white),
@@ -358,6 +361,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 certs = snap.get("certificates", [])
                 if certs:
                     story.append(Paragraph("<b>Certificate Chain</b>", normal_style))
+                    story.append(Spacer(1, 5))
                     cert_rows = [["Safety", "Issuer", "Signature Algorithm", "Valid Until"]] + [
                         [
                             Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(c, "certificates"))}">{cbom_row_safety(c, "certificates").upper()}</font></b>', cell_style),
@@ -366,7 +370,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                             str(c.get("not_valid_after", ""))[:10]
                         ] for c in certs
                     ]
-                    t_cert = Table(cert_rows, colWidths=[80, 400, 150, 100])
+                    t_cert = Table(cert_rows, colWidths=[80, 400, 150, 100], hAlign="LEFT")
                     t_cert.setStyle(TableStyle([
                         ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
                         ("TEXTCOLOR", (0, 0), (-1, 0), white),

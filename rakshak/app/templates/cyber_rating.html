@@ -54,9 +54,11 @@
   </div>
 
   <!-- FR-50: Historical Trend -->
-  <div class="rk-card">
-    <div class="rk-section-title">Historical Trend Analysis</div>
-    <div style="height:260px"><canvas id="trendChart"></canvas></div>
+  <div class="rk-chart-card">
+    <div class="rk-chart-title">Historical Trend Analysis</div>
+    <div class="rk-chart-body" style="min-height: 260px;">
+      <canvas id="trendChart"></canvas>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -99,7 +101,7 @@ async function loadRating() {
   document.getElementById('complianceMatrix').innerHTML = tiers.map(t => `
     <div class="col-md-6 col-xl-3">
       <div class="rk-card h-100" style="border-color:${t.badge_color}33">
-        <div class="d-flex align-items-center gap-2 mb-3">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 16px;">
           <span class="rk-badge-label ${tierBadgeClass[t.tier]||'badge-unknown'}">${t.label}</span>
         </div>
         <div class="mb-2"><span class="rk-form-label">Score Range</span><div class="fw-700" style="color:${t.badge_color}">${t.score_min}–${t.score_max}</div></div>
@@ -121,13 +123,13 @@ async function loadHistory() {
 
   if (!history.length) {
     document.getElementById('trendChart').parentElement.innerHTML = `
-      <div class="d-flex flex-column align-items-center justify-content-center h-100 text-muted" style="min-height:200px">
-        <i class="bi bi-bar-chart-line fs-1 mb-2"></i>
+      <div class="text-muted" style="display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 200px;">
+        <i class="bi bi-bar-chart-line mb-2" style="font-size: 2rem;"></i>
         <p class="fs-13">No history yet. Complete a scan to generate the first data point.</p>
       </div>`;
     return;
   }
-  const labels = history.map(h => fmtDateTime(h.recorded_at));
+  const labels = history.map(h => fmtDate(h.recorded_at));
   const scores = history.map(h => h.score);
   createLineChart('trendChart', labels, [{
     label: 'Cyber Rating Score',
