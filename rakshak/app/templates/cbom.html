@@ -255,7 +255,7 @@ function cbomRowSafety(item) {
   // For key rows: item.asset_type === 'key'; classification is via item.size (e.g. "2048 bits").
 
   // ── Protocol: TLS version tier ──────────────────────────────────────────
-  const version = (item.version || '').toUpperCase().replace(/\s/g,'');
+  const version = (item.version || '').toUpperCase().replace(/[\s.]/g,'');
   if (['SSL20','SSL30','TLS10','TLS11'].some(v => version.includes(v))) return 'broken';
   if (version.includes('TLS12')) return 'marginal';
 
