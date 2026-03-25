@@ -33,8 +33,10 @@ def _docker_available() -> bool:
 def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    Runs full `openssl s_client` (no -brief) to get complete cert chain,
-    Signature Algorithm, Public-Key size, subject/issuer details.
+    Runs full `openssl s_client` with -showcerts and PQC groups to get:
+    - Complete cert chain with per-cert sigalg (mldsa44, RSA-SHA256, etc.)
+    - PQC KEX detection via -groups mlkem768
+    - Signature type / auth algorithm
     Returns dict with parsed fields or None on failure.
     """
     if not _docker_available():
@@ -45,7 +47,10 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         cmd = [
             "docker", "run", "--rm", "-i",
             OQS_DOCKER_IMAGE,
-            "openssl", "s_client", "-connect", f"{host}:{port}",
+            "openssl", "s_client",
+            "-connect", f"{host}:{port}",
+            "-showcerts",            # Show the full certificate chain
+            "-groups", "mlkem768",  # Prefer PQC KEX (ML-KEM-768)
         ]
         logger.info(f"OQS probe cmd: {' '.join(cmd)}")
         proc = subprocess.run(
@@ -77,20 +82,20 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
                 if m:
                     result["tls_version"] = m.group(1)
 
-            # "Server Temp Key: X25519, 253 bits"
+            # "Server Temp Key: X25519, 253 bits" (TLS 1.2) or nothing in TLS 1.3
             if stripped.startswith("Server Temp Key:"):
                 result["server_temp_key"] = stripped.split(":", 1)[1].strip()
 
-            # "Peer signing digest: ..." or "Signature type: ..." or "Peer signature type: mldsa44"
+            # "Peer signing digest: ..." or "Peer signature type: mldsa44"
             if stripped.startswith("Signature type:") or stripped.startswith("Peer signature type:"):
                 result["signature_type"] = stripped.split(":", 1)[1].strip()
 
-            # "Signature Algorithm: mldsa44"
+            # "Signature Algorithm: mldsa44" (from cert PEM blocks with -showcerts)
             if "Signature Algorithm:" in stripped:
                 sig_algo = stripped.split(":", 1)[1].strip()
                 result.setdefault("signature_algorithms", []).append(sig_algo)
 
-            # "Public-Key: (1312 bit)" or "Public Key Algorithm: mldsa44"
+            # "Public-Key: (1312 bit)"
             if "Public-Key:" in stripped:
                 m = re.search(r"\((\d+) bit\)", stripped)
                 if m:
@@ -100,30 +105,84 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
                 algo = stripped.split(":", 1)[1].strip()
                 result.setdefault("public_key_algos", []).append(algo)
 
-        # Parse depth lines: "depth=0 CN=test.openquantumsafe.org"
-        # and "verify" lines for the chain
-        chain_entries = []
-        for line in output.splitlines():
+        # ── Parse the "Certificate chain" block ──────────────────────────────
+        # This block (before "Server certificate") shows full chain info like:
+        #  0 s:CN=localhost
+        #    i:CN=My_Classical_Root_CA
+        #    a:PKEY: UNDEF, 128 (bit); sigalg: mldsa44
+        # We parse depth, CN, and per-cert sigalg from here.
+        chain_entries = {}  # depth -> dict
+        lines = output.splitlines()
+        in_chain_block = False
+        current_depth = None
+        for line in lines:
+            stripped = line.strip()
+            if stripped == "Certificate chain":
+                in_chain_block = True
+                continue
+            if in_chain_block and (stripped.startswith("---") or stripped.startswith("Server certificate")):
+                in_chain_block = False
+                continue
+            if in_chain_block:
+                # "0 s:CN=localhost" — depth + subject
+                m_depth = re.match(r"(\d+)\s+s:(.+)", stripped)
+                if m_depth:
+                    current_depth = int(m_depth.group(1))
+                    dn = m_depth.group(2).strip()
+                    cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
+                    cn = cn_match.group(1).strip() if cn_match else dn
+                    chain_entries.setdefault(current_depth, {"depth": current_depth, "cn": cn, "dn": dn})
+                    continue
+                # "  i:CN=My_Classical_Root_CA" — issuer at current_depth + 1
+                m_issuer = re.match(r"i:(.+)", stripped)
+                if m_issuer and current_depth is not None:
+                    issuer_dn = m_issuer.group(1).strip()
+                    issuer_cn_match = re.search(r"CN\s*=\s*([^,/]+)", issuer_dn)
+                    issuer_cn = issuer_cn_match.group(1).strip() if issuer_cn_match else issuer_dn
+                    # Create an entry for the issuer (depth+1) if it doesn't have one
+                    next_depth = current_depth + 1
+                    if next_depth not in chain_entries:
+                        chain_entries[next_depth] = {"depth": next_depth, "cn": issuer_cn, "dn": issuer_dn}
+                    continue
+                # "  a:PKEY: UNDEF, 128 (bit); sigalg: mldsa44" — attributes of current cert
+                m_attr = re.match(r"a:(.+)", stripped)
+                if m_attr and current_depth is not None:
+                    attr_str = m_attr.group(1)
+                    sigalg_m = re.search(r"sigalg:\s*(\S+)", attr_str)
+                    if sigalg_m and current_depth in chain_entries:
+                        chain_entries[current_depth]["sigalg"] = sigalg_m.group(1)
+                        # sigalg = the algorithm used by the ISSUER to sign this cert.
+                        # Propagate it to the issuer entry (depth+1) so the root CA is labeled correctly.
+                        issuer_depth = current_depth + 1
+                        if issuer_depth in chain_entries:
+                            chain_entries[issuer_depth].setdefault("sigalg", sigalg_m.group(1))
+
+        # Deduplicate verify-error depth lines ("depth=0 CN=localhost")
+        # and merge into chain_entries
+        for line in lines:
             m = re.search(r"depth=(\d+)\s+(.+)", line.strip())
             if m:
                 depth = int(m.group(1))
                 dn = m.group(2).strip()
-                # Extract CN from the DN string
-                cn_match = re.search(r"CN\s*=\s*(\S+)", dn)
-                cn = cn_match.group(1) if cn_match else dn
-                chain_entries.append({"depth": depth, "cn": cn, "dn": dn})
+                cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
+                cn = cn_match.group(1).strip() if cn_match else dn
+                if depth not in chain_entries:
+                    chain_entries[depth] = {"depth": depth, "cn": cn, "dn": dn}
 
-        # Deduplicate (same depth appears in verify + main output)
-        seen_depths = {}
-        for entry in chain_entries:
-            seen_depths[entry["depth"]] = entry
-        result["chain_info"] = sorted(seen_depths.values(), key=lambda x: x["depth"])
+        result["chain_info"] = sorted(chain_entries.values(), key=lambda x: x["depth"])
 
-        # Determine the signature type for each chain cert from Signature Algorithm lines
+        # Detect PQC KEX: we offered only mlkem768 as the group.
+        # - PQC server: accepts, establishes a real cipher → "Cipher is TLS_AES..."
+        # - Classical server: cannot negotiate ML-KEM, replies with HelloRetryRequest
+        #   or falls back → OpenSSL shows "Cipher is (NONE)" (no cipher agreed).
+        # So: pqc_kex_negotiated = CONNECTED + real cipher + PQC signature detected.
+        cipher_negotiated = "Cipher is (NONE)" not in output and "Cipher is " in output
+        pqc_sig_detected = bool(result.get("signature_type", ""))
+        result["pqc_kex_negotiated"] = "CONNECTED" in output and cipher_negotiated and pqc_sig_detected
+
         sig_algos = result.get("signature_algorithms", [])
         pk_algos = result.get("public_key_algos", [])
-
-        logger.info(f"OQS probe success: sig_algos={sig_algos}, pk_algos={pk_algos}, chain={result.get('chain_info')}")
+        logger.info(f"OQS probe success: sig_algos={sig_algos}, pk_algos={pk_algos}, chain={result.get('chain_info')}, pqc_kex={result.get('pqc_kex_negotiated')}")
         return result
 
     except subprocess.TimeoutExpired:
@@ -410,7 +469,7 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
         # Normalize PQC authentication name
         oqs_auth = None
         if _is_pqc_sig(sig_type):
-            sig_upper = sig_type.upper().replace("_", "")
+            sig_upper = sig_type.upper().replace("_", "").replace("-", "")
             if "MLDSA44" in sig_upper:
                 oqs_auth = "ML-DSA-44"
             elif "MLDSA65" in sig_upper:
@@ -424,24 +483,71 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
             else:
                 oqs_auth = sig_type.upper()
 
-        # Build OQS cert chain from depth info
+        # Normalize PQC key exchange name.
+        # In TLS 1.3 the "Server Temp Key" line is absent. Instead we detect PQC KEX
+        # by whether the server accepted our -groups mlkem768 offer (pqc_kex_negotiated).
+        oqs_kex = None
+        if oqs_data.get("pqc_kex_negotiated"):
+            # We only offered mlkem groups so a successful connection = PQC KEX
+            oqs_kex = "ML-KEM-768"  # default; refine from server_temp_key if available
+        if server_key:
+            sk_upper = server_key.upper().replace("-", "").replace("_", "").split(",")[0].strip()
+            if "MLKEM512" in sk_upper or "KYBER512" in sk_upper:
+                oqs_kex = "ML-KEM-512"
+            elif "MLKEM768" in sk_upper or "KYBER768" in sk_upper:
+                oqs_kex = "ML-KEM-768"
+            elif "MLKEM1024" in sk_upper or "KYBER1024" in sk_upper:
+                oqs_kex = "ML-KEM-1024"
+            elif "MLKEM" in sk_upper or "KYBER" in sk_upper:
+                oqs_kex = "ML-KEM"
+
+        # Build OQS cert chain from depth info.
+        # Prefer the 'sigalg' field parsed from the cert-chain block ('a:...sigalg:...'),
+        # then fall back to the signature_algorithms list indexed by depth.
         chain_info = oqs_data.get("chain_info", [])
+        sig_algos = oqs_data.get("signature_algorithms", [])
         oqs_chain = []
         for entry in chain_info:
             cn = entry.get("cn", "")
-            is_pqc_cn = any(p in cn.lower() for p in ["mldsa", "ml-dsa", "dilithium", "falcon", "sphincs", "slh-dsa"])
-            sig_ref = oqs_auth if is_pqc_cn else "RSA"
-            
+            depth = entry.get("depth", 0)
+            # Prefer per-entry sigalg (from 'a:PKEY:...; sigalg:...' line in cert chain block)
+            cert_sig_raw = entry.get("sigalg", "")
+            # Fall back to position-indexed signature_algorithms list
+            if not cert_sig_raw and depth < len(sig_algos):
+                cert_sig_raw = sig_algos[depth]
+            is_pqc_cert = _is_pqc_sig(cert_sig_raw)
+
+            # Normalize the per-cert signature algorithm reference
+            if is_pqc_cert:
+                sa_upper = cert_sig_raw.upper().replace("-", "").replace("_", "")
+                if "MLDSA44" in sa_upper:
+                    sig_ref = "ML-DSA-44"
+                elif "MLDSA65" in sa_upper:
+                    sig_ref = "ML-DSA-65"
+                elif "MLDSA87" in sa_upper:
+                    sig_ref = "ML-DSA-87"
+                elif "FALCON512" in sa_upper:
+                    sig_ref = "Falcon-512"
+                elif "FALCON1024" in sa_upper:
+                    sig_ref = "Falcon-1024"
+                else:
+                    sig_ref = cert_sig_raw.upper()
+            else:
+                # Fall back to CN-fragment heuristic for servers with no sig algo in probe
+                is_pqc_cn = any(p in cn.lower() for p in ["mldsa", "ml-dsa", "dilithium", "falcon", "sphincs", "slh-dsa"])
+                sig_ref = oqs_auth if (is_pqc_cn and oqs_auth) else "RSA"
+                is_pqc_cert = is_pqc_cn
+
             key_len = 0
-            if is_pqc_cn and sig_ref:
+            if is_pqc_cert:
                 key_len = PQC_KEY_SIZES.get(sig_ref, PQC_KEY_SIZES.get(sig_ref.upper(), 1024))
-            elif not is_pqc_cn:
-                key_len = 2048  # Default classical fallback for mock chain
+            else:
+                key_len = 2048  # Default classical fallback
 
             oqs_chain.append({
                 "name": cn,
                 "signature_algorithm_reference": sig_ref,
-                "key_algorithm": "PQC" if is_pqc_cn else "RSA",
+                "key_algorithm": "PQC" if is_pqc_cert else "RSA",
                 "key_length": key_len,
                 "asset_type": "certificate",
             })
@@ -459,7 +565,9 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
 
             if oqs_auth:
                 result.authentication = oqs_auth
-            if server_key:
+            if oqs_kex:
+                result.key_exchange = oqs_kex
+            elif server_key:
                 result.key_exchange = server_key.split(",")[0].strip()
 
             result.cert_chain = oqs_chain
@@ -472,17 +580,20 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 "bits": 256,
             }]
 
-            logger.info(f"OQS primary result for {target}: auth={result.authentication}")
+            logger.info(f"OQS primary result for {target}: auth={result.authentication}, kex={result.key_exchange}")
 
-        elif oqs_auth:
+        elif oqs_auth or oqs_kex:
             # sslyze SUCCEEDED (dual-stack) — UPGRADE with OQS PQC data
             # The server supports PQC but sent classical to our client.
-            # Upgrade authentication and cert chain to reflect true capability.
-            result.authentication = oqs_auth
+            # Upgrade authentication, KEX and cert chain to reflect true capability.
+            if oqs_auth:
+                result.authentication = oqs_auth
+            if oqs_kex:
+                result.key_exchange = oqs_kex
             if oqs_chain:
                 result.cert_chain = oqs_chain
 
-            logger.info(f"OQS enrichment upgraded {target}: auth={oqs_auth}")
+            logger.info(f"OQS enrichment upgraded {target}: auth={oqs_auth}, kex={oqs_kex}")
 
     return result
 

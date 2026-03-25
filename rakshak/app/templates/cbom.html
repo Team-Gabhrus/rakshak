@@ -44,7 +44,10 @@
   <div class="rk-card d-none" id="cbomDetail">
     <div class="d-flex justify-content-between mb-3">
       <div class="rk-section-title mb-0">CBOM Detail — Annexure-A</div>
-      <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="document.getElementById('cbomDetail').classList.add('d-none')">✕ Close</button>
+      <div class="d-flex gap-2">
+        <button class="rk-btn rk-btn-sm rk-btn-outline" data-bs-toggle="modal" data-bs-target="#cbomLegendModal"><i class="bi bi-question-circle"></i> Legend</button>
+        <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="document.getElementById('cbomDetail').classList.add('d-none')">✕ Close</button>
+      </div>
     </div>
     <div class="rk-tabs mb-3" id="cbomDetailTabs">
       <button class="rk-tab active" onclick="showCBOMTab('algorithms',this)">Algorithms</button>
@@ -58,6 +61,54 @@
     <div class="mt-4" id="certChainWrap">
       <div class="rk-section-title">Certificate Chain Visualization</div>
       <div id="certChainViz" style="padding:16px;background:var(--rk-bg);border-radius:10px;border:1px solid var(--rk-border)"></div>
+    </div>
+  </div>
+</div>
+
+<!-- CBOM Row Colour Legend Modal -->
+<div class="modal fade" id="cbomLegendModal" tabindex="-1">
+  <div class="modal-dialog modal-md">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title fs-15 fw-semibold" style="color:var(--rk-text)"><i class="bi bi-shield-fill-check me-2" style="color:var(--rk-blue)"></i>Row Colour Legend</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" style="color:var(--rk-text)">
+        <p class="text-muted fs-13 mb-3">Each row in the CBOM detail tabs is colour-coded by its quantum safety tier. The <strong>Safety</strong> badge shows the classification at a glance.</p>
+        <table class="table table-sm" style="color:var(--rk-text);border-color:var(--rk-border)">
+          <thead><tr><th>Badge</th><th>What it means</th><th>Examples</th></tr></thead>
+          <tbody>
+            <tr style="border-left:3px solid #2ecc71;background:rgba(46,204,113,0.06)">
+              <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71;font-weight:600">✓&nbsp;PQC&nbsp;Safe</span></td>
+              <td class="fs-12 text-muted">NIST-standardised PQC algorithm. Resistant to Shor's and Grover's algorithms.</td>
+              <td class="fs-12"><code>ML-DSA-44/65/87</code>, <code>ML-KEM-768</code>, <code>Falcon-512</code>, <code>SLH-DSA</code></td>
+            </tr>
+            <tr style="border-left:3px solid #3498db;background:rgba(52,152,219,0.04)">
+              <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(52,152,219,0.15);color:#3498db;border:1px solid #3498db;font-weight:600">✓&nbsp;Safe</span></td>
+              <td class="fs-12 text-muted">Classical algorithm safe against Grover's (256-bit key or strong hash). Not vulnerable to Shor's.</td>
+              <td class="fs-12"><code>AES-256-GCM</code>, <code>ChaCha20-Poly1305</code>, <code>SHA-256</code>, <code>SHA-384</code></td>
+            </tr>
+            <tr style="border-left:3px solid #f1c40f;background:rgba(241,196,15,0.07)">
+              <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(241,196,15,0.15);color:#f1c40f;border:1px solid #f1c40f;font-weight:600">⚠&nbsp;Marginal</span></td>
+              <td class="fs-12 text-muted">128-bit symmetric — halved to ~64 bits by Grover's algorithm. Borderline acceptable; upgrade recommended.</td>
+              <td class="fs-12"><code>AES-128-GCM</code>, <code>AES-128-CBC</code>, <code>Camellia-128</code>, <code>ARIA-128</code></td>
+            </tr>
+            <tr style="border-left:3px solid #e67e22;background:rgba(230,126,34,0.06)">
+              <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(230,126,34,0.15);color:#e67e22;border:1px solid #e67e22;font-weight:600">⚠&nbsp;Classical</span></td>
+              <td class="fs-12 text-muted">Vulnerable to Shor's algorithm on a cryptanalytically relevant quantum computer (CRQC). Must be replaced.</td>
+              <td class="fs-12"><code>RSA</code>, <code>ECDSA</code>, <code>ECDHE</code>, <code>X25519</code>, <code>DHE</code>, <code>Ed25519</code></td>
+            </tr>
+            <tr style="border-left:3px solid #e74c3c;background:rgba(231,76,60,0.08)">
+              <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(231,76,60,0.15);color:#e74c3c;border:1px solid #e74c3c;font-weight:600">✗&nbsp;Broken</span></td>
+              <td class="fs-12 text-muted">Broken by <strong>classical</strong> cryptanalysis, not just quantum. Immediate remediation required.</td>
+              <td class="fs-12"><code>SHA-1</code>, <code>MD5</code>, <code>3DES</code>, <code>RC4</code>, <code>DES</code></td>
+            </tr>
+          </tbody>
+        </table>
+        <div class="p-2 rounded mt-2 fs-12 text-muted" style="background:var(--rk-bg);border:1px solid var(--rk-border)">
+          <i class="bi bi-info-circle me-1"></i>Classification is based on NIST FIPS 203/204/205 and CISA PQC Migration Guidance. The Safety column is auto-detected from the algorithm name — open the Guide page for the full reference table.
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -196,6 +247,79 @@ async function loadCBOMDetail(id) {
   document.getElementById('cbomDetail').scrollIntoView({behavior:'smooth'});
 }
 
+function cbomRowSafety(item) {
+  // For algorithm/key/protocol rows: item.name is the algorithm name.
+  // For certificate rows: item.name is the domain; the algorithm is in
+  //   item.signature_algorithm_reference and item.key_algorithm.
+  // For protocol rows: item.version carries the TLS version string.
+  // For key rows: item.asset_type === 'key'; classification is via item.size (e.g. "2048 bits").
+
+  // ── Protocol: TLS version tier ──────────────────────────────────────────
+  const version = (item.version || '').toUpperCase().replace(/\s/g,'');
+  if (['SSL20','SSL30','TLS10','TLS11'].some(v => version.includes(v))) return 'broken';
+  if (version.includes('TLS12')) return 'marginal';
+
+  // ── Key: classify by key size ────────────────────────────────────────────
+  // Classical RSA/ECC key sizes top out at 4096 bits.
+  // PQC key sizes (ML-DSA-44 public key = 1312 bytes = 10496 bits) are far larger,
+  // but cbom_generator stores them in bits only when available.
+  // Classical keys ≤ 4096 bits are flagged as classical.
+  if (item.asset_type === 'key') {
+    const sizeStr = (item.size || '').replace(/[^0-9]/g, '');
+    const sizeBits = parseInt(sizeStr, 10);
+    if (!isNaN(sizeBits)) {
+      if (sizeBits <= 256)  return 'broken';    // DES / export-grade
+      if (sizeBits <= 4096) return 'classical'; // RSA-2048/4096, ECC-256/384
+      return 'safe';                            // PQC-range key size
+    }
+    return 'classical'; // unknown key size — assume classical to be safe
+  }
+
+  // ── Algorithm / Certificate: check all relevant string fields ────────────
+  const parts = [
+    item.name || '',
+    item.algorithm || '',
+    item.signature_algorithm_reference || '',
+    item.key_algorithm || '',
+    item.primitive || '',
+  ].map(s => s.toUpperCase().replace(/-/g,'').replace(/_/g,''));
+
+  const PQC_SAFE  = ['MLDSA','MLKEM','KYBER','SLHDSA','SPHINCS','FALCON','FNDSA','DILITHIUM'];
+  const BROKEN    = ['SHA1','MD5','MD4','RC4','3DES','TRIPLEDES','DES','RC2','EXPORT'];
+  const MARGINAL  = ['AES128','CAMELLIA128','ARIA128'];
+  const CLASSICAL = ['RSA','ECDSA','ECDHE','DHE','X25519','X448','SECP','P256','P384','ED25519','ED448'];
+
+  const worstFirst = (list, testFn) => list.some(p => parts.some(n => testFn(n, p)));
+
+  if (worstFirst(BROKEN,    (n,p) => n.includes(p))) return 'broken';
+  if (worstFirst(CLASSICAL, (n,p) => n.startsWith(p) || n === p)) return 'classical';
+  if (worstFirst(MARGINAL,  (n,p) => n.startsWith(p))) return 'marginal';
+  if (worstFirst(PQC_SAFE,  (n,p) => n.startsWith(p))) return 'safe';
+  return 'ok';
+}
+
+function cbomRowStyle(safety) {
+  const styles = {
+    safe:      'border-left: 3px solid #2ecc71; background: rgba(46,204,113,0.06);',
+    ok:        'border-left: 3px solid #3498db; background: rgba(52,152,219,0.04);',
+    marginal:  'border-left: 3px solid #f1c40f; background: rgba(241,196,15,0.07);',
+    classical: 'border-left: 3px solid #e67e22; background: rgba(230,126,34,0.06);',
+    broken:    'border-left: 3px solid #e74c3c; background: rgba(231,76,60,0.08);',
+  };
+  return styles[safety] || '';
+}
+
+function cbomRowBadge(safety) {
+  const badges = {
+    safe:      '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71;font-weight:600;">✓&nbsp;PQC&nbsp;Safe</span>',
+    ok:        '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(52,152,219,0.15);color:#3498db;border:1px solid #3498db;font-weight:600;">✓&nbsp;Safe</span>',
+    marginal:  '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(241,196,15,0.15);color:#f1c40f;border:1px solid #f1c40f;font-weight:600;">⚠&nbsp;Marginal</span>',
+    classical: '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(230,126,34,0.15);color:#e67e22;border:1px solid #e67e22;font-weight:600;">⚠&nbsp;Classical</span>',
+    broken:    '<span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(231,76,60,0.15);color:#e74c3c;border:1px solid #e74c3c;font-weight:600;">✗&nbsp;Broken</span>',
+  };
+  return badges[safety] || '';
+}
+
 function showCBOMTab(tab, btn) {
   document.querySelectorAll('#cbomDetailTabs .rk-tab').forEach(t=>t.classList.remove('active'));
   btn?.classList.add('active');
@@ -206,8 +330,11 @@ function showCBOMTab(tab, btn) {
   document.getElementById('cbomDetailContent').innerHTML = `
     <div class="rk-table-wrap">
       <table class="rk-table">
-        <thead><tr>${keys.map(k=>`<th>${k.replace(/_/g,' ')}</th>`).join('')}</tr></thead>
-        <tbody>${items.map(item=>`<tr>${keys.map(k=>`<td class="fs-12"><div class="cell-truncate" style="max-width: 250px;" title="${Array.isArray(item[k])?item[k].join(', '):(item[k]??'—')}">${Array.isArray(item[k])?item[k].join(', '):(item[k]??'—')}</div></td>`).join('')}</tr>`).join('')}</tbody>
+        <thead><tr>${keys.map(k=>`<th>${k.replace(/_/g,' ')}</th>`).join('')}<th>Safety</th></tr></thead>
+        <tbody>${items.map(item => {
+          const safety = cbomRowSafety(item);
+          return `<tr style="${cbomRowStyle(safety)}">${keys.map(k=>`<td class="fs-12"><div class="cell-truncate" style="max-width: 250px;" title="${Array.isArray(item[k])?item[k].join(', '):(item[k]??'—')}">${Array.isArray(item[k])?item[k].join(', '):(item[k]??'—')}</div></td>`).join('')}<td>${cbomRowBadge(safety)}</td></tr>`;
+        }).join('')}</tbody>
       </table>
     </div>`;
 }

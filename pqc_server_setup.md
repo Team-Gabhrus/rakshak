@@ -53,8 +53,8 @@ openssl x509 -req -in server_pqc.csr -CA root_rsa.crt -CAkey root_rsa.key -CAcre
 cat server_pqc.crt root_rsa.crt > chain_pqc_ready.crt
 
 # Start the OpenSSL test server listening on port 4433
-# We force the use of a PQC Key Exchange algorithm: kyber768 (ML-KEM)
-openssl s_server -cert chain_pqc_ready.crt -key server_pqc.key -port 4433 -www -tls1_3 -groups kyber768
+# We force the use of a PQC Key Exchange algorithm: mlkem768 (ML-KEM)
+openssl s_server -cert chain_pqc_ready.crt -key server_pqc.key -port 4433 -www -tls1_3 -groups mlkem768
 ```
 
 ### 4. Test it!
@@ -93,8 +93,8 @@ openssl x509 -req -in server_pure_pqc.csr -CA root_pqc.crt -CAkey root_pqc.key -
 cat server_pure_pqc.crt root_pqc.crt > chain_fully_qs.crt
 
 # Start the OpenSSL test server listening on port 4434
-# Force the use of PQC Key Exchange: kyber768
-openssl s_server -cert chain_fully_qs.crt -key server_pure_pqc.key -port 4434 -www -tls1_3 -groups kyber768
+# Force the use of PQC Key Exchange: mlkem768
+openssl s_server -cert chain_fully_qs.crt -key server_pure_pqc.key -port 4434 -www -tls1_3 -groups mlkem768
 ```
 
 ### 4. Test it!

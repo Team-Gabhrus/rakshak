@@ -63,7 +63,10 @@ def generate_playbook(
         })
         effort_total += 1
 
-    if key_exchange and key_exchange not in ["ML-KEM", "ML-KEM-768", "ML-KEM-1024"]:
+    _PQC_KEX = ("ML-KEM", "MLKEM", "KYBER")
+    _PQC_AUTH = ("ML-DSA", "MLDSA", "SLH-DSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM")
+
+    if key_exchange and not any(key_exchange.upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in _PQC_KEX):
         steps.append({
             "step": len(steps) + 1,
             "title": "Migrate Key Exchange to ML-KEM (FIPS 203)",
@@ -74,7 +77,7 @@ def generate_playbook(
         })
         effort_total += 14
 
-    if authentication and authentication not in ["ML-DSA", "SLH-DSA"]:
+    if authentication and not any(authentication.upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in _PQC_AUTH):
         steps.append({
             "step": len(steps) + 1,
             "title": "Migrate Certificate Authentication to ML-DSA (FIPS 204)",
@@ -116,8 +119,11 @@ def generate_risk_timeline(key_exchange: Optional[str], authentication: Optional
     FR-45: Quantum Risk Timeline — projected vulnerability timeline.
     Based on NIST/CISA estimates for cryptanalytically relevant quantum computers (CRQC).
     """
-    is_vulnerable_kex = key_exchange and key_exchange not in ["ML-KEM", "ML-KEM-768", "ML-KEM-1024"]
-    is_vulnerable_auth = authentication and authentication not in ["ML-DSA", "SLH-DSA"]
+    _PQC_KEX  = ("MLKEM", "KYBER")
+    _PQC_AUTH = ("MLDSA", "SLHDSA", "SPHINCS", "FALCON", "FNDSA", "DILITHIUM")
+    def _norm(s): return (s or "").upper().replace("-","").replace("_","")
+    is_vulnerable_kex  = bool(key_exchange)  and not any(_norm(key_exchange).startswith(p)  for p in _PQC_KEX)
+    is_vulnerable_auth = bool(authentication) and not any(_norm(authentication).startswith(p) for p in _PQC_AUTH)
 
     timeline = {
         "hndl_exposure": {

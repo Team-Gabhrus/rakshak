@@ -49,7 +49,248 @@
         </div>
     </div>
 
-    <!-- Scanning Architecture -->
+    <!-- Algorithm & Certificate Reference Table -->
+    <div class="rk-card mb-4">
+        <h3 class="rk-section-title mb-1">Algorithm & Certificate Reference</h3>
+        <p class="text-muted fs-14 mb-4">Complete quantum-safety ratings for all certificate signature and key exchange algorithms Rakshak detects. Based on NIST FIPS 203/204/205 and CISA guidance.</p>
+
+        <!-- X.509 Signature Algorithms -->
+        <h5 class="fw-semibold mb-2" style="color:var(--rk-text);font-size:14px;">
+            <i class="bi bi-patch-check-fill me-2" style="color:var(--rk-blue)"></i>X.509 Certificate Signature Algorithms
+        </h5>
+        <div class="table-responsive mb-4">
+            <table class="rk-table">
+                <thead>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th>Type</th>
+                        <th>Key Size</th>
+                        <th>NIST Standard</th>
+                        <th style="text-align:center">Rating</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>ML-DSA-44</code> <span class="text-muted fs-12">(Dilithium2)</span></td>
+                        <td>Lattice (Module-LWE)</td>
+                        <td>1312 bytes</td>
+                        <td>FIPS 204</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ML-DSA-65</code> <span class="text-muted fs-12">(Dilithium3)</span></td>
+                        <td>Lattice (Module-LWE)</td>
+                        <td>1952 bytes</td>
+                        <td>FIPS 204</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ML-DSA-87</code> <span class="text-muted fs-12">(Dilithium5)</span></td>
+                        <td>Lattice (Module-LWE)</td>
+                        <td>2592 bytes</td>
+                        <td>FIPS 204</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>SLH-DSA-128s</code> <span class="text-muted fs-12">(SPHINCS+)</span></td>
+                        <td>Hash-based</td>
+                        <td>32 bytes</td>
+                        <td>FIPS 205</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>SLH-DSA-128f</code> <span class="text-muted fs-12">(SPHINCS+)</span></td>
+                        <td>Hash-based</td>
+                        <td>32 bytes</td>
+                        <td>FIPS 205</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>Falcon-512</code> <span class="text-muted fs-12">(FN-DSA)</span></td>
+                        <td>Lattice (NTRU)</td>
+                        <td>897 bytes</td>
+                        <td>FIPS 206 (draft)</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>Falcon-1024</code> <span class="text-muted fs-12">(FN-DSA)</span></td>
+                        <td>Lattice (NTRU)</td>
+                        <td>1793 bytes</td>
+                        <td>FIPS 206 (draft)</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>RSA-2048</code> / <code>RSA-4096</code></td>
+                        <td>Integer Factorization</td>
+                        <td>256–512 bytes</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>ECDSA P-256</code> / <code>P-384</code></td>
+                        <td>Elliptic Curve</td>
+                        <td>64–96 bytes</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>Ed25519</code> / <code>Ed448</code></td>
+                        <td>Edwards-curve (ECC)</td>
+                        <td>64–114 bytes</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>DSA</code></td>
+                        <td>Discrete Logarithm</td>
+                        <td>40–72 bytes</td>
+                        <td>Deprecated</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- TLS Key Exchange Algorithms -->
+        <h5 class="fw-semibold mb-2" style="color:var(--rk-text);font-size:14px;">
+            <i class="bi bi-arrow-left-right me-2" style="color:var(--rk-blue)"></i>TLS Key Exchange (KEX) Algorithms
+        </h5>
+        <div class="table-responsive mb-4">
+            <table class="rk-table">
+                <thead>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th>Type</th>
+                        <th>Security Level</th>
+                        <th>NIST Standard</th>
+                        <th style="text-align:center">Rating</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>ML-KEM-512</code> <span class="text-muted fs-12">(Kyber512)</span></td>
+                        <td>Lattice KEM</td>
+                        <td>NIST Level 1</td>
+                        <td>FIPS 203</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ML-KEM-768</code> <span class="text-muted fs-12">(Kyber768)</span></td>
+                        <td>Lattice KEM</td>
+                        <td>NIST Level 3</td>
+                        <td>FIPS 203</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ML-KEM-1024</code> <span class="text-muted fs-12">(Kyber1024)</span></td>
+                        <td>Lattice KEM</td>
+                        <td>NIST Level 5</td>
+                        <td>FIPS 203</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>X25519</code></td>
+                        <td>Elliptic Curve DH</td>
+                        <td>~128 classical bits</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>ECDHE P-256</code> / <code>P-384</code></td>
+                        <td>Elliptic Curve DH</td>
+                        <td>128–192 classical bits</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>DHE</code> / <code>DH</code></td>
+                        <td>Finite Field DH</td>
+                        <td>~112 classical bits</td>
+                        <td>—</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>RSA</code> <span class="text-muted fs-12">(static KEX)</span></td>
+                        <td>Integer Factorization</td>
+                        <td>~112 classical bits</td>
+                        <td>Deprecated in TLS 1.3</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Not Quantum-Safe</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Symmetric & Hash -->
+        <h5 class="fw-semibold mb-2" style="color:var(--rk-text);font-size:14px;">
+            <i class="bi bi-lock-fill me-2" style="color:var(--rk-blue)"></i>Symmetric Encryption & Hash Functions
+        </h5>
+        <div class="table-responsive">
+            <table class="rk-table">
+                <thead>
+                    <tr>
+                        <th>Algorithm</th>
+                        <th>Type</th>
+                        <th>Key / Output Size</th>
+                        <th>Threat (Grover's)</th>
+                        <th style="text-align:center">Rating</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td><code>AES-256-GCM</code></td>
+                        <td>Symmetric AEAD</td>
+                        <td>256 bits</td>
+                        <td>128-bit effective → adequate</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Quantum-Resistant</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>ChaCha20-Poly1305</code></td>
+                        <td>Stream AEAD</td>
+                        <td>256 bits</td>
+                        <td>128-bit effective → adequate</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Quantum-Resistant</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>SHA-256</code> / <code>SHA-384</code> / <code>SHA-512</code></td>
+                        <td>Cryptographic hash</td>
+                        <td>256–512 bits</td>
+                        <td>128–256-bit effective → adequate</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Quantum-Resistant</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>AES-128-GCM</code> / <code>AES-128-CBC</code></td>
+                        <td>Symmetric</td>
+                        <td>128 bits</td>
+                        <td>64-bit effective → borderline</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(241,196,15,0.1);color:#f1c40f;border:1px solid #f1c40f">🟡 Marginal</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>3DES</code> / <code>DES</code></td>
+                        <td>Symmetric (legacy)</td>
+                        <td>112 / 56 bits</td>
+                        <td>Broken classically</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Broken</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>RC4</code></td>
+                        <td>Stream cipher (legacy)</td>
+                        <td>40–2048 bits</td>
+                        <td>Broken classically</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Broken</span></td>
+                    </tr>
+                    <tr style="opacity:0.7">
+                        <td><code>SHA-1</code> / <code>MD5</code></td>
+                        <td>Hash (legacy)</td>
+                        <td>160 / 128 bits</td>
+                        <td>Collision attacks classically</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(231,76,60,0.1);color:#e74c3c;border:1px solid #e74c3c">❌ Broken</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+
     <div class="rk-card">
         <h3 class="rk-section-title mb-3"><i class="bi bi-diagram-3-fill me-2" style="color: var(--rk-blue);"></i>How It Works — Scanning Architecture</h3>
         <p class="text-muted fs-14 mb-3">Rakshak uses a <strong>dual-engine scanning architecture</strong> to detect PQC usage in real-time — no hardcoded mocks or fake data:</p>
@@ -175,6 +416,46 @@
                 </div>
             </div>
         </div>
+    </div>
+</div>
+
+<!-- CBOM Row Colour Legend (also shown as modal on CBOM page) -->
+<div class="rk-card mb-4" style="max-width:1000px;margin:0 auto 0 auto">
+    <h3 class="rk-section-title mb-1"><i class="bi bi-palette-fill me-2" style="color:var(--rk-blue)"></i>CBOM Row Colour Legend</h3>
+    <p class="text-muted fs-14 mb-4">Every row in the CBOM Detail tabs is highlighted by its quantum safety tier. This same legend appears as a <strong>? Legend</strong> button inside the CBOM Detail panel.</p>
+    <div class="table-responsive">
+        <table class="rk-table">
+            <thead>
+                <tr><th>Badge</th><th>What it means</th><th>Examples</th></tr>
+            </thead>
+            <tbody>
+                <tr style="border-left:3px solid #2ecc71;background:rgba(46,204,113,0.06)">
+                    <td><span class="badge" style="background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71">✓&nbsp;PQC&nbsp;Safe</span></td>
+                    <td class="fs-13 text-muted">NIST-standardised PQC algorithm. Resistant to both Shor's and Grover's algorithms.</td>
+                    <td class="fs-13"><code>ML-DSA-44/65/87</code>, <code>ML-KEM-512/768/1024</code>, <code>Falcon-512</code>, <code>SLH-DSA</code></td>
+                </tr>
+                <tr style="border-left:3px solid #3498db;background:rgba(52,152,219,0.04)">
+                    <td><span class="badge" style="background:rgba(52,152,219,0.15);color:#3498db;border:1px solid #3498db">✓&nbsp;Safe</span></td>
+                    <td class="fs-13 text-muted">Classical symmetric/hash algorithm with 256-bit key — 128-bit post-quantum security via Grover's. Safe to keep.</td>
+                    <td class="fs-13"><code>AES-256-GCM</code>, <code>ChaCha20-Poly1305</code>, <code>SHA-256</code>, <code>SHA-384</code></td>
+                </tr>
+                <tr style="border-left:3px solid #f1c40f;background:rgba(241,196,15,0.07)">
+                    <td><span class="badge" style="background:rgba(241,196,15,0.15);color:#f1c40f;border:1px solid #f1c40f">⚠&nbsp;Marginal</span></td>
+                    <td class="fs-13 text-muted">128-bit symmetric: Grover's algorithm halves effective key strength to ~64 bits. Upgrade to 256-bit recommended.</td>
+                    <td class="fs-13"><code>AES-128-GCM</code>, <code>AES-128-CBC</code>, <code>Camellia-128</code>, <code>ARIA-128</code></td>
+                </tr>
+                <tr style="border-left:3px solid #e67e22;background:rgba(230,126,34,0.06)">
+                    <td><span class="badge" style="background:rgba(230,126,34,0.15);color:#e67e22;border:1px solid #e67e22">⚠&nbsp;Classical</span></td>
+                    <td class="fs-13 text-muted">Asymmetric algorithm broken by Shor's algorithm on a CRQC. Must be replaced with PQC equivalent before quantum threat materialises.</td>
+                    <td class="fs-13"><code>RSA</code>, <code>ECDSA</code>, <code>ECDHE</code>, <code>X25519</code>, <code>DHE</code>, <code>Ed25519</code></td>
+                </tr>
+                <tr style="border-left:3px solid #e74c3c;background:rgba(231,76,60,0.08)">
+                    <td><span class="badge" style="background:rgba(231,76,60,0.15);color:#e74c3c;border:1px solid #e74c3c">✗&nbsp;Broken</span></td>
+                    <td class="fs-13 text-muted">Broken by <strong>classical</strong> cryptanalysis — not just a quantum threat. Immediate replacement required regardless of quantum timeline.</td>
+                    <td class="fs-13"><code>SHA-1</code>, <code>MD5</code>, <code>3DES</code>, <code>DES</code>, <code>RC4</code></td>
+                </tr>
+            </tbody>
+        </table>
     </div>
 </div>
 {% endblock %}
