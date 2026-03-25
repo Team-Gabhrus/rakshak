@@ -437,12 +437,12 @@
                 <tr style="border-left:3px solid #3498db;background:rgba(52,152,219,0.04)">
                     <td><span class="badge" style="background:rgba(52,152,219,0.15);color:#3498db;border:1px solid #3498db">✓&nbsp;Safe</span></td>
                     <td class="fs-13 text-muted">Classical symmetric/hash algorithm with 256-bit key — 128-bit post-quantum security via Grover's. Safe to keep.</td>
-                    <td class="fs-13"><code>AES-256-GCM</code>, <code>ChaCha20-Poly1305</code>, <code>SHA-256</code>, <code>SHA-384</code></td>
+                    <td class="fs-13"><code>AES-256-GCM</code>, <code>ChaCha20-Poly1305</code>, <code>SHA-256</code>, <code>SHA-384</code>, <code>TLS 1.3</code></td>
                 </tr>
                 <tr style="border-left:3px solid #f1c40f;background:rgba(241,196,15,0.07)">
                     <td><span class="badge" style="background:rgba(241,196,15,0.15);color:#f1c40f;border:1px solid #f1c40f">⚠&nbsp;Marginal</span></td>
                     <td class="fs-13 text-muted">128-bit symmetric: Grover's algorithm halves effective key strength to ~64 bits. Upgrade to 256-bit recommended.</td>
-                    <td class="fs-13"><code>AES-128-GCM</code>, <code>AES-128-CBC</code>, <code>Camellia-128</code>, <code>ARIA-128</code></td>
+                    <td class="fs-13"><code>AES-128-GCM</code>, <code>AES-128-CBC</code>, <code>Camellia-128</code>, <code>ARIA-128</code>, <code>TLS 1.2</code></td>
                 </tr>
                 <tr style="border-left:3px solid #e67e22;background:rgba(230,126,34,0.06)">
                     <td><span class="badge" style="background:rgba(230,126,34,0.15);color:#e67e22;border:1px solid #e67e22">⚠&nbsp;Classical</span></td>
@@ -452,7 +452,7 @@
                 <tr style="border-left:3px solid #e74c3c;background:rgba(231,76,60,0.08)">
                     <td><span class="badge" style="background:rgba(231,76,60,0.15);color:#e74c3c;border:1px solid #e74c3c">✗&nbsp;Broken</span></td>
                     <td class="fs-13 text-muted">Broken by <strong>classical</strong> cryptanalysis — not just a quantum threat. Immediate replacement required regardless of quantum timeline.</td>
-                    <td class="fs-13"><code>SHA-1</code>, <code>MD5</code>, <code>3DES</code>, <code>DES</code>, <code>RC4</code></td>
+                    <td class="fs-13"><code>SHA-1</code>, <code>MD5</code>, <code>3DES</code>, <code>DES</code>, <code>RC4</code>, <code>SSLv2/v3</code>, <code>TLS 1.0/1.1</code></td>
                 </tr>
             </tbody>
         </table>
