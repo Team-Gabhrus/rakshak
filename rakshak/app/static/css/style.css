@@ -3,7 +3,8 @@
     --rk-surface:    #161B22;
     --rk-surface2:   #1C2233;
     --rk-border:     #30363D;
-    --rk-accent:     #2F81F7;
+    --rk-accent:     #f9bb1a;
+    --rk-accent-bg:  #A3112E;
     --rk-accent2:    #1F6FEB;
     --rk-green:      #238636;
     --rk-blue:       #2F81F7;
@@ -27,8 +28,9 @@
     --rk-surface2:   #F8FAFC;
     --rk-border:     #E2E8F0;
     --rk-accent:     #A3112E; /* PNB Maroon */
+    --rk-accent-bg:  #f9bb1a;
     --rk-accent2:    #8B0D26;
-    --rk-green:      #059669;
+    --rk-green:      #f9bb1a;
     --rk-blue:       #2563EB;
     --rk-yellow:     #D97706; /* PNB Gold Accent */
     --rk-red:        #DC2626;
@@ -91,7 +93,7 @@ body.rk-body {
 }
 .rk-nav-item i { font-size: 16px; flex-shrink: 0; }
 .rk-nav-item:hover { background: rgba(177, 186, 196, 0.12); color: var(--rk-text); }
-.rk-nav-item.active { background: rgba(47, 129, 247, 0.15); color: var(--rk-accent); border-left: 3px solid var(--rk-accent); }
+.rk-nav-item.active { background: var(--rk-accent-bg); color: var(--rk-accent); border-left: 3px solid var(--rk-accent); }
 
 .rk-sidebar-footer { padding: 10px 10px 20px; border-top: 1px solid var(--rk-border); display: flex; flex-direction: column; gap: 4px; }
 
@@ -145,7 +147,7 @@ body.rk-body {
 }
 .rk-btn-filter {
     background: var(--rk-accent); border: none; border-radius: 6px;
-    color: #fff; padding: 5px 12px; font-size: 13px; cursor: pointer;
+    color: var(--rk-surface); padding: 5px 12px; font-size: 13px; cursor: pointer;
     transition: background var(--rk-transition);
 }
 .rk-btn-filter:hover { background: var(--rk-accent2); }
