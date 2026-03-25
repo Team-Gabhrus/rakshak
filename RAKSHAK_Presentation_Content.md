@@ -43,22 +43,23 @@
 * It dynamically generates a real-time Cryptographic Bill of Materials (CBOM) and evaluates each asset against NIST's PQC standards.
 
 **Why is it innovative or unique?**
-* **Proprietary Cyber Rating:** It quantifies abstract cryptographic risks into a tangible, actionable Cyber Health Score (0-100).
-* **AI Mitigation Playbooks:** Instead of just reporting vulnerabilities, Rakshak uses LLMs to generate step-by-step IT remediation scripts (e.g., specific OpenSSL commands) to upgrade weak assets to PQC-resistant algorithms (Kyber/Dilithium).
+* **Dual-Engine Scanning Architecture:** Uses classical `sslyze` alongside an Open Quantum Safe (OQS) Docker probe built with `liboqs` to natively detect pure-PQC signatures (ML-DSA, ML-KEM) since standard OpenSSL cannot negotiate PQC algorithms.
+* **Proprietary Cyber Rating:** It quantifies abstract cryptographic risks into a tangible, actionable Cyber Health Score (0-1000) and tiers your entire enterprise posture.
+* **AI Mitigation Playbooks:** Instead of just reporting vulnerabilities, Rakshak uses LLMs to generate step-by-step IT remediation scripts (e.g., specific OpenSSL commands) to upgrade weak assets to PQC-resistant algorithms.
 
 ---
 
 ## Slide 4: Technical Implementation and Tech Stack used
 **Tools, Technologies, or Frameworks:**
 * **Backend:** Python, FastAPI (for asynchronous scanning), SQLAlchemy, SQLite.
-* **Frontend:** HTML5, Tailwind CSS, Alpine.js (for lightweight reactive UI).
-* **Scanners:** SSLyze, custom OpenSSL wrappers, and Sublist3r.
-* **Deployment:** Docker, Railway Cloud.
+* **Frontend:** HTML5, Bootstrap 5, Vanilla JS, Chart.js, and Jinja2 templates (for lightweight reactive UI).
+* **Scanners:** SSLyze and custom OQS (`openquantumsafe/curl`) Docker probes.
+* **Deployment:** Docker, Docker Compose, Railway Cloud.
 
 **Architecture Diagram and Dataflow (Three Tier):**
 * *(Insert Architecture Diagram Image Here)*
-* **Tier 1 (Presentation):** Tailwind/Alpine.js Dashboard visualizing real-time CBOM, Cyber Ratings, and UI alerts.
-* **Tier 2 (Application/Logic):** FastAPI orchestrating background network discovery tasks, grading algorithms, and calling LLM APIs for playbook generation.
+* **Tier 1 (Presentation):** Bootstrap Dashboard visualizing real-time CBOM, Cyber Ratings, and interactive Charts/UI alerts.
+* **Tier 2 (Application/Logic):** FastAPI orchestrating background network discovery tasks, dual-engine scanning, grading algorithms, and calling LLM APIs for playbook generation.
 * **Tier 3 (Data):** Relational Database storing historical scan logs, asset inventories, and user roles.
 
 **Key Features:**
