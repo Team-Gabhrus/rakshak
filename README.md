@@ -21,6 +21,8 @@ Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-ra
 | **📊 Cyber Rating (0-1000)** | Computes an enterprise-wide quantum-risk score with tier classification (Excellent / Good / Satisfactory / Needs Improvement). |
 | **🗺️ Asset Discovery** | Recursively enumerates DNS, IPs, subnets, and server software for all known assets. |
 | **🛠️ AI Migration Playbooks** | Generates step-by-step remediation scripts to upgrade weak legacy assets to PQC-resistant algorithms. |
+| **⏱️ Idle Session Timeout** | Enforces a 30-minute idle timeout (activity-based), preventing active users from being logged out at a fixed absolute interval. |
+| **🎯 Smart Asset-to-CBOM Routing** | Global search opens the selected asset directly into the latest CBOM snapshot for faster investigation workflows. |
 
 ---
 
@@ -76,7 +78,7 @@ Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real
 1. **Clone the repository:**
    ```bash
    git clone https://github.com/Team-Gabhrus/psb-cyber-26.git
-   cd psb-cyber-26/rakshak
+   cd psb-cyber-26
    ```
 
 2. **Create and activate a virtual environment:**
