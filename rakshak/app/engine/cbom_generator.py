@@ -27,12 +27,15 @@ def build_key_entry(cipher_info: dict, cert_info: Optional[dict] = None) -> dict
         except Exception:
             pass
 
+    key_algorithm = cert_info.get("key_algorithm", "") if cert_info else ""
+
     return {
         "name": key_name,
         "asset_type": "key",
         "id": f"key-{hashlib.md5(key_name.encode()).hexdigest()[:8]}",
         "state": state,
         "size": f"{key_size} bits",
+        "key_algorithm": key_algorithm,
         "creation_date": not_before or now,
         "activation_date": not_before or now,
         "expiry_date": not_after,

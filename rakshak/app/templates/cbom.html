@@ -265,14 +265,24 @@ function cbomRowSafety(item) {
   // but cbom_generator stores them in bits only when available.
   // Classical keys ≤ 4096 bits are flagged as classical.
   if (item.asset_type === 'key') {
-    const sizeStr = (item.size || '').replace(/[^0-9]/g, '');
-    const sizeBits = parseInt(sizeStr, 10);
+    // Prefer key_algorithm field if present (added by cbom_generator from cert_info)
+    const ka = (item.key_algorithm || '').toUpperCase().replace(/-/g,'').replace(/_/g,'');
+    const PQC_K  = ['MLDSA','MLKEM','KYBER','SLHDSA','SPHINCS','FALCON','FNDSA','DILITHIUM','PQC'];
+    const CLAS_K = ['RSA','EC','ECDSA','DSA','DH','ED25519','ED448'];
+    if (PQC_K.some(p  => ka.startsWith(p) || ka === p)) return 'safe';
+    if (CLAS_K.some(p => ka.startsWith(p) || ka === p)) return 'classical';
+
+    // Fallback: classify by numeric key size
+    // Classical RSA tops at 4096 bits; PQC public keys in bytes (e.g. ML-DSA-44=1312 bytes)
+    // are sometimes stored as-is. Only flag very small sizes as broken.
+    const sizeBits = parseInt((item.size || '').replace(/[^0-9]/g, ''), 10);
     if (!isNaN(sizeBits)) {
-      if (sizeBits <= 256)  return 'broken';    // DES / export-grade
-      if (sizeBits <= 4096) return 'classical'; // RSA-2048/4096, ECC-256/384
-      return 'safe';                            // PQC-range key size
+      if (sizeBits <= 112) return 'broken';    // DES/export-grade bits
+      if (sizeBits <= 521) return 'classical'; // ECC max (P-521)
+      // RSA 1024-4096 and PQC byte-sizes (897-2592) both fall in this range —
+      // can't distinguish reliably without key_algorithm, so leave as 'ok'
     }
-    return 'classical'; // unknown key size — assume classical to be safe
+    return 'ok'; // unknown — don't flag classical without evidence
   }
 
   // ── Algorithm / Certificate: check all relevant string fields ────────────
