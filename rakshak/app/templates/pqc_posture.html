@@ -170,7 +170,7 @@ function renderRecommendations(recs) {
           </div>
           <span class="badge" style="background:${priorityColor[r.priority]||'#7D8590'}22;color:${priorityColor[r.priority]||'#7D8590'}; border: 1px solid ${priorityColor[r.priority]||'#7D8590'}44;">${r.priority.toUpperCase()}</span>
         </div>
-        <p class="fs-13 mb-3 text-body-secondary lh-sm">${r.action}</p>
+        <p class="fs-13 mb-3 lh-sm" style="color: var(--rk-text);">${r.action}</p>
         <div class="mt-auto pt-2 fs-12 text-muted" style="border-top: 1px dashed var(--rk-border);">
           <i class="bi bi-link-45deg me-1"></i> Affected Asset: <span class="text-truncate d-inline-block align-bottom" style="max-width: 250px;">${r.target||''}</span>
         </div>

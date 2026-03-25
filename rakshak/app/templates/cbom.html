@@ -185,6 +185,18 @@ const cbomPageSize = 10;
     const opts = cbomSnapshots.map(s=>`<option value="${s.id}">#${s.id} — ${s.target} (${fmtDate(s.created_at)})</option>`).join('');
     document.getElementById('snapA').innerHTML = opts;
     document.getElementById('snapB').innerHTML = opts;
+
+    // Check if we need to auto-open a specific target
+    const urlParams = new URLSearchParams(window.location.search);
+    const openTarget = urlParams.get('open_target');
+    if (openTarget && cbomSnapshots.length > 0) {
+        const snap = cbomSnapshots.find(s => s.target === openTarget || s.target.includes(openTarget));
+        if (snap) {
+            loadCBOMDetail(snap.id);
+            // Clean up the URL cosmetically
+            window.history.replaceState({}, document.title, window.location.pathname);
+        }
+    }
 }
 
 function renderCBOMPage() {

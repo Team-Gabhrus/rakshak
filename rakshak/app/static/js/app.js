@@ -71,8 +71,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // If not logged in on non-login pages, redirect
-    if (window.location.pathname !== '/login' && !localStorage.getItem('token')) {
-        window.location.href = '/login';
+    if (window.location.pathname !== '/login') {
+        const hasCookie = document.cookie.includes('access_token=');
+        if (!localStorage.getItem('token') || !hasCookie) {
+            logout();
+        }
     }
 });
 
@@ -90,10 +93,10 @@ async function doSearch(q) {
     if (!drop) return;
     if (data.assets?.length) {
         drop.innerHTML = data.assets.map(a =>
-            `<div class="rk-search-item" onclick="window.location='/asset-inventory?search=' + encodeURIComponent(a.name||a.url)">
+            `<div class="rk-search-item" onclick="handleSearchClick('${a.url || ''}', '${a.name || ''}')">
                 <strong>${a.name}</strong> <span class="text-muted fs-12 ms-2">${a.url}</span>
                 <span class="ms-2">${pqcBadge(a.pqc_label)}</span>
-             </div>`
+            </div>`
         ).join('');
         drop.classList.add('show');
     } else {
@@ -102,7 +105,24 @@ async function doSearch(q) {
     }
 }
 
-// ── Time filter ───────────────────────────────────────────────────────────
+async function handleSearchClick(url, name) {
+    try {
+        const res = await API.get('/api/cbom');
+        if (res && res.ok) {
+            const snaps = await res.json();
+            const searchTarget = url || name;
+            const latest = snaps.find(s => s.target === url || (name && s.target.includes(name)));
+            if (latest) {
+                window.location.href = `/cbom?open_target=${encodeURIComponent(latest.target)}`;
+                return;
+            }
+        }
+    } catch (err) {
+        console.error('Failed to resolve CBOM route', err);
+    }
+    // Fallback to asset inventory
+    window.location.href = '/asset-inventory?search=' + encodeURIComponent(name || url);
+}// ── Time filter ───────────────────────────────────────────────────────────
 function applyTimeFilter() {
     const start = document.getElementById('filterStart')?.value;
     const end   = document.getElementById('filterEnd')?.value;
@@ -281,4 +301,34 @@ function fmtDate(dt) {
 function fmtDateTime(dt) {
     if (!dt) return '—';
     return shiftToIST(dt).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' });
+}
+
+// ── Session Idle Timeout ──────────────────────────────────────────────────
+let _lastActivity = Date.now();
+const _IDLE_TIMEOUT = 30 * 60 * 1000; // 30 minutes in ms
+
+function _updateActivity() {
+    const now = Date.now();
+    // Throttle cookie updates to avoid excessive writing (e.g. once every 60s)
+    if (now - _lastActivity > 60000) {
+        const token = API.token;
+        if (token) {
+            document.cookie = `access_token=${token}; path=/; max-age=1800`;
+        }
+    }
+    _lastActivity = now;
+}
+
+if (window.location.pathname !== '/login') {
+    ['mousemove', 'keydown', 'click', 'scroll', 'touchstart'].forEach(evt => {
+        document.addEventListener(evt, _updateActivity, { passive: true });
+    });
+
+    setInterval(() => {
+        if (Date.now() - _lastActivity > _IDLE_TIMEOUT) {
+            if (API.token) {
+                logout();
+            }
+        }
+    }, 10000);
 }
