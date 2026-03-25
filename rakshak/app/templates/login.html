@@ -6,13 +6,105 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/css/style.css" rel="stylesheet">
+    <style>
+    /* Reset base dark mode login background to deep maroon/black gradient */
+    .rk-login-bg {
+        position: relative; overflow: hidden;
+        background: linear-gradient(135deg, #0d0406 0%, #1a0509 100%) !important;
+        min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }
+
+    /* Animated Ambient Background Orbs */
+    .rk-login-bg::before, .rk-login-bg::after {
+        content: ''; position: absolute; border-radius: 50%;
+        filter: blur(80px); opacity: 0.4; z-index: 0;
+    }
+    .rk-login-bg::before {
+        width: 450px; height: 450px;
+        background: radial-gradient(circle, #A3112E 0%, transparent 70%);
+        top: -10%; left: -10%;
+        animation: floatOrb1 20s infinite ease-in-out;
+    }
+    .rk-login-bg::after {
+        width: 350px; height: 350px;
+        background: radial-gradient(circle, #f9bb1a 0%, transparent 70%);
+        bottom: -10%; right: -10%;
+        animation: floatOrb2 25s infinite ease-in-out;
+    }
+
+    @keyframes floatOrb1 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(15vw, 15vh) scale(1.2); }
+        66% { transform: translate(-10vw, 25vh) scale(0.9); }
+    }
+    @keyframes floatOrb2 {
+        0%, 100% { transform: translate(0, 0) scale(1); }
+        33% { transform: translate(-20vw, -15vh) scale(1.15); }
+        66% { transform: translate(10vw, -20vh) scale(0.85); }
+    }
+
+    /* Glassmorphic Login Panel */
+    .rk-login-card {
+        position: relative; z-index: 1;
+        background: rgba(26, 5, 9, 0.4) !important;
+        backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
+        border: 1px solid rgba(249, 187, 26, 0.15) !important;
+        box-shadow: 0 24px 64px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.06) !important;
+        border-radius: 20px !important;
+    }
+
+    /* Typography & Icons Overrides */
+    .rk-login-card h1 { color: #ffffff !important; letter-spacing: -0.5px; }
+    .rk-login-card p.text-muted { color: rgba(255,255,255,0.5) !important; }
+    .rk-login-card .rk-form-label { color: rgba(255,255,255,0.85); font-weight: 500; }
+    .rk-login-card .bi { color: rgba(255,255,255,0.4) !important; }
+    
+    /* Input Form Styling */
+    .rk-login-card .rk-form-control {
+        background: rgba(255,255,255,0.04) !important;
+        border: 1px solid rgba(255,255,255,0.08) !important;
+        color: #ffffff !important; transition: all 0.3s ease;
+    }
+    .rk-login-card .rk-form-control:focus {
+        background: rgba(255,255,255,0.08) !important;
+        border-color: #f9bb1a !important;
+        box-shadow: 0 0 0 4px rgba(249, 187, 26, 0.15) !important;
+    }
+    .rk-login-card .rk-form-control::placeholder { color: rgba(255,255,255,0.2) !important; }
+
+    /* Primary PNB Theme Button */
+    .btn-login-accent {
+        background: linear-gradient(135deg, #A3112E, #d29922);
+        border: none; color: #ffffff !important; font-weight: 600; letter-spacing: 0.5px;
+        transition: all 0.3s ease; box-shadow: 0 8px 20px rgba(163, 17, 46, 0.3);
+    }
+    .btn-login-accent:hover {
+        background: linear-gradient(135deg, #b81735, #f9bb1a);
+        box-shadow: 0 10px 25px rgba(249, 187, 26, 0.4); transform: translateY(-2px);
+    }
+    .btn-login-accent:active { transform: translateY(1px); box-shadow: 0 4px 10px rgba(163, 17, 46, 0.4); }
+    
+    /* Checkbox styling */
+    .rk-login-card .form-check-input {
+        background-color: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.2);
+    }
+    .rk-login-card .form-check-input:checked {
+        background-color: #A3112E; border-color: #A3112E;
+    }
+    </style>
 </head>
 <body class="rk-body rk-login-bg">
 <div class="rk-login-card rk-fade-in">
     <div class="text-center mb-4">
-        <div class="rk-logo mx-auto mb-3" style="width:56px;height:56px;font-size:26px;">
-            <i class="bi bi-shield-lock-fill" style="color: #A3112E;"></i>
+        <div class="mx-auto mb-3 d-flex align-items-center justify-content-center" style="width:64px;height:64px;background:rgba(255,255,255,0.05);border-radius:16px;border:1px solid rgba(255,255,255,0.05);box-shadow:inset 0 1px 0 rgba(255,255,255,0.1);">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="32" height="32" style="filter: drop-shadow(0 0 12px rgba(249,187,26,0.4));">
+              <path fill="#f9bb1a" d="M5.072.56C6.157.265 7.31 0 8 0s1.843.265 2.928.56c1.11.3 2.229.655 2.887.87a1.54 1.54 0 0 1 1.044 1.262c.596 4.477-.787 7.795-2.465 9.99a11.775 11.775 0 0 1-2.517 2.453 7.159 7.159 0 0 1-1.048.625c-.28.132-.581.24-.829.24s-.548-.108-.829-.24a7.158 7.158 0 0 1-1.048-.625 11.777 11.777 0 0 1-2.517-2.453C1.928 10.463.545 7.145 1.141 2.692A1.54 1.54 0 0 1 2.185 1.43 62.456 62.456 0 0 1 5.072.56z"/>
+              <g transform="translate(4.5, 4.5) scale(0.44)">
+                <path fill="#A3112E" d="M8 1a2 2 0 0 1 2 2v4H6V3a2 2 0 0 1 2-2zm3 6V3a3 3 0 0 0-6 0v4a2 2 0 0 0-2 2v5a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2z"/>
+              </g>
+            </svg>
         </div>
         <h1 style="font-size:22px;font-weight:800;color:var(--rk-text)">Rakshak</h1>
         <p class="text-muted mb-0" style="font-size:13px;">Quantum-Proof Systems Scanner</p>
@@ -43,10 +135,10 @@
             <label class="d-flex align-items-center gap-2 fs-12 text-muted" style="cursor:pointer">
                 <input type="checkbox" class="form-check-input m-0"> Remember me
             </label>
-            <a href="#" onclick="showForgot()" style="font-size:13px;color:var(--rk-accent);text-decoration:none">Forgot Password?</a>
+            <a href="#" onclick="showForgot()" style="font-size:13px;color:#f9bb1a;text-decoration:none;font-weight:500;transition:opacity 0.2s;" onmouseover="this.style.opacity=0.8" onmouseout="this.style.opacity=1">Forgot Password?</a>
         </div>
-        <button type="submit" class="rk-btn rk-btn-primary w-100 justify-content-center" id="loginBtn">
-            <i class="bi bi-box-arrow-in-right"></i> Sign In
+        <button type="submit" class="rk-btn btn-login-accent w-100 justify-content-center py-2" id="loginBtn">
+            <i class="bi bi-box-arrow-in-right" style="color:#fff !important; margin-right:6px"></i> Sign In
         </button>
     </form>
 
@@ -56,14 +148,14 @@
         <div class="mb-2">
             <input type="email" class="rk-form-control" id="forgotEmail" placeholder="your-email@pnb.in">
         </div>
-        <button onclick="submitForgot()" class="rk-btn rk-btn-outline w-100 justify-content-center">
-            <i class="bi bi-envelope"></i> Send Reset Link
+        <button onclick="submitForgot()" class="rk-btn rk-btn-outline w-100 justify-content-center py-2 bg-transparent text-white" style="border-color:rgba(255,255,255,0.2)">
+            <i class="bi bi-envelope" style="color:#fff !important; margin-right:6px"></i> Send Reset Link
         </button>
         <p class="text-center mt-2"><a href="#" onclick="showLogin()" style="font-size:12px;color:var(--rk-text-muted)">Back to login</a></p>
     </div>
 
-    <p class="text-center mt-4 mb-0" style="font-size:11px;color:var(--rk-text-muted)">
-        Default: <code style="color:var(--rk-accent)">admin / admin@123</code> &nbsp;|&nbsp; <code style="color:var(--rk-yellow)">checker / checker@123</code>
+    <p class="text-center mt-4 mb-0" style="font-size:11px;color:rgba(255,255,255,0.3)">
+        Default: <code style="color:#d29922;background:none;padding:0">admin / admin@123</code> &nbsp;|&nbsp; <code style="color:#f9bb1a;background:none;padding:0">checker / checker@123</code>
     </p>
 </div>
 
