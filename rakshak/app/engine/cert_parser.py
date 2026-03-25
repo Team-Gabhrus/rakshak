@@ -100,7 +100,7 @@ def parse_single_cert(cert: x509.Certificate) -> dict:
         # CERT-IN Annexure-A — Certificates category fields
         "name": subject_name,
         "asset_type": "certificate",
-        "subject_name": str(cert.subject),
+        "subject_name": subject_name,
         "issuer_name": issuer_name,
         "not_valid_before": cert.not_valid_before_utc.isoformat() if hasattr(cert, 'not_valid_before_utc') else cert.not_valid_before.isoformat(),
         "not_valid_after": cert.not_valid_after_utc.isoformat() if hasattr(cert, 'not_valid_after_utc') else cert.not_valid_after.isoformat(),

@@ -124,11 +124,65 @@ def _get_safety_color(safety: str) -> str:
 
 def _get_pqc_label_color(label: str) -> str:
     lbl = str(label).lower()
-    if "fully" in lbl or "pqc_ready" in lbl: return "#2ecc71"
+    if "fully" in lbl: return "#2ecc71"
+    if "ready" in lbl: return "#3498db"
     if "partially" in lbl: return "#f1c40f"
     if "not_" in lbl or "classical" in lbl: return "#e67e22"
     if "broken" in lbl: return "#e74c3c"
     return "#7f8c8d"
+
+def _format_pqc_label(label: str) -> str:
+    lbl = str(label).lower()
+    if 'fully' in lbl: return 'Fully Quantum Safe'
+    if 'ready' in lbl: return 'PQC Ready'
+    if 'partially' in lbl: return 'Partially QS'
+    if 'not_' in lbl or 'classical' in lbl: return 'Classical'
+    if 'broken' in lbl: return 'Broken'
+    return label.replace("_", " ").title()
+
+def cbom_row_safety(item: dict, cat: str) -> str:
+    if cat == "protocols":
+        v = str(item.get("version", "")).upper().replace(" ", "").replace(".", "")
+        if any(x in v for x in ["SSL20", "SSL30", "TLS10", "TLS11"]): return "broken"
+        if "TLS12" in v: return "marginal"
+        return "ok"
+    elif cat == "keys":
+        ka = str(item.get("key_algorithm", "")).upper().replace("-", "").replace("_", "")
+        pqc_k = ["MLDSA", "MLKEM", "KYBER", "SLHDSA", "SPHINCS", "FALCON", "FNDSA", "DILITHIUM", "PQC"]
+        clas_k = ["RSA", "EC", "ECDSA", "DSA", "DH", "ED25519", "ED448"]
+        if any(ka.startswith(p) or ka == p for p in pqc_k): return "safe"
+        if any(ka.startswith(p) or ka == p for p in clas_k): return "classical"
+        import re
+        size_str = re.sub(r'[^0-9]', '', str(item.get("size", "")))
+        if size_str:
+            sb = int(size_str)
+            if sb <= 112: return "broken"
+            if sb <= 521: return "classical"
+        return "ok"
+    elif cat == "certificates":
+        ka = str(item.get("key_algorithm", "")).upper().replace("-", "").replace("_", "")
+        sig = str(item.get("signature_algorithm_reference", "")).upper().replace("-", "").replace("_", "")
+        pqc = ["MLDSA", "MLKEM", "KYBER", "SLHDSA", "SPHINCS", "FALCON", "FNDSA", "DILITHIUM", "PQC"]
+        broken = ["SHA1", "MD5", "MD4", "RC4", "3DES", "TRIPLEDES", "DES", "RC2", "EXPORT"]
+        if any(p in ka for p in broken) or any(p in sig for p in broken): return "broken"
+        is_pqc_k = any(ka.startswith(p) or ka == p for p in pqc)
+        is_pqc_s = any(sig.startswith(p) or sig == p for p in pqc)
+        if is_pqc_k and is_pqc_s: return "safe"
+        if is_pqc_k or is_pqc_s: return "ok"
+        return "classical"
+    elif cat == "algorithms":
+        parts = [str(item.get("name", "")), str(item.get("primitive", ""))]
+        parts = [p.upper().replace("-", "").replace("_", "") for p in parts]
+        pqc = ["MLDSA", "MLKEM", "KYBER", "SLHDSA", "SPHINCS", "FALCON", "FNDSA", "DILITHIUM"]
+        broken = ["SHA1", "MD5", "MD4", "RC4", "3DES", "TRIPLEDES", "DES", "RC2", "EXPORT"]
+        marginal = ["AES128", "CAMELLIA128", "ARIA128"]
+        classical = ["RSA", "ECDSA", "ECDHE", "DHE", "X25519", "X448", "SECP", "P256", "P384", "ED25519", "ED448"]
+        if any(p in n for p in broken for n in parts): return "broken"
+        if any(n.startswith(p) or n == p for p in classical for n in parts): return "classical"
+        if any(n.startswith(p) for p in marginal for n in parts): return "marginal"
+        if any(n.startswith(p) for p in pqc for n in parts): return "safe"
+        return "ok"
+    return "ok"
 
 def _export_pdf(data: dict, filepath: str, password: str = None):
     try:
@@ -148,7 +202,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
         heading_style = ParagraphStyle("Heading", parent=styles["Heading1"], textColor=HexColor("#1A0509"), fontSize=18, spaceBefore=20, spaceAfter=10)
         subheading_style = ParagraphStyle("SubHeading", parent=styles["Heading2"], textColor=HexColor("#A3112E"), fontSize=14, spaceBefore=15, spaceAfter=8)
         normal_style = ParagraphStyle("Normal", parent=styles["Normal"], fontSize=10, textColor=HexColor("#333333"))
-        cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=9, wordWrap='CJK')
+        cell_style = ParagraphStyle("Cell", parent=styles["Normal"], fontSize=9, wordWrap='CJK', splitLongWords=True)
 
         # Cover Page / Header
         story.append(Paragraph("<b>PNB Rakshak Security Report</b>", title_style))
@@ -185,7 +239,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
             for asset in data["inventory"]:
                 label = asset.get('pqc_label') or 'Unknown'
                 lbl_color = _get_pqc_label_color(label)
-                pqc_para = Paragraph(f'<b><font color="{lbl_color}">{label.replace("_", " ").title()}</font></b>', cell_style)
+                pqc_para = Paragraph(f'<b><font color="{lbl_color}">{_format_pqc_label(label)}</font></b>', cell_style)
                 
                 inv_data.append([
                     Paragraph(str(asset.get("name", "")), cell_style),
@@ -204,7 +258,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                 ("FONTSIZE", (0, 0), (-1, -1), 9),
                 ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
                 ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
-                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
             ]))
             story.append(t)
             story.append(PageBreak())
@@ -216,10 +270,10 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
             for snap in data["cbom"]:
                 target = snap.get("target") or "Unknown"
                 label = snap.get('pqc_label') or 'Unknown'
-                label = label.replace("_", " ").title()
+                display_label = _format_pqc_label(label)
                 lbl_color = _get_pqc_label_color(label)
                 
-                story.append(Paragraph(f"Target: {target} &nbsp;&bull;&nbsp; <font color='{lbl_color}'>[{label}]</font>", subheading_style))
+                story.append(Paragraph(f"Target: {target} &nbsp;&bull;&nbsp; <font color='{lbl_color}'>[{display_label}]</font>", subheading_style))
                 story.append(Paragraph(f"<font size=8 color='#777777'>Scan Date: {snap.get('created_at', '')[:19]}</font>", normal_style))
                 story.append(Spacer(1, 10))
 
@@ -230,9 +284,9 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                     alg_header = [["Safety", "Name", "Type"]]
                     alg_rows = alg_header + [
                         [
-                            Paragraph(f'<b><font color="{_get_safety_color(a.get("safety", ""))}">{str(a.get("safety", "")).upper()}</font></b>', cell_style),
+                            Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(a, "algorithms"))}">{cbom_row_safety(a, "algorithms").upper()}</font></b>', cell_style),
                             str(a.get("name", "")),
-                            str(a.get("type", ""))
+                            str(a.get("primitive", ""))
                         ] for a in algs
                     ]
                     t_alg = Table(alg_rows, colWidths=[80, 200, 150])
@@ -245,6 +299,7 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                         ("TOPPADDING", (0, 0), (-1, -1), 4),
                         ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
                         ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]))
                     story.append(t_alg)
                     story.append(Spacer(1, 10))
@@ -255,8 +310,8 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                     story.append(Paragraph("<b>Connection Protocols</b>", normal_style))
                     proto_rows = [["Safety", "Protocol", "Status"]] + [
                         [
-                            Paragraph(f'<b><font color="{_get_safety_color(p.get("safety", ""))}">{str(p.get("safety", "")).upper()}</font></b>', cell_style),
-                            str(p.get("name", "")),
+                            Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(p, "protocols"))}">{cbom_row_safety(p, "protocols").upper()}</font></b>', cell_style),
+                            str(p.get("version", p.get("name", ""))),
                             "Active"
                         ] for p in protos
                     ]
@@ -267,8 +322,36 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
                         ("FONTSIZE", (0, 0), (-1, -1), 8),
                         ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
                     ]))
                     story.append(t_pro)
+                    story.append(Spacer(1, 10))
+
+                # --- Keys Table ---
+                klist = snap.get("keys", [])
+                if klist:
+                    import textwrap
+                    story.append(Paragraph("<b>Cryptographic Keys</b>", normal_style))
+                    key_rows = [["Safety", "Key Name", "Algorithm", "Size", "Validity"]] + [
+                        [
+                            Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(k, "keys"))}">{cbom_row_safety(k, "keys").upper()}</font></b>', cell_style),
+                            Paragraph("<br/>".join(textwrap.wrap(str(k.get("name", "")), 22)), cell_style),
+                            str(k.get("key_algorithm", "")),
+                            str(k.get("size", "")),
+                            str(k.get("state", "")).title()
+                        ] for k in klist
+                    ]
+                    t_key = Table(key_rows, colWidths=[80, 220, 80, 75, 75])
+                    t_key.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ]))
+                    story.append(t_key)
                     story.append(Spacer(1, 10))
 
                 # --- Certificates Table ---
@@ -277,11 +360,11 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                     story.append(Paragraph("<b>Certificate Chain</b>", normal_style))
                     cert_rows = [["Safety", "Subject", "Issuer", "Signature Algorithm", "Valid Until"]] + [
                         [
-                            Paragraph(f'<b><font color="{_get_safety_color(c.get("safety", ""))}">{str(c.get("safety", "")).upper()}</font></b>', cell_style),
-                            Paragraph(str(c.get("subject", "")), cell_style),
-                            Paragraph(str(c.get("issuer", "")), cell_style),
-                            str(c.get("signature_algorithm", "")),
-                            str(c.get("not_after", ""))[:10]
+                            Paragraph(f'<b><font color="{_get_safety_color(cbom_row_safety(c, "certificates"))}">{cbom_row_safety(c, "certificates").upper()}</font></b>', cell_style),
+                            Paragraph(str(c.get("subject_name", "")), cell_style),
+                            Paragraph(str(c.get("issuer_name", "")), cell_style),
+                            str(c.get("signature_algorithm_reference", "")),
+                            str(c.get("not_valid_after", ""))[:10]
                         ] for c in certs
                     ]
                     t_cert = Table(cert_rows, colWidths=[60, 250, 220, 120, 80])
