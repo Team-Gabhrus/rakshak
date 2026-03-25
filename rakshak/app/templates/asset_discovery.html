@@ -52,8 +52,16 @@
         <p class="fs-13">Loading network topology…</p>
       </div>
       <canvas id="topoCanvas" style="width:100%;height:100%"></canvas>
+      <!-- Legend overlay -->
+      <div style="position:absolute;bottom:10px;left:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;pointer-events:none">
+        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3498DB;margin-right:4px"></span>Domain</span>
+        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2ECC71;margin-right:4px"></span>SSL Cert</span>
+        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F1C40F;margin-right:4px"></span>IP / Subnet</span>
+        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E67E22;margin-right:4px"></span>Software</span>
+        <span style="font-size:11px;color:var(--rk-text-muted);margin-left:8px">Dot: <span style="color:#3498DB">●</span> New &nbsp;<span style="color:#2ECC71">●</span> Confirmed &nbsp;<span style="color:#7D8590">●</span> Ignored</span>
+      </div>
     </div>
-    <p class="fs-12 text-muted mt-2">Nodes represent IPs, SSL certificates, web servers, and domains.</p>
+    <p class="fs-12 text-muted mt-2"><i class="bi bi-info-circle me-1"></i>Nodes represent discovered domains, IPs, SSL certificates, and software. Hover over a node to see details. Edges connect nodes to their domain hub. Up to 40 nodes shown.</p>
   </div>
 </div>
 {% endblock %}
@@ -186,37 +194,218 @@ async function triggerDiscover() {
 function renderTopology(items) {
   const canvas = document.getElementById('topoCanvas');
   const loadingEl = document.getElementById('topoLoading');
-  loadingEl.classList.remove('d-flex');
   loadingEl.classList.add('d-none');
-  const ctx = canvas.getContext('2d');
-  canvas.width = canvas.offsetWidth;
-  canvas.height = canvas.offsetHeight;
 
-  const nodes = items.slice(0,20).map((item, i) => ({
-    x: 80 + (i % 5) * 160,
-    y: 80 + Math.floor(i / 5) * 120,
-    label: (item.name||item.value||'').substring(0,16),
-    color: item.status==='confirmed'?'#2ECC71':item.status==='new'?'#3498DB':'#7D8590',
-  }));
+  const container = document.getElementById('topologyGraph');
+  canvas.width  = container.offsetWidth  || 900;
+  canvas.height = container.offsetHeight || 420;
 
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-  // Draw edges between all nodes
-  const isLightMode = document.documentElement.getAttribute('data-theme') === 'light';
-  ctx.strokeStyle = isLightMode ? 'rgba(0,0,0,0.1)' : 'rgba(44,133,216,0.15)';
-  ctx.lineWidth = 1;
-  for (let i=0; i<nodes.length-1; i++) {
-    ctx.beginPath(); ctx.moveTo(nodes[i].x,nodes[i].y); ctx.lineTo(nodes[i+1].x,nodes[i+1].y); ctx.stroke();
+  if (!items.length) {
+    loadingEl.innerHTML = `<i class="bi bi-diagram-3" style="font-size:40px;opacity:0.3"></i><p class="fs-13">No discovery data yet. Run a scan to populate the graph.</p>`;
+    loadingEl.classList.remove('d-none');
+    return;
   }
 
-  // Draw nodes
-  nodes.forEach(n => {
-    ctx.beginPath(); ctx.arc(n.x,n.y,20,0,Math.PI*2);
-    ctx.fillStyle = n.color+'33'; ctx.fill();
-    ctx.strokeStyle = n.color; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = isLightMode ? '#333' : '#E6EDF3'; ctx.font = '11px Inter,sans-serif'; ctx.textAlign = 'center';
-    ctx.fillText(n.label, n.x, n.y+35);
-  });
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = canvas.height;
+  const isDark = document.documentElement.getAttribute('data-theme') !== 'light';
+
+  // ── Node colours ──────────────────────────────────────────────────────
+  const TYPE_COLOR = {
+    domain:    '#3498DB',
+    ssl_cert:  '#2ECC71',
+    ip_subnet: '#F1C40F',
+    software:  '#E67E22',
+  };
+
+  // ── Build force nodes + edges ─────────────────────────────────────────
+  // Create a virtual "hub" node per domain
+  const domainItems   = items.filter(i => i.category === 'domain'    || currentCategory === 'domain');
+  const nonDomainItems = items.filter(i => i.category !== 'domain');
+
+  // Limit to avoid performance issues
+  const MAX = 40;
+  const visible = items.slice(0, MAX);
+
+  const nodes = visible.map((item, idx) => ({
+    id: idx,
+    label: (item.name || item.value || '').substring(0, 20),
+    fullLabel: item.name || item.value || '—',
+    value: item.value || '',
+    cat: item.category || currentCategory,
+    status: item.status || 'new',
+    // Scatter randomly around center
+    x: W / 2 + (Math.random() - 0.5) * W * 0.6,
+    y: H / 2 + (Math.random() - 0.5) * H * 0.6,
+    vx: 0, vy: 0,
+    radius: currentCategory === 'domain' ? 22 : 16,
+  }));
+
+  // Edges: connect each node to its nearest domain hub (first 3 domain nodes)
+  const edges = [];
+  const domainNodeIds = nodes.filter(n => n.cat === 'domain').map(n => n.id).slice(0, 5);
+  if (domainNodeIds.length > 0) {
+    nodes.forEach(n => {
+      if (!domainNodeIds.includes(n.id)) {
+        // Connect to a pseudo-random domain hub
+        const hubId = domainNodeIds[n.id % domainNodeIds.length];
+        edges.push({ a: hubId, b: n.id });
+      }
+    });
+    // Chain domain nodes together
+    for (let i = 0; i < domainNodeIds.length - 1; i++) {
+      edges.push({ a: domainNodeIds[i], b: domainNodeIds[i+1] });
+    }
+  } else {
+    // No domain nodes – Minimum spanning chain
+    for (let i = 0; i < nodes.length - 1 && i < 15; i++) {
+      edges.push({ a: i, b: i + 1 });
+    }
+  }
+
+  // ── Force simulation ──────────────────────────────────────────────────
+  let ALPHA = 1.0;
+  const REPEL  = 1800;
+  const SPRING = 0.04;
+  const LENGTH = 120;
+  const DAMP   = 0.85;
+
+  function tick() {
+    // Repulsion
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        const dx = nodes[j].x - nodes[i].x;
+        const dy = nodes[j].y - nodes[i].y;
+        const d2 = dx*dx + dy*dy || 1;
+        const f = REPEL / d2;
+        nodes[i].vx -= dx * f * ALPHA;
+        nodes[i].vy -= dy * f * ALPHA;
+        nodes[j].vx += dx * f * ALPHA;
+        nodes[j].vy += dy * f * ALPHA;
+      }
+    }
+    // Spring attraction for edges
+    edges.forEach(e => {
+      const a = nodes[e.a], b = nodes[e.b];
+      if (!a || !b) return;
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const d = Math.sqrt(dx*dx + dy*dy) || 1;
+      const f = (d - LENGTH) * SPRING * ALPHA;
+      const fx = dx / d * f, fy = dy / d * f;
+      a.vx += fx; a.vy += fy;
+      b.vx -= fx; b.vy -= fy;
+    });
+    // Gravity toward center
+    nodes.forEach(n => {
+      n.vx += (W/2 - n.x) * 0.01 * ALPHA;
+      n.vy += (H/2 - n.y) * 0.01 * ALPHA;
+      n.vx *= DAMP; n.vy *= DAMP;
+      n.x += n.vx; n.y += n.vy;
+      // Boundary clamp
+      n.x = Math.max(n.radius + 5, Math.min(W - n.radius - 5, n.x));
+      n.y = Math.max(n.radius + 5, Math.min(H - n.radius - 5, n.y));
+    });
+    ALPHA = Math.max(0, ALPHA - 0.008);
+  }
+
+  // ── Hover detection ───────────────────────────────────────────────────
+  let hoveredNode = null;
+  canvas.onmousemove = e => {
+    const rect = canvas.getBoundingClientRect();
+    const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+    hoveredNode = nodes.find(n => {
+      const dx = n.x - mx, dy = n.y - my;
+      return dx*dx + dy*dy < (n.radius+4)*(n.radius+4);
+    }) || null;
+    canvas.style.cursor = hoveredNode ? 'pointer' : 'default';
+  };
+  canvas.onmouseleave = () => { hoveredNode = null; };
+
+  // ── Draw loop ─────────────────────────────────────────────────────────
+  let animId = null;
+  function draw() {
+    tick();
+    ctx.clearRect(0, 0, W, H);
+
+    // Edges
+    edges.forEach(e => {
+      const a = nodes[e.a], b = nodes[e.b];
+      if (!a || !b) return;
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
+      ctx.strokeStyle = isDark ? 'rgba(44,133,216,0.18)' : 'rgba(0,0,0,0.08)';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // Nodes
+    nodes.forEach(n => {
+      const color = TYPE_COLOR[n.cat] || '#7D8590';
+      const isHovered = n === hoveredNode;
+      const r = isHovered ? n.radius + 4 : n.radius;
+
+      // Glow on hover
+      if (isHovered) {
+        ctx.beginPath(); ctx.arc(n.x, n.y, r + 6, 0, Math.PI*2);
+        ctx.fillStyle = color + '22'; ctx.fill();
+      }
+
+      // Fill circle
+      ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI*2);
+      ctx.fillStyle = color + (isDark ? '25' : '22'); ctx.fill();
+      ctx.strokeStyle = color; ctx.lineWidth = isHovered ? 2.5 : 1.8; ctx.stroke();
+
+      // Status indicator dot
+      const statusColor = n.status==='confirmed'?'#2ECC71':n.status==='new'?'#3498DB':'#7D8590';
+      ctx.beginPath(); ctx.arc(n.x + r*0.65, n.y - r*0.65, 4, 0, Math.PI*2);
+      ctx.fillStyle = statusColor; ctx.fill();
+
+      // Label below node
+      ctx.fillStyle = isDark ? '#C9D1D9' : '#24292F';
+      ctx.font = `${isHovered?'bold ':''}10px Inter,sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText(n.label, n.x, n.y + r + 13);
+    });
+
+    // Hover tooltip
+    if (hoveredNode) {
+      const n = hoveredNode;
+      const lines = [
+        n.fullLabel,
+        `Type: ${n.cat.replace('_',' ')}`,
+        `Status: ${n.status}`,
+        n.value !== n.fullLabel ? `Value: ${n.value.substring(0,40)}` : null,
+      ].filter(Boolean);
+      const pw = 220, ph = lines.length * 18 + 16;
+      let tx = n.x + 20, ty = n.y - ph/2;
+      if (tx + pw > W) tx = n.x - pw - 10;
+      if (ty < 4) ty = 4;
+      ctx.fillStyle = isDark ? 'rgba(13,17,23,0.92)' : 'rgba(255,255,255,0.95)';
+      ctx.strokeStyle = isDark ? '#30363D' : '#D0D7DE';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.roundRect(tx, ty, pw, ph, 6);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = isDark ? '#E6EDF3' : '#24292F';
+      ctx.font = '11px Inter,sans-serif';
+      ctx.textAlign = 'left';
+      lines.forEach((l, i) => {
+        if (i === 0) { ctx.font = 'bold 11px Inter,sans-serif'; }
+        else { ctx.font = '11px Inter,sans-serif'; ctx.fillStyle = isDark ? '#8B949E' : '#57606A'; }
+        ctx.fillText(l, tx + 10, ty + 14 + i * 18);
+      });
+    }
+
+    animId = requestAnimationFrame(draw);
+  }
+
+  // Cancel any previous animation
+  if (window._topoAnimId) cancelAnimationFrame(window._topoAnimId);
+  animId = requestAnimationFrame(draw);
+  window._topoAnimId = animId;
+
+  // Stop animating once settled
+  setTimeout(() => { ALPHA = 0; }, 5000);
 }
 
 loadDiscoveries();
