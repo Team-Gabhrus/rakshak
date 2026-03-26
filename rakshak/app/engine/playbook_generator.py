@@ -117,10 +117,14 @@ def generate_playbook(
             rationale_items.append(f"✅ Certificate authentication is already quantum-safe ({authentication})")
             rationale_items.append(f"⚠️ Key Exchange ({key_exchange or 'unknown'}) is still classical — vulnerable to HNDL/Shor's algorithm decryption")
             rationale_items.append("📋 To achieve Fully Quantum Safe: deploy ML-KEM-768 or hybrid X25519+ML-KEM for key exchange")
+        elif has_pqc_kex and has_pqc_auth:
+            rationale_items.append("✅ Key Exchange and Leaf Certificate are already quantum-safe")
+            rationale_items.append("⚠️ Classical Root/Intermediate CA detected — the full trust chain must be quantum-safe for FQS")
+            rationale_items.append("📋 To achieve Fully Quantum Safe: Migrate the trust anchor to a PQC-native CA chain")
         else:
             rationale_items.append("⚠️ One or more cryptographic components contribute to partial PQC compliance")
             rationale_items.append("📋 Re-scan after each migration step to track progress towards Fully Quantum Safe")
-        if tls_version and tls_version != "TLS 1.3":
+        if tls_version and "1.3" not in str(tls_version):
             rationale_items.append(f"⚠️ {tls_version} detected — TLS 1.3 is required for full PQC support with FIPS 203/204 algorithms")
 
     return {

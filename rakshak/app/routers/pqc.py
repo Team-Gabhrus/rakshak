@@ -124,7 +124,7 @@ async def get_recommendations(
         raise HTTPException(status_code=404, detail="No scan results found for this asset")
 
     playbook = json.loads(sr.playbook_json) if sr.playbook_json else generate_playbook(
-        asset.url, asset.tls_version, None, None, asset.cipher_suite, None, asset.pqc_label.value if asset.pqc_label else "unknown"
+        asset.url, sr.tls_version, sr.key_exchange, sr.authentication, sr.encryption, sr.hashing, asset.pqc_label.value if asset.pqc_label else "unknown"
     )
     recommendations = json.loads(sr.recommendations_json) if sr.recommendations_json else []
     risk_timeline = generate_risk_timeline(sr.key_exchange, sr.authentication)
