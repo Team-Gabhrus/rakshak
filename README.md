@@ -3,11 +3,11 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
 [![Python 3.11](https://img.shields.io/badge/Python-3.11-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://www.python.org/)
 [![Docker](https://img.shields.io/badge/Docker-OQS_Enabled-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/openquantumsafe/curl)
-[![Deployed on Railway](https://img.shields.io/badge/Deployed_on-Railway-0B0D0E?style=for-the-badge&logo=railway&logoColor=white)](https://railway.app/)
+[![Deployed on AWS EC2](https://img.shields.io/badge/Deployed_on-AWS_EC2-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)](https://rakshak.live)
 
-> **Built by Team Gabhrus**
+> **Built by Team Gabhrus** · Live at **[rakshak.live](https://rakshak.live)**
 
-Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform**. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
+Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform** built for Punjab National Bank. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
 
 ---
 
@@ -15,14 +15,18 @@ Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-ra
 
 | Feature | Description |
 |---|---|
-| **🔬 Dual-Engine PQC Scanner** | Combines **sslyze** (classical TLS) + **OQS Docker probe** (PQC-enabled OpenSSL) to detect ML-DSA, Falcon, SLH-DSA, and ML-KEM from real TLS connections — no mocks or hardcoded data. |
-| **📋 Dynamic CBOM Generation** | Inventories all cryptographic assets (cipher suites, X.509 certificate chains, OIDs, key lengths) and exports them as CSV/PDF for compliance. |
-| **🏷️ 4-Tier PQC Classification** | Classifies every asset as ❌ Not Quantum-Safe, 🟡 Partially QS, 🔵 PQC-Ready, or 🟢 Fully Quantum Safe based on real-time cert-chain OID analysis. |
-| **📊 Cyber Rating (0-1000)** | Computes an enterprise-wide quantum-risk score with tier classification (Excellent / Good / Satisfactory / Needs Improvement). |
-| **🗺️ Asset Discovery** | Recursively enumerates DNS, IPs, subnets, and server software for all known assets. |
-| **🛠️ AI Migration Playbooks** | Generates step-by-step remediation scripts to upgrade weak legacy assets to PQC-resistant algorithms. |
-| **⏱️ Idle Session Timeout** | Enforces a 30-minute idle timeout (activity-based), preventing active users from being logged out at a fixed absolute interval. |
+| **🔬 Dual-Engine PQC Scanner** | Combines **sslyze** (classical TLS) + **OQS Docker probe** (`openquantumsafe/curl`) to detect ML-DSA, Falcon, SLH-DSA, and ML-KEM from real TLS connections — no mocks or hardcoded data. |
+| **📋 Dynamic CBOM Generation** | Inventories all cryptographic assets (cipher suites, X.509 certificate chains, OIDs, key lengths) per CERT-IN Annexure-A and exports them as CSV/PDF for compliance. |
+| **🏷️ 4-Tier PQC Classification** | Classifies every asset as ❌ Not Quantum-Safe, 🟡 Partially Quantum-Safe, 🔵 PQC-Ready, or 🟢 Fully Quantum Safe based on real-time cert-chain OID analysis and cipher suite negotiation. |
+| **📊 Cyber Rating (0–1000)** | Computes an enterprise-wide quantum-risk score with tier classification (Tier 1–Tier 4: Elite → Standard → Legacy → Critical). |
+| **🗺️ Asset Discovery** | Recursively enumerates DNS, IPs, subnets, and server software for all known assets, with a visual network topology graph. |
+| **🛠️ AI Migration Playbooks** | Auto-generates step-by-step remediation playbooks to upgrade weak legacy assets to PQC-resistant algorithms (ML-KEM, ML-DSA). |
+| **🔒 Weakest-Link Protocol Downgrade** | Automatically forces a "Critical / Not Quantum-Safe" rating if any legacy protocol (TLS 1.0/1.1, SSL 2.0/3.0) or broken cipher (RC4, 3DES) is detected, preventing false-positive safe ratings. |
+| **⏱️ Idle Session Timeout** | Enforces a 30-minute idle timeout (activity-based, not absolute), preventing active users from being prematurely logged out. |
 | **🎯 Smart Asset-to-CBOM Routing** | Global search opens the selected asset directly into the latest CBOM snapshot for faster investigation workflows. |
+| **🌗 Dark / Light Theme** | Persistent dark/light theme toggle stored per session. |
+| **📋 Platform Guide** | Built-in guide page explaining PQC posture definitions, label criteria, and risk levels. |
+| **👥 User Management & Audit Logs** | Admin-only RBAC panel to manage Admin/Checker users; tamper-evident audit logs with cryptographic hash per entry. |
 
 ---
 
@@ -41,29 +45,31 @@ Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real
 
 | Engine | What It Detects |
 |---|---|
-| **sslyze** (Primary) | Classical ciphers (ECDHE, RSA, AES), X.509 cert chain OIDs, TLS versions |
-| **OQS Docker Probe** 🐳 | ML-DSA, Falcon, SLH-DSA signatures; ML-KEM key exchange; PQC cert chain depth |
+| **sslyze** (Primary) | Classical ciphers (ECDHE, RSA, AES), X.509 cert chain OIDs, TLS versions 1.0–1.3, certificate details |
+| **OQS Docker Probe** 🐳 | ML-DSA, Falcon, SLH-DSA signatures; ML-KEM key exchange; PQC cert chain depth via `openquantumsafe/curl` |
 
 > **Why two engines?** Standard OpenSSL cannot negotiate PQC cipher suites or parse PQC certificates. The OQS container bundles `liboqs` + `oqs-provider`, enabling Rakshak to detect PQC from real connections — including dual-stack servers that hide PQC certs from classical clients.
 
 ### PQC Classification Decision Tree
 
-| Label | Criteria |
-|---|---|
-| ❌ **Not Quantum-Safe** | No PQC detected in cipher suite or certificate chain |
-| 🟡 **Partially Quantum-Safe** | PQC detected in one layer (KEX or Auth) |
-| 🔵 **PQC-Ready** | PQC in both KEX + Auth, but legacy Root CA in trust chain |
-| 🟢 **Fully Quantum Safe** | Every cert in the trust chain uses PQC signature OIDs |
+| Label | Criteria | Risk |
+|---|---|---|
+| ❌ **Not Quantum-Safe** | Classical KEX (ECDHE/RSA) with no PQC detected, OR any legacy protocol/broken cipher present (Weakest-Link rule) | Critical |
+| 🟡 **Partially Quantum-Safe** | PQC detected in one layer only (KEX or Auth), but not both | High |
+| 🔵 **PQC-Ready** | PQC KEX + PQC Auth detected, but at least one cert in the trust chain uses a classical signature OID (legacy Root CA) | Medium |
+| 🟢 **Fully Quantum Safe** | Every cert in the full trust chain (leaf → intermediate → root) uses PQC signature OIDs | Low |
+
+> **Important:** X25519 and P-256 are classified as **classical/vulnerable** key exchange algorithms. Only NIST-standardized PQC algorithms (ML-KEM, ML-DSA, SLH-DSA per FIPS 203/204/205) qualify for PQC classification.
 
 ---
 
 ## 🛠️ Technology Stack
 
-* **Backend:** Python 3.11, FastAPI (async), SQLAlchemy, SQLite
-* **Frontend:** HTML5, Bootstrap 5, Vanilla JS, Chart.js
+* **Backend:** Python 3.11, FastAPI (async), SQLAlchemy (async), SQLite (dev & production)
+* **Frontend:** HTML5, Bootstrap 5, Vanilla JS, Chart.js, Jinja2 templates
 * **Security & Scanning:** sslyze, OQS Docker (`openquantumsafe/curl`), Python `cryptography`
 * **PQC Detection:** X.509 OID parsing (ML-DSA, Falcon, SLH-DSA), liboqs via Docker
-* **Deployment:** Docker, Railway Cloud
+* **Deployment:** Docker + AWS EC2 ([rakshak.live](https://rakshak.live))
 
 ---
 
@@ -89,10 +95,10 @@ Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real
 
 3. **Install dependencies:**
    ```bash
-   pip install -r requirements.txt
+   pip install -r rakshak/requirements.txt
    ```
 
-4. **Pull the OQS Docker image** (one-time, ~20MB):
+4. **Pull the OQS Docker image** (one-time, ~300MB):
    ```bash
    docker pull openquantumsafe/curl:latest
    ```
@@ -103,7 +109,9 @@ Rakshak uses a **dual-engine scanning architecture** to detect PQC usage in real
    ```
 
 6. **Access the application:**
-   Open `http://localhost:8000/` — Default credentials: `admin` / `admin@123`
+   Open `http://localhost:8000/` — Default credentials:
+   - Admin: `admin` / `admin@123`
+   - Checker: `checker` / `checker@123`
 
 ---
 
