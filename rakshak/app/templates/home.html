@@ -247,7 +247,8 @@ async function startScan() {
   showToast(`Scan #${scanId} started — ${data.target_count} targets`, 'success');
 
   // WebSocket progress
-  const ws = new WebSocket(`ws://${location.host}/ws/scan/${scanId}`);
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}/ws/scan/${scanId}`);
   const log = document.getElementById('scanLog');
   const subPhaseEl = document.getElementById('scanSubPhase');
 
