@@ -30,5 +30,6 @@ jobs:
             --restart unless-stopped \
             -p 80:8000 \
             -v /var/run/docker.sock:/var/run/docker.sock \
-            -v $(pwd)/rakshak/rakshak.db:/app/rakshak/rakshak.db \
+            -v $(pwd)/rakshak:/data \
+            -e DATABASE_URL="sqlite+aiosqlite:////data/rakshak.db" \
             rakshak-app
