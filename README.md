@@ -7,6 +7,15 @@
 
 > **Built by Team Gabhrus** · Live at **[rakshak.live](https://rakshak.live)**
 
+---
+
+## 🌐 Live Demo &nbsp;|&nbsp; 📄 Documentation
+
+| | |
+|---|---|
+| 🚀 **Live Deployment** | **[https://rakshak.live](https://rakshak.live)** — Running on AWS EC2 · Login: `admin` / `admin@123` |
+| 📑 **SRS Document (PDF)** | **[Rakshak v1.0 SRS — Team Gabrus](Rakshak%20v1.0%20SRS%20(Team%20Gabrus)%20Updated.pdf)** — Full Software Requirements Specification v1.0 |
+
 Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform** built for Punjab National Bank. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
 
 ---
@@ -16,7 +25,7 @@ Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-ra
 | Feature | Description |
 |---|---|
 | **🔬 Dual-Engine PQC Scanner** | Combines **sslyze** (classical TLS) + **OQS Docker probe** (`openquantumsafe/curl`) to detect ML-DSA, Falcon, SLH-DSA, and ML-KEM from real TLS connections — no mocks or hardcoded data. |
-| **📋 Dynamic CBOM Generation** | Inventories all cryptographic assets (cipher suites, X.509 certificate chains, OIDs, key lengths) per CERT-IN Annexure-A and exports them as CSV/PDF for compliance. |
+| **📋 Dynamic CBOM Generation** | Inventories all cryptographic assets (cipher suites, X.509 certificate chains, OIDs, key lengths) per CERT-IN Annexure-A and exports them as **JSON, XML, CSV, or PDF** for compliance. |
 | **🏷️ 4-Tier PQC Classification** | Classifies every asset as ❌ Not Quantum-Safe, 🟡 Partially Quantum-Safe, 🔵 PQC-Ready, or 🟢 Fully Quantum Safe based on real-time cert-chain OID analysis and cipher suite negotiation. |
 | **📊 Cyber Rating (0–1000)** | Computes an enterprise-wide quantum-risk score with tier classification (Tier 1–Tier 4: Elite → Standard → Legacy → Critical). |
 | **🗺️ Asset Discovery** | Recursively enumerates DNS, IPs, subnets, and server software for all known assets, with a visual network topology graph. |
