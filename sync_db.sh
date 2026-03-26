@@ -12,8 +12,8 @@ cd "$REPO_DIR" || exit
 if git status --short "$DB_FILE" | grep -q "."; then
     echo "$(date): Changes detected in $DB_FILE. Committing and pushing..."
     
-    # Add, commit, and push
-    git add "$DB_FILE"
+    # Add (force add to bypass .gitignore), commit, and push
+    git add -f "$DB_FILE"
     git commit -m "chore: automated database backup $(date '+%Y-%m-%d %H:%M:%S')"
     git push origin "$GIT_BRANCH"
     

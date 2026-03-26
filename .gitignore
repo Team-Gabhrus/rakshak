@@ -47,3 +47,7 @@ prototype_testing_checklist.md
 srs-checklist.md
 walkthrough.md
 pqc_server_setup.md
+rakshak/rakshak.db
+*.db
+rakshak/rakshak.db
+*.db
