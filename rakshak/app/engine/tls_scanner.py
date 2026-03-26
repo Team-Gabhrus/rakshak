@@ -610,6 +610,19 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
             if oqs_chain:
                 result.cert_chain = oqs_chain
 
+            # ENRICH cipher_suites so CBOM generator sees PQC in "Algorithms" tab
+            pqc_suite = {
+                "name": f"PQC_{oqs_kex or 'KEX'}_{oqs_auth or 'AUTH'}_{result.encryption}",
+                "key_exchange": oqs_kex or result.key_exchange,
+                "authentication": oqs_auth or result.authentication,
+                "encryption": result.encryption,
+                "hashing": result.hashing,
+                "bits": 256,
+                "is_pqc": True,
+            }
+            # Add to top of list as the 'preferred' PQC capability detected
+            result.cipher_suites.insert(0, pqc_suite)
+
             logger.info(f"OQS enrichment upgraded {target}: auth={oqs_auth}, kex={oqs_kex}")
 
     return result
