@@ -16,6 +16,8 @@ def generate_playbook(
     leaf_pqc: bool = False,
     full_chain_pqc: bool = False,
     cert_sig_algo: Optional[str] = None,
+    supported_versions: Optional[list[str]] = None,
+    cipher_suites: Optional[list[dict]] = None,
 ) -> dict:
     """Generate FR-46 step-by-step PQC Migration Playbook tailored per asset."""
 
@@ -41,16 +43,32 @@ def generate_playbook(
     has_pqc_kex  = _is_pqc(key_exchange, _PQC_KEX)
     has_pqc_auth = _is_pqc(authentication, _PQC_AUTH)
 
-    # 1. TLS/Cipher Suite Upgrades (Low-Medium)
-    if (tls_version and tls_version in ["TLS 1.0", "TLS 1.1", "SSL 3.0", "SSL 2.0"]) or \
-       (encryption and any(e in (encryption or "") for e in ["AES-128", "3DES", "RC4"])):
+    # 1. TLS/Cipher Suite Upgrades (Legacy Hardening)
+    broken_protocols = {"SSL 2.0", "SSL 3.0", "TLS 1.0", "TLS 1.1"}
+    detected_broken_protos = [v for v in (supported_versions or []) if v in broken_protocols]
+    if tls_version in broken_protocols:
+        detected_broken_protos.append(tls_version)
+    detected_broken_protos = sorted(list(set(detected_broken_protos)))
+
+    broken_ciphers = {"3DES", "DES", "RC4", "NULL", "MD5"}
+    detected_broken_ciphers = []
+    for cs in (cipher_suites or []):
+        name = cs.get("name", "").upper()
+        if any(bc in name for bc in broken_ciphers):
+            detected_broken_ciphers.append(name)
+    
+    if detected_broken_protos or detected_broken_ciphers:
+        proto_str = ", ".join(detected_broken_protos) if detected_broken_protos else "N/A"
+        cipher_str = ", ".join(detected_broken_ciphers[:5]) if detected_broken_ciphers else "N/A"
+        if len(detected_broken_ciphers) > 5: cipher_str += "..."
+
         steps.append({
             "step": len(steps) + 1,
-            "title": "Legacy Protocol/Cipher Retirement",
-            "description": f"Disable weak protocols ({tls_version or 'N/A'}) and ciphers ({encryption or 'N/A'}). Enforce TLS 1.2+ with modern AEAD ciphers.",
+            "title": "Legacy Protocol/Cipher Retirement (Hardening)",
+            "description": f"Disable vulnerable protocols ({proto_str}) and weak ciphers ({cipher_str}). Mandatory to prevent Downgrade Attacks and comply with NIST SP 800-52r2.",
             "effort_days": 2,
             "risk": "Medium",
-            "tools": ["nginx/apache config", "sslyze"],
+            "tools": ["nginx/apache config", "sslyze", "OpenSSL"],
         })
         migration_efforts.append(2)
 

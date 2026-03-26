@@ -43,7 +43,7 @@ def build_key_entry(cipher_info: dict, cert_info: Optional[dict] = None) -> dict
 
 
 def build_protocol_entry(tls_version: str, cipher_suites: list) -> dict:
-    """Build Annexure-A Protocol entry."""
+    """Build Annexure-A Protocol entry with version-specific filtering."""
     oid_map = {
         "TLS 1.3": "1.3.18.0.2.32.104",
         "TLS 1.2": "1.3.18.0.2.32.103",
@@ -51,11 +51,23 @@ def build_protocol_entry(tls_version: str, cipher_suites: list) -> dict:
         "TLS 1.0": "1.3.18.0.2.32.101",
         "SSL 3.0": "1.3.18.0.2.32.100",
     }
+    
+    # Strictly enforce TLS 1.3 cipher rules for the CBOM (Exclude non-AEAD/legacy ciphers)
+    filtered_ciphers = []
+    for cs in cipher_suites:
+        name = cs.get("name", "").upper()
+        if tls_version == "TLS 1.3":
+            # TLS 1.3 only supports 5 modern AEAD suites
+            if any(x in name for x in ["AES_128_GCM", "AES_256_GCM", "CHACHA20", "CCM"]):
+                filtered_ciphers.append(cs.get("name", ""))
+        else:
+            filtered_ciphers.append(cs.get("name", ""))
+
     return {
         "name": "TLS",
         "asset_type": "protocol",
         "version": tls_version or "Unknown",
-        "cipher_suites": [cs.get("name", "") for cs in cipher_suites[:10]],  # top 10
+        "cipher_suites": filtered_ciphers[:15],  # expanded top list
         "oid": oid_map.get(tls_version, "unknown"),
     }
 
@@ -67,6 +79,7 @@ def generate_cbom(
     cert_chain: list,
     pqc_label: str,
     negotiated_cipher_info: Optional[dict] = None,
+    version_ciphers: Optional[dict] = None,
 ) -> dict:
     """
     Generate a complete CBOM per CERT-IN Annexure-A (FR-10).
@@ -152,8 +165,14 @@ def generate_cbom(
         auth = cs.get("authentication", "Unknown")
         add_alg(auth, "signature", ["digital signature", "authentication"])
 
-    # Protocols
-    protocols.append(build_protocol_entry(tls_version, cipher_suites))
+    # Protocols — Inventory ALL supported versions per Annexure-A
+    if version_ciphers:
+        # Sort versions so oldest are first or newest are first for display
+        for ver_label, suites in version_ciphers.items():
+            protocols.append(build_protocol_entry(ver_label, suites))
+    else:
+        # Fallback to single best version
+        protocols.append(build_protocol_entry(tls_version, cipher_suites))
 
     # Keys + Certificates — from cert chain
     for cert in cert_chain:

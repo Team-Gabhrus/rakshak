@@ -220,7 +220,8 @@ class TLSScanResult:
     tls_version: Optional[str] = None           # e.g. "TLS 1.3"
     supported_tls_versions: list = field(default_factory=list)
     negotiated_cipher: Optional[str] = None
-    cipher_suites: list = field(default_factory=list)  # list of CipherSuiteInfo dicts
+    version_ciphers: dict = field(default_factory=dict) # version -> list of CipherSuiteInfo dicts
+    cipher_suites: list = field(default_factory=list)  # list of CipherSuiteInfo dicts (flattened for legacy support)
     key_exchange: Optional[str] = None
     authentication: Optional[str] = None
     encryption: Optional[str] = None
@@ -378,31 +379,47 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
             }
 
             best_version = None
+            version_ciphers = {}
             for attr, version_label in version_map.items():
                 suite_attempt = getattr(scan_res, attr, None)
                 if suite_attempt and suite_attempt.result and suite_attempt.result.is_tls_version_supported:
                     suite_result = suite_attempt.result
                     supported_versions.append(version_label)
                     best_version = version_label
+                    version_ciphers[version_label] = []
                     for accepted in suite_result.accepted_cipher_suites:
                         cipher_info = parse_cipher_name(accepted.cipher_suite.name)
-                        all_ciphers.append(asdict(cipher_info))
+                        ci_dict = asdict(cipher_info)
+                        version_ciphers[version_label].append(ci_dict)
+                        if ci_dict not in all_ciphers:
+                            all_ciphers.append(ci_dict)
 
             result.tls_version = best_version
             result.supported_tls_versions = supported_versions
+            result.version_ciphers = version_ciphers
             result.cipher_suites = all_ciphers
 
-            # Set negotiated cipher info from weakest available (strict posture check)
-            if all_ciphers:
+            # Set negotiated cipher info from the STRONGEST suite on the BEST supported version.
+            # This accurately reflects what a modern client (like Rekshak) would negotiate.
+            if best_version and version_ciphers.get(best_version):
+                best_version_suites = version_ciphers[best_version]
+                
                 def score_cipher(c):
                     s = c.get("bits", 0)
                     name = c.get("name", "").upper()
-                    if "CHACHA" in name: s += 256  # Prioritize ChaCha20 equivalently to 256-bit
-                    if "GCM" in name: s += 10      # Prioritize AEAD (GCM) over CBC
+                    # AEAD and modern primitives get high scores
+                    if "CHACHA" in name: s += 1000
+                    if "GCM" in name: s += 500
+                    if "AES256" in name: s += 256
+                    if "POLY1305" in name: s += 100
+                    # Legacy stuff penalized for selection
+                    if "CBC" in name: s -= 2000
+                    if "3DES" in name: s -= 5000
+                    if "SHA1" in name or "MD5" in name: s -= 3000
                     return s
 
-                # Grade based on the weakest cipher supported (downgrade attack vulnerability)
-                best = min(all_ciphers, key=score_cipher)
+                # Select best from best (max score)
+                best = max(best_version_suites, key=score_cipher)
                 result.negotiated_cipher = best["name"]
                 result.key_exchange = best["key_exchange"]
                 result.authentication = best["authentication"]

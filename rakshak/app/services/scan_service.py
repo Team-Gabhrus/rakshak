@@ -263,17 +263,19 @@ async def _scan_single(target: str) -> dict:
         encryption=tls_result.encryption,
         hashing=tls_result.hashing,
         cert_chain=tls_result.cert_chain,
+        supported_versions=tls_result.supported_tls_versions,
+        cipher_suites=tls_result.cipher_suites,
     )
 
     # CBOM generation
-    cipher_suites = tls_result.cipher_suites
     cbom = cbom_generator.generate_cbom(
         target_url=target,
         tls_version=tls_result.tls_version,
-        cipher_suites=cipher_suites,
+        cipher_suites=tls_result.cipher_suites,
         cert_chain=tls_result.cert_chain,
         pqc_label=pqc_result.label,
-        negotiated_cipher_info=cipher_suites[-1] if cipher_suites else None,
+        negotiated_cipher_info=next((cs for cs in tls_result.cipher_suites if cs.get('name') == tls_result.negotiated_cipher), None),
+        version_ciphers=tls_result.version_ciphers,
     )
 
     # Migration playbook
@@ -288,6 +290,8 @@ async def _scan_single(target: str) -> dict:
         leaf_pqc=pqc_result.details.get("leaf_pqc", False),
         full_chain_pqc=pqc_result.details.get("cert_chain_pqc", False),
         cert_sig_algo=tls_result.cert_chain[0].get("signature_algorithm_reference") if tls_result.cert_chain else None,
+        supported_versions=tls_result.supported_tls_versions,
+        cipher_suites=tls_result.cipher_suites,
     )
 
     return {
@@ -297,7 +301,7 @@ async def _scan_single(target: str) -> dict:
         "tls_version": tls_result.tls_version,
         "supported_tls_versions": tls_result.supported_tls_versions,
         "negotiated_cipher": tls_result.negotiated_cipher,
-        "cipher_suites": cipher_suites,
+        "cipher_suites": tls_result.cipher_suites,
         "key_exchange": tls_result.key_exchange,
         "authentication": tls_result.authentication,
         "encryption": tls_result.encryption,

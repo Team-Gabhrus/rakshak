@@ -147,6 +147,8 @@ def classify(
     encryption: Optional[str],
     hashing: Optional[str],
     cert_chain: Optional[list[dict]] = None,
+    supported_versions: Optional[list[str]] = None,
+    cipher_suites: Optional[list[dict]] = None,
 ) -> PQCAnalysisResult:
     """
     Core labeling function implementing FR-11 label definitions.
@@ -174,11 +176,6 @@ def classify(
     if leaf_pqc and auth_status != "pqc":
         auth_status = "pqc"
 
-    # NOTE: We do NOT elevate kex_status from cert data. The key exchange
-    # algorithm (X25519, ECDHE-P256 etc.) is determined by the TLS handshake,
-    # not the certificate. A server can have a PQC cert but still use
-    # classical key exchange — this is common today.
-
     details = {
         "key_exchange": {"value": kex, "status": kex_status},
         "authentication": {"value": auth, "status": auth_status},
@@ -193,25 +190,42 @@ def classify(
     any_pqc_auth = auth_status == "pqc"
 
     if any_pqc_kex and any_pqc_auth and full_chain_pqc:
-        # Every layer — KEX, Auth, and the entire trust chain — is PQC
         label = "fully_quantum_safe"
         risk = "low"
         score = 1000.0
     elif any_pqc_kex and any_pqc_auth:
-        # PQC KEX + PQC Auth, but root/intermediate CA still classical
         label = "pqc_ready"
         risk = "medium"
         score = 800.0
     elif any_pqc_kex or any_pqc_auth:
-        # At least one PQC component detected (KEX or Auth via cert)
         label = "partially_quantum_safe"
         risk = "high"
         score = 500.0
     else:
-        # No PQC detected anywhere — fully exposed to HNDL
         label = "not_quantum_safe"
         risk = "critical"
         score = 100.0
+
+    # ── WEAKEST LINK DOWNGRADE (Downgrade Attack Prevention) ────────
+    # If the asset supports legacy protocols or broken ciphers, it is 
+    # vulnerable to downgrade attacks regardless of the negotiated suite.
+    broken_protocols = {"SSL 2.0", "SSL 3.0", "TLS 1.0", "TLS 1.1"}
+    has_broken_proto = any(v in broken_protocols for v in (supported_versions or []))
+    
+    broken_ciphers = {"3DES", "DES", "RC4", "NULL", "MD5"}
+    has_broken_cipher = False
+    for cs in (cipher_suites or []):
+        name = cs.get("name", "").upper()
+        if any(bc in name for bc in broken_ciphers):
+            has_broken_cipher = True
+            break
+
+    if has_broken_proto or has_broken_cipher:
+        label = "not_quantum_safe"
+        risk = "critical"
+        score = min(score, 100.0)
+        details["downgrade_vulnerability"] = True
+        details["downgrade_reason"] = "Asset supports legacy protocols/ciphers vulnerable to downgrade attacks."
 
     recommendations = generate_recommendations(kex, auth, enc, hsh, kex_status, auth_status, enc_status, hash_status)
 
