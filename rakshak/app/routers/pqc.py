@@ -123,8 +123,13 @@ async def get_recommendations(
     if not sr:
         raise HTTPException(status_code=404, detail="No scan results found for this asset")
 
+    pqc_details = json.loads(sr.pqc_details_json) if sr.pqc_details_json else {}
+    leaf_pqc_flag = pqc_details.get("leaf_pqc", False)
+    full_chain_flag = pqc_details.get("cert_chain_pqc", False)
+
     playbook = json.loads(sr.playbook_json) if sr.playbook_json else generate_playbook(
-        asset.url, sr.tls_version, sr.key_exchange, sr.authentication, sr.encryption, sr.hashing, asset.pqc_label.value if asset.pqc_label else "unknown"
+        asset.url, sr.tls_version, sr.key_exchange, sr.authentication, sr.encryption, sr.hashing, asset.pqc_label.value if asset.pqc_label else "unknown",
+        leaf_pqc=leaf_pqc_flag, full_chain_pqc=full_chain_flag, cert_sig_algo=sr.cert_sig_algorithm
     )
     recommendations = json.loads(sr.recommendations_json) if sr.recommendations_json else []
     risk_timeline = generate_risk_timeline(sr.key_exchange, sr.authentication)

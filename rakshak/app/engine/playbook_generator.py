@@ -13,6 +13,9 @@ def generate_playbook(
     encryption: Optional[str],
     hashing: Optional[str],
     pqc_label: str,
+    leaf_pqc: bool = False,
+    full_chain_pqc: bool = False,
+    cert_sig_algo: Optional[str] = None,
 ) -> dict:
     """Generate FR-46 step-by-step PQC Migration Playbook tailored per asset."""
 
@@ -118,9 +121,16 @@ def generate_playbook(
             rationale_items.append(f"⚠️ Key Exchange ({key_exchange or 'unknown'}) is still classical — vulnerable to HNDL/Shor's algorithm decryption")
             rationale_items.append("📋 To achieve Fully Quantum Safe: deploy ML-KEM-768 or hybrid X25519+ML-KEM for key exchange")
         elif has_pqc_kex and has_pqc_auth:
-            rationale_items.append("✅ Key Exchange and Leaf Certificate are already quantum-safe")
-            rationale_items.append("⚠️ Classical Root/Intermediate CA detected — the full trust chain must be quantum-safe for FQS")
-            rationale_items.append("📋 To achieve Fully Quantum Safe: Migrate the trust anchor to a PQC-native CA chain")
+            if leaf_pqc:
+                rationale_items.append("✅ Key Exchange and Leaf Certificate are already quantum-safe")
+            else:
+                rationale_items.append(f"✅ Key Exchange is already quantum-safe ({key_exchange})")
+                rationale_items.append(f"⚠️ Leaf Certificate signature ({cert_sig_algo or 'classical'}) is still classical — the identity proof is not quantum-safe")
+            
+            if not full_chain_pqc:
+                rationale_items.append("⚠️ Classical Root/Intermediate CA detected — the full trust chain must be quantum-safe for FQS")
+            
+            rationale_items.append("📋 To achieve Fully Quantum Safe: Ensure all certificates in the chain use ML-DSA or SLH-DSA signatures")
         else:
             rationale_items.append("⚠️ One or more cryptographic components contribute to partial PQC compliance")
             rationale_items.append("📋 Re-scan after each migration step to track progress towards Fully Quantum Safe")

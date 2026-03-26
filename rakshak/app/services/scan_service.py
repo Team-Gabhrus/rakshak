@@ -285,6 +285,9 @@ async def _scan_single(target: str) -> dict:
         encryption=tls_result.encryption,
         hashing=tls_result.hashing,
         pqc_label=pqc_result.label,
+        leaf_pqc=pqc_result.details.get("leaf_pqc", False),
+        full_chain_pqc=pqc_result.details.get("cert_chain_pqc", False),
+        cert_sig_algo=tls_result.cert_chain[0].get("signature_algorithm_reference") if tls_result.cert_chain else None,
     )
 
     return {
