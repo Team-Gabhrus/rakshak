@@ -20,122 +20,111 @@ def generate_playbook(
     """Generate FR-46 step-by-step PQC Migration Playbook tailored per asset."""
 
     steps = []
-    effort_total = 0
+    migration_efforts = []
 
-    # Step 1: Inventory baseline
+    # Step 1: Inventory baseline (Required for all)
     steps.append({
         "step": 1,
         "title": "Establish Cryptographic Baseline",
-        "description": f"Document current configuration for {target_url}: TLS {tls_version}, KX={key_exchange}, Auth={authentication}, Enc={encryption}, Hash={hashing}",
+        "description": f"Document current configuration for {target_url}: TLS {tls_version}, KX={key_exchange}, Auth={authentication}, Enc={encryption or 'N/A'}, Hash={hashing or 'N/A'}",
         "effort_days": 1,
         "risk": "Low",
         "tools": ["sslyze", "openssl s_client"],
     })
-    effort_total += 1
 
-    if hashing and any(h in (hashing or "") for h in ["SHA-1", "MD5"]):
-        steps.append({
-            "step": len(steps) + 1,
-            "title": "Upgrade Hash Algorithm",
-            "description": f"Replace {hashing} with SHA-384. Configure server to reject SHA-1 signatures. Re-issue any SHA-1 signed certificates.",
-            "effort_days": 2,
-            "risk": "Medium",
-            "tools": ["openssl", "CA portal"],
-        })
-        effort_total += 2
-
-    if encryption and any(e in (encryption or "") for e in ["AES-128", "3DES", "RC4"]):
-        steps.append({
-            "step": len(steps) + 1,
-            "title": "Upgrade Encryption Algorithm",
-            "description": f"Remove {encryption} from cipher suite list. Enable AES-256-GCM and ChaCha20-Poly1305. Disable weak cipher suites in server config.",
-            "effort_days": 2,
-            "risk": "Medium",
-            "tools": ["nginx/apache config", "openssl ciphers"],
-        })
-        effort_total += 2
-
-    if tls_version and tls_version in ["TLS 1.0", "TLS 1.1", "SSL 3.0", "SSL 2.0"]:
-        steps.append({
-            "step": len(steps) + 1,
-            "title": "Disable Legacy TLS Versions",
-            "description": f"Disable {tls_version} and all earlier protocols. Enable TLS 1.2 (minimum) and TLS 1.3 (preferred). Update server configuration.",
-            "effort_days": 1,
-            "risk": "Medium",
-            "tools": ["nginx ssl_protocols directive", "apache SSLProtocol"],
-        })
-        effort_total += 1
-
+    # Migration Steps (Only if not already Fully Quantum Safe)
     _PQC_KEX = ("ML-KEM", "MLKEM", "KYBER")
     _PQC_AUTH = ("ML-DSA", "MLDSA", "SLH-DSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM")
 
-    if key_exchange and not any(key_exchange.upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in _PQC_KEX):
+    def _is_pqc(s, lst): return s and any(str(s).upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in lst)
+    
+    has_pqc_kex  = _is_pqc(key_exchange, _PQC_KEX)
+    has_pqc_auth = _is_pqc(authentication, _PQC_AUTH)
+
+    # 1. TLS/Cipher Suite Upgrades (Low-Medium)
+    if (tls_version and tls_version in ["TLS 1.0", "TLS 1.1", "SSL 3.0", "SSL 2.0"]) or \
+       (encryption and any(e in (encryption or "") for e in ["AES-128", "3DES", "RC4"])):
+        steps.append({
+            "step": len(steps) + 1,
+            "title": "Legacy Protocol/Cipher Retirement",
+            "description": f"Disable weak protocols ({tls_version or 'N/A'}) and ciphers ({encryption or 'N/A'}). Enforce TLS 1.2+ with modern AEAD ciphers.",
+            "effort_days": 2,
+            "risk": "Medium",
+            "tools": ["nginx/apache config", "sslyze"],
+        })
+        migration_efforts.append(2)
+
+    # 2. Key Exchange Migration (High)
+    if key_exchange and not has_pqc_kex:
         steps.append({
             "step": len(steps) + 1,
             "title": "Migrate Key Exchange to ML-KEM (FIPS 203)",
-            "description": f"Replace {key_exchange} key exchange with hybrid X25519+ML-KEM-768 as interim. Migrate fully to ML-KEM-768 once library support matures. Update TLS library (OpenSSL 3.x with OQS provider or liboqs).",
+            "description": f"Replace {key_exchange} with hybrid X25519+ML-KEM-768. Update TLS libraries to support NIST FIPS 203 standards.",
             "effort_days": 14,
             "risk": "High",
-            "tools": ["OpenSSL 3.x + OQS provider", "liboqs", "nginx/haproxy with PQC support"],
+            "tools": ["OpenSSL 3.x + OQS provider", "liboqs"],
         })
-        effort_total += 14
+        migration_efforts.append(14)
 
-    if authentication and not any(authentication.upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in _PQC_AUTH):
-        steps.append({
-            "step": len(steps) + 1,
-            "title": "Migrate Certificate Authentication to ML-DSA (FIPS 204)",
-            "description": f"Replace {authentication} signed certificates with ML-DSA-65 signed certificates. Request PQC certificates from a compatible CA or operate private PQC CA. Plan for hybrid classical+PQC certificates during transition.",
-            "effort_days": 21,
-            "risk": "High",
-            "tools": ["OpenSSL 3.x + OQS", "PQC CA", "cfssl", "EJBCA"],
-        })
-        effort_total += 21
+    # 3. Certificate Migration (High)
+    # We add this if the authentication protocol isn't PQC OR if the leaf/chain flags are false
+    if (authentication and not has_pqc_auth) or not leaf_pqc or not full_chain_pqc:
+        if not leaf_pqc or (authentication and not has_pqc_auth):
+            steps.append({
+                "step": len(steps) + 1,
+                "title": "Migrate Leaf Certificate to ML-DSA (FIPS 204)",
+                "description": f"Re-issue {target_url} identity certificate with ML-DSA-65 or SLH-DSA signatures to protect against CRQC impersonation.",
+                "effort_days": 7,
+                "risk": "High",
+                "tools": ["OpenSSL 3.x + OQS", "PQC CA portal"],
+            })
+            migration_efforts.append(7)
+        
+        if not full_chain_pqc:
+            steps.append({
+                "step": len(steps) + 1,
+                "title": "Migrate Root/Intermediate CA Chain",
+                "description": "Establish a trust anchor using PQC-native CAs. Replace the entire trust path with quantum-safe signatures to ensure full chain validation.",
+                "effort_days": 21,
+                "risk": "High",
+                "tools": ["EJBCA", "cfssl", "PQC Trust Store"],
+            })
+            migration_efforts.append(21)
 
+    # Step Final: Validate & Verify (Required for all)
     steps.append({
         "step": len(steps) + 1,
         "title": "Validate & Verify Post-Migration",
-        "description": "Re-scan with Rakshak after each change. Verify PQC label upgrades. Run full regression testing. Update CBOM. Document changes in asset inventory.",
+        "description": "Final re-scan with Rakshak to verify PQC label upgrades and perform full regression testing.",
         "effort_days": 3,
         "risk": "Low",
         "tools": ["Rakshak", "sslyze", "testssl.sh"],
     })
-    effort_total += 3
+
+    # Calculation: Baseline (1) + Max Migration Effort (Parallel work) + Validation (3)
+    max_migration = max(migration_efforts) if migration_efforts else 0
+    effort_total = 1 + max_migration + 3
 
     # Determine classification rationale
-    _PQC_KEX = ("ML-KEM", "MLKEM", "KYBER")
-    _PQC_AUTH = ("ML-DSA", "MLDSA", "SLH-DSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM")
-    def _is_pqc(s, lst): return s and any(str(s).upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in lst)
-
-    has_pqc_kex  = _is_pqc(key_exchange, _PQC_KEX)
-    has_pqc_auth = _is_pqc(authentication, _PQC_AUTH)
-
-    # For PQC Ready assets — explain why they're not Fully Quantum Safe yet
     rationale_items = []
     if pqc_label == "pqc_ready":
         if has_pqc_kex and not has_pqc_auth:
             rationale_items.append(f"✅ Key Exchange is already quantum-safe ({key_exchange})")
-            rationale_items.append(f"⚠️ Certificate authentication ({authentication or 'unknown'}) is still classical — a CRQC could forge signatures")
-            rationale_items.append("📋 To achieve Fully Quantum Safe: replace the certificate chain with ML-DSA or hybrid classical+PQC certificates")
+            rationale_items.append(f"⚠️ Certificate authentication ({authentication or 'unknown'}) is still classical")
         elif has_pqc_auth and not has_pqc_kex:
             rationale_items.append(f"✅ Certificate authentication is already quantum-safe ({authentication})")
-            rationale_items.append(f"⚠️ Key Exchange ({key_exchange or 'unknown'}) is still classical — vulnerable to HNDL/Shor's algorithm decryption")
-            rationale_items.append("📋 To achieve Fully Quantum Safe: deploy ML-KEM-768 or hybrid X25519+ML-KEM for key exchange")
+            rationale_items.append(f"⚠️ Key Exchange ({key_exchange or 'unknown'}) is still classical")
         elif has_pqc_kex and has_pqc_auth:
             if leaf_pqc:
                 rationale_items.append("✅ Key Exchange and Leaf Certificate are already quantum-safe")
             else:
                 rationale_items.append(f"✅ Key Exchange is already quantum-safe ({key_exchange})")
-                rationale_items.append(f"⚠️ Leaf Certificate signature ({cert_sig_algo or 'classical'}) is still classical — the identity proof is not quantum-safe")
+                rationale_items.append(f"⚠️ Leaf Certificate signature ({cert_sig_algo or 'classical'}) is still classical")
             
             if not full_chain_pqc:
-                rationale_items.append("⚠️ Classical Root/Intermediate CA detected — the full trust chain must be quantum-safe for FQS")
-            
-            rationale_items.append("📋 To achieve Fully Quantum Safe: Ensure all certificates in the chain use ML-DSA or SLH-DSA signatures")
-        else:
-            rationale_items.append("⚠️ One or more cryptographic components contribute to partial PQC compliance")
-            rationale_items.append("📋 Re-scan after each migration step to track progress towards Fully Quantum Safe")
-        if tls_version and "1.3" not in str(tls_version):
-            rationale_items.append(f"⚠️ {tls_version} detected — TLS 1.3 is required for full PQC support with FIPS 203/204 algorithms")
+                rationale_items.append("⚠️ Classical Root/Intermediate CA detected — full trust chain is not yet quantum-safe")
+        
+        rationale_items.append("📋 To achieve Fully Quantum Safe: Complete all pending migration steps below.")
 
     return {
         "target": target_url,
