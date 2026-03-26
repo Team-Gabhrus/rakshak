@@ -1,0 +1,34 @@
+name: Deploy Rakshak to EC2
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: self-hosted
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Deploy to Docker
+        run: |
+          # 1. Build the fresh image
+          docker build -t rakshak-app .
+
+          # 2. Stop and remove the old container (if exists)
+          docker stop rakshak || true
+          docker rm rakshak || true
+
+          # 3. Launch the fresh container with host-mapped database
+          # Ensure the rakshak directory exists on host for the volume
+          mkdir -p rakshak
+          
+          docker run -d \
+            --name rakshak \
+            --restart unless-stopped \
+            -p 80:8000 \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v $(pwd)/rakshak/rakshak.db:/app/rakshak/rakshak.db \
+            rakshak-app
