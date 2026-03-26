@@ -27,3 +27,23 @@ scan_out.txt
 test_scan.py
 badssl_output.txt
 check_badssl.py
+# Hackathon & Confidential files
+*Hackathon*.pdf
+*Hackathon*.md
+*hackathon*
+*PSB*.pdf
+*PSB*.md
+RAKSHAK_Presentation_Content.md
+Rakshak v1.0 SRS (Team Gabrus).pdf
+SRS Team Plan.pdf
+Sample_Idea_Presentation.pdf
+Software Requirement Specification*
+TEAM_PLAN.md
+feature_expectations.md
+implementation_plan.md
+presentation_content.md
+prototype_expectations.pdf
+prototype_testing_checklist.md
+srs-checklist.md
+walkthrough.md
+pqc_server_setup.md
