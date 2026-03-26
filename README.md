@@ -5,7 +5,7 @@
 [![Docker](https://img.shields.io/badge/Docker-OQS_Enabled-2496ED?style=for-the-badge&logo=docker&logoColor=white)](https://hub.docker.com/r/openquantumsafe/curl)
 [![Deployed on Railway](https://img.shields.io/badge/Deployed_on-Railway-0B0D0E?style=for-the-badge&logo=railway&logoColor=white)](https://railway.app/)
 
-> **Built for the PNB CyberSecurity Hackathon 2026 by Team Gabhrus**
+> **Built by Team Gabhrus**
 
 Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform**. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
 
@@ -121,15 +121,6 @@ docker run -p 8000:8000 \
 ```
 
 > **Note:** The `-v /var/run/docker.sock` mount enables the OQS Docker probe to launch `openquantumsafe/curl` containers for PQC detection.
-
----
-
-## 👥 Team Gabhrus
-
-* **Akshat Jiwrajka** — Full-Stack & Security Engineer
-* **Sheersh Nigam** — Backend & ML Engineer
-* **Arunangshu Karmakar** — UI/UX & Frontend Engineer
-* **Simarpreet Singh** — DevOps & Cloud Engineer
 
 ---
 
