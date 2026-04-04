@@ -231,15 +231,66 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             logger.error(f"Failed to push final done progress: {e}")
 
 
+async def _check_reachability(host: str, port: int, timeout: float = 5.0) -> str:
+    """
+    Quick pre-scan reachability check.
+    Returns: 'reachable' | 'intranet_only' | 'dns_failed'
+    - dns_failed:    hostname does not resolve in public DNS
+    - intranet_only: DNS resolves but TCP connection to the target port times out
+    - reachable:     TCP connects (proceed to full scan)
+    """
+    import socket
+    loop = asyncio.get_event_loop()
+
+    # 1. DNS check
+    try:
+        await loop.run_in_executor(None, lambda: socket.getaddrinfo(host, port))
+    except socket.gaierror:
+        return "dns_failed"
+
+    # 2. TCP check — use the target's own port so PQC servers on non-443 ports aren't penalised
+    def _tcp():
+        with socket.create_connection((host, port), timeout=timeout):
+            pass
+    try:
+        await loop.run_in_executor(None, _tcp)
+        return "reachable"
+    except (socket.timeout, TimeoutError, ConnectionRefusedError, OSError):
+        return "intranet_only"
+
+
 async def _scan_single(target: str) -> dict:
     """Run a full scan on one target and return enriched result dict."""
+    from urllib.parse import urlparse
+    parsed = urlparse(target if target.startswith(("http://", "https://")) else f"https://{target}")
+    host = parsed.hostname or target
+    port = parsed.port or 443
+
     tls_result = await tls_scanner.scan_target(target)
 
     if not tls_result.success:
+        # ── Smart failure classification ───────────────────────────────
+        # Don't blindly return 'unknown' — probe DNS + TCP so we can
+        # give a meaningful label (dns_failed / intranet_only / unknown).
+        try:
+            reach = await _check_reachability(host, port)
+        except Exception:
+            reach = "unknown"
+
+        label_map_fail = {
+            "dns_failed":    ("dns_failed",    "🚫 DNS Failed",
+                              "Hostname has no public DNS record. This may be an internal or decommissioned service."),
+            "intranet_only": ("intranet_only", "🔒 Intranet Only",
+                              "Host resolves but port is firewalled. Service is likely only accessible from within the bank's network."),
+            "reachable":     ("unknown",       "⚪ Unknown",
+                              tls_result.error or "Scan error: TLS handshake failed despite TCP connectivity."),
+        }
+        pqc_label, pqc_display, err_msg = label_map_fail.get(reach, label_map_fail["reachable"])
+
         return {
             "target": target,
             "success": False,
-            "error": tls_result.error,
+            "error": err_msg,
             "tls_version": None,
             "supported_tls_versions": [],
             "negotiated_cipher": None,
@@ -249,12 +300,14 @@ async def _scan_single(target: str) -> dict:
             "encryption": None,
             "hashing": None,
             "cert_chain": [],
-            "pqc_label": "unknown",
-            "pqc_details": {"error": tls_result.error},
-            "recommendations": [{"component": "Network", "action": "Target unreachable. Verify URL/IP and ensure port 443 is open.", "priority": "Critical", "effort": "Low"}],
+            "pqc_label": pqc_label,
+            "pqc_label_display": pqc_display,
+            "pqc_details": {"error": err_msg, "reachability": reach},
+            "recommendations": [{"component": "Network", "action": err_msg, "priority": "Informational", "effort": "Low"}],
             "cbom": {},
             "playbook": {},
         }
+
 
     # PQC classification
     pqc_result = pqc_classifier.classify(
@@ -382,6 +435,8 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
         "partially_quantum_safe": PQCLabel.partially_quantum_safe,
         "pqc_ready": PQCLabel.pqc_ready,
         "fully_quantum_safe": PQCLabel.fully_quantum_safe,
+        "intranet_only": PQCLabel.intranet_only,
+        "dns_failed": PQCLabel.dns_failed,
     }
     risk_map = {
         "critical": RiskLevel.critical,
@@ -471,6 +526,8 @@ async def recompute_cyber_rating(db: AsyncSession):
         "partially_quantum_safe": labels.count("partially_quantum_safe"),
         "not_quantum_safe": labels.count("not_quantum_safe"),
         "unknown": labels.count("unknown"),
+        "intranet_only": labels.count("intranet_only"),
+        "dns_failed": labels.count("dns_failed"),
     }
 
     rating = rating_engine.compute_enterprise_score(counts)

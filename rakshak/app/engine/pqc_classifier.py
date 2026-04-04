@@ -109,6 +109,8 @@ LABEL_DISPLAY = {
     "pqc_ready":        "🔵 PQC Ready",
     "fully_quantum_safe": "🟢 Fully Quantum Safe",
     "unknown":          "⚪ Unknown",
+    "intranet_only":    "🔒 Intranet Only",
+    "dns_failed":       "🚫 DNS Failed",
 }
 
 

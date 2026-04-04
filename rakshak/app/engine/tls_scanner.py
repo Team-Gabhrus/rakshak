@@ -363,7 +363,12 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
 
         for server_scan_result in scanner.get_results():
             if server_scan_result.scan_result is None:
-                result.error = "Scan failed: no result"
+                # connectivity_error_trace (sslyze ≥6) or connectivity_error (older) — use getattr to be safe
+                conn_err = (
+                    getattr(server_scan_result, "connectivity_error_trace", None)
+                    or getattr(server_scan_result, "connectivity_error", None)
+                )
+                result.error = f"Scan failed: {type(conn_err).__name__}: {conn_err}" if conn_err else "Scan failed: no result"
                 break  # Don't return — fall through to OQS Docker enrichment
 
             scan_res = server_scan_result.scan_result

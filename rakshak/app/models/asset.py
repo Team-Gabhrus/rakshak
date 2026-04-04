@@ -26,6 +26,8 @@ class PQCLabel(str, enum.Enum):
     pqc_ready = "pqc_ready"
     fully_quantum_safe = "fully_quantum_safe"
     unknown = "unknown"
+    intranet_only = "intranet_only"   # DNS resolves but port is firewalled / intranet-only
+    dns_failed = "dns_failed"         # Hostname does not resolve in public DNS
 
 
 class DiscoveryStatus(str, enum.Enum):

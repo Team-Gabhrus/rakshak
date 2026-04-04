@@ -1,6 +1,6 @@
 """Assets router — FR-31 through FR-36, FR-37 through FR-40."""
 import json
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -228,7 +228,36 @@ async def trigger_discovery(
             count += 1
 
     await db.commit()
-    return {"message": f"Discovery triggered, found {count} new items for {len(assets)} known assets"}
+
+    # --- Subdomain discovery using passive OSINT ---
+    # Extract unique root domains from known assets and discover subdomains
+    unique_domains: set[str] = set()
+    for asset in assets:
+        if not asset.url:
+            continue
+        hostname = asset.url.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+        # Build root domain: take last two (or three for .co.in, .bank.in etc.) labels
+        parts = hostname.split(".")
+        if len(parts) >= 3:
+            unique_domains.add(".".join(parts[-3:]))  # e.g. manipurrural.bank.in
+        elif len(parts) == 2:
+            unique_domains.add(hostname)
+
+    subdomain_summary = []
+    if unique_domains:
+        from app.services.subdomain_service import discover_subdomains
+        for domain in list(unique_domains)[:5]:  # cap at 5 root domains per run
+            try:
+                summary = await discover_subdomains(domain, db)
+                subdomain_summary.append(summary)
+                count += summary.get("new_records", 0)
+            except Exception as e:
+                subdomain_summary.append({"domain": domain, "error": str(e)})
+
+    return {
+        "message": f"Discovery triggered, found {count} new items for {len(assets)} known assets",
+        "subdomain_discovery": subdomain_summary,
+    }
 
 
 @router.get("/metrics")
@@ -264,6 +293,26 @@ async def asset_metrics(
         "total": total, "web_apps": web_apps, "apis": apis, "vpns": vpns, "servers": servers,
         "risk_breakdown": risk_breakdown, "label_breakdown": label_breakdown,
     }
+
+
+@router.post("/discover/subdomains")
+async def discover_subdomains_endpoint(
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+    domain: str = Query(..., description="Root domain to scan, e.g. manipurrural.bank.in"),
+):
+    """
+    Run passive subdomain OSINT for a specific root domain.
+    Discovered subdomains are DNS-verified and saved to AssetDiscovery.
+    Live subdomains are tagged 'new'; cert ghosts tagged 'false_positive'.
+    """
+    from app.services.subdomain_service import discover_subdomains
+    try:
+        result = await discover_subdomains(domain, db)
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Subdomain discovery failed: {e}")
 
 
 @router.get("/discovery")

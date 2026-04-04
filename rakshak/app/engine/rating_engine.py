@@ -12,6 +12,8 @@ LABEL_SCORE = {
     "partially_quantum_safe": 400,
     "not_quantum_safe": 100,
     "unknown": 200,
+    "intranet_only": 150,  # Exists but unreachable from internet — assume classical until proven otherwise
+    "dns_failed": 0,       # Hostname doesn't exist publicly
 }
 
 # FR-49: Compliance Matrix — Tier definitions
@@ -112,5 +114,7 @@ def get_risk_level_from_label(label: str) -> str:
         "partially_quantum_safe": "high",
         "not_quantum_safe": "critical",
         "unknown": "unknown",
+        "intranet_only": "unknown",  # Cannot assess without network access
+        "dns_failed": "unknown",     # Host doesn't exist
     }
     return mapping.get(label, "unknown")

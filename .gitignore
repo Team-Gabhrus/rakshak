@@ -51,3 +51,8 @@ rakshak/rakshak.db
 *.db
 rakshak/rakshak.db
 *.db
+debug_manipur_fast.py
+debug_manipur_simple.py
+debug_manipur.py
+diag_results.md
+diag_results.txt
