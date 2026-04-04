@@ -23,3 +23,5 @@ class User(Base):
     last_login: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     password_reset_token: Mapped[str | None] = mapped_column(String(255), nullable=True)
     active_session_token: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    otp_code: Mapped[str | None] = mapped_column(String(6), nullable=True)
+    otp_expiry: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

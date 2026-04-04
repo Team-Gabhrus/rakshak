@@ -21,3 +21,12 @@ async def init_db():
     from app.models import user, asset, scan, cbom, report, audit, webhook  # noqa
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+    
+    # Hackathon-friendly alter table to add OTP columns without migration tools
+    from sqlalchemy import text
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE users ADD COLUMN otp_code VARCHAR(6)"))
+            await conn.execute(text("ALTER TABLE users ADD COLUMN otp_expiry DATETIME"))
+    except Exception:
+        pass # Columns already exist
