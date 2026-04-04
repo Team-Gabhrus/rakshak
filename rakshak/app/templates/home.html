@@ -100,6 +100,7 @@
       <table class="rk-table">
         <thead><tr>
           <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAllScans" onclick="toggleAllScans(this.checked)"></th>
+          <th style="width: 40px;"></th> <!-- Expand arrow -->
           <th>Scan ID</th><th>Status</th><th>Targets</th><th>Completed</th><th>Progress</th><th>Started</th>
         </tr></thead>
         <tbody id="scanBody"><tr><td colspan="7" class="text-muted text-center py-3">Loading…</td></tr></tbody>
@@ -119,6 +120,12 @@
       <div class="modal-body">
         <label class="rk-form-label">Targets <span class="text-muted fs-12">(one per line — URL, IP, or CIDR)</span></label>
         <textarea class="rk-form-control" id="scanTargets" rows="6" placeholder="https://example.com&#10;192.168.1.1&#10;10.0.0.0/24"></textarea>
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" id="scanIncludeSubdomains">
+          <label class="form-check-label fs-13 text-muted" for="scanIncludeSubdomains">
+            Discover and include live subdomains automatically
+          </label>
+        </div>
         <div id="scanProgress" class="mt-3 d-none">
           <div class="d-flex justify-content-between fs-12 text-muted mb-1">
             <span id="scanMsg">Initializing…</span>
@@ -242,13 +249,65 @@ async function loadScans() {
   tbody.innerHTML = scans.slice(0,8).map(s => `
     <tr>
       <td><input type="checkbox" class="form-check-input scan-checkbox" value="${s.id}" onchange="updateSelectAllScans()"></td>
+      <td>
+        <button class="btn btn-sm text-muted p-0 border-0" onclick="toggleScanDetails(${s.id}, this)">
+          <i class="bi bi-chevron-right transition-transform" id="scan-chevron-${s.id}"></i>
+        </button>
+      </td>
       <td><code>#${s.id}</code></td>
       <td><span class="badge ${s.status==='completed'?'bg-success':s.status==='running'?'bg-warning text-dark':s.status==='failed'?'bg-danger':'bg-secondary'}">${s.status}</span></td>
       <td>${s.target_count}</td>
       <td>${s.completed_count}</td>
       <td><div class="rk-progress" style="width:80px"><div class="rk-progress-bar" style="width:${s.progress_pct||0}%"></div></div></td>
       <td class="text-muted">${fmtDateTime(s.started_at)}</td>
+    </tr>
+    <tr id="scan-details-${s.id}" style="display:none; background:var(--rk-bg);">
+      <td colspan="8" class="p-3">
+        <div class="d-flex align-items-center justify-content-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
+      </td>
     </tr>`).join('');
+}
+
+async function toggleScanDetails(scanId, btn) {
+  const detailsRow = document.getElementById(`scan-details-${scanId}`);
+  const chevron = document.getElementById(`scan-chevron-${scanId}`);
+  if (detailsRow.style.display === 'none') {
+    detailsRow.style.display = 'table-row';
+    chevron.classList.replace('bi-chevron-right', 'bi-chevron-down');
+    
+    // Fetch details
+    const res = await API.get(`/api/scan/${scanId}/details`);
+    if (res && res.ok) {
+      const data = await res.json();
+      const cell = detailsRow.querySelector('td');
+      
+      let html = `<div class="fs-13"><strong>Breakdown for Scan #${data.scan_id}</strong><div class="row mt-2">`;
+      
+      if (data.status === 'running') {
+        html += `<div class="col-12 text-muted mb-2"><i class="bi bi-activity text-warning me-1"></i> Scan is currently running for ${data.total_targets} total targets...</div>`;
+      }
+      
+      if (data.failed.length > 0) {
+        html += `<div class="col-md-6 mb-2"><div class="text-danger fw-bold mb-1"><i class="bi bi-x-circle me-1"></i> Failed (${data.failed.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.failed.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+      }
+      if (data.succeeded.length > 0) {
+        html += `<div class="col-md-6 mb-2"><div class="text-success fw-bold mb-1"><i class="bi bi-check-circle me-1"></i> Succeeded (${data.succeeded.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.succeeded.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+      }
+      if (data.running.length > 0 && data.status !== 'completed') {
+        html += `<div class="col-md-6 mb-2"><div class="text-warning fw-bold mb-1"><i class="bi bi-hourglass-split me-1"></i> Pending/Running (${data.running.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.running.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+      }
+      html += `</div></div>`;
+      cell.innerHTML = html;
+    } else {
+      detailsRow.querySelector('td').innerHTML = `<div class="text-danger fs-14">Failed to load details.</div>`;
+    }
+  } else {
+    detailsRow.style.display = 'none';
+    chevron.classList.replace('bi-chevron-down', 'bi-chevron-right');
+  }
 }
 
 function triggerScan() { new bootstrap.Modal(document.getElementById('scanModal')).show(); }
@@ -263,7 +322,13 @@ async function startScan() {
   progressEl.classList.remove('d-none');
   document.querySelector('.rk-progress').classList.add('scanning');
 
-  const res = await API.post('/api/scan', { targets });
+  const payload = { targets };
+  if (document.getElementById('scanIncludeSubdomains').checked) {
+      payload.discover_subdomains = true;
+      document.getElementById('scanMsg').textContent = 'Discovering subdomains...';
+  }
+
+  const res = await API.post('/api/scan', payload);
   if (!res) return;
   const data = await res.json();
   if (!res.ok) { showToast(data.detail?.message || 'Scan failed', 'danger'); return; }

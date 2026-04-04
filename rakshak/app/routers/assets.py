@@ -21,6 +21,7 @@ class AddAssetRequest(BaseModel):
     ipv6: Optional[str] = None
     asset_type: str = "web_app"
     owner: Optional[str] = None
+    include_subdomains: bool = False
 
 
 @router.get("")
@@ -108,6 +109,14 @@ async def add_asset(
     db.add(asset)
     await db.commit()
     await db.refresh(asset)
+    
+    if req.include_subdomains:
+        from app.services.subdomain_service import discover_subdomains
+        from urllib.parse import urlparse
+        parsed = urlparse(req.url if "://" in req.url else f"https://{req.url}")
+        root_domain = parsed.netloc or parsed.path
+        await discover_subdomains(root_domain, db)
+        
     return _asset_dict(asset)
 
 
@@ -322,6 +331,7 @@ async def discover_subdomains_endpoint(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
     domain: str = Query(..., description="Root domain to scan, e.g. manipurrural.bank.in"),
+    auto_scan: bool = Query(False, description="Automatically submit live subdomains to vulnerability scanner"),
 ):
     """
     Run passive subdomain OSINT for a specific root domain.
@@ -331,6 +341,26 @@ async def discover_subdomains_endpoint(
     from app.services.subdomain_service import discover_subdomains
     try:
         result = await discover_subdomains(domain, db)
+        
+        if auto_scan and result.get("live_hosts"):
+            from app.services.scan_service import validate_targets, run_scan
+            from app.models.scan import Scan
+            from app.config import settings
+            import json
+            
+            valid_targets, _ = validate_targets(result["live_hosts"])
+            if valid_targets:
+                scan = Scan(
+                    targets_json=json.dumps(valid_targets),
+                    target_count=len(valid_targets),
+                    created_by=current_user.id,
+                )
+                db.add(scan)
+                await db.commit()
+                await db.refresh(scan)
+                background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
+                result["triggered_scan_id"] = scan.id
+                
         return result
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Subdomain discovery failed: {e}")

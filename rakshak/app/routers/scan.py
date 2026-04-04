@@ -20,6 +20,7 @@ router = APIRouter(prefix="/api/scan", tags=["scan"])
 
 class ScanRequest(BaseModel):
     targets: list[str]
+    discover_subdomains: bool = False
 
 
 @router.post("")
@@ -30,7 +31,21 @@ async def submit_scan(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
 ):
-    valid_targets, errors = validate_targets(req.targets)
+    all_targets = req.targets.copy()
+    if req.discover_subdomains:
+        from app.services.subdomain_service import discover_subdomains
+        from urllib.parse import urlparse
+        for t in req.targets:
+            parsed = urlparse(t if "://" in t else f"https://{t}")
+            root_domain = parsed.netloc or parsed.path
+            try:
+                res = await discover_subdomains(root_domain, db)
+                if "live_hosts" in res and res["live_hosts"]:
+                    all_targets.extend(res["live_hosts"])
+            except Exception as e:
+                print(f"Error discovering subdomains for {t}: {e}")
+                
+    valid_targets, errors = validate_targets(list({t for t in all_targets if t}))
 
     if not valid_targets:
         raise HTTPException(status_code=422, detail={"message": "No valid targets provided", "errors": errors})
@@ -148,7 +163,40 @@ async def get_scan_results(
             "recommendations": json.loads(r.recommendations_json) if r.recommendations_json else [],
             "scanned_at": r.scanned_at,
         })
-    return {"scan_id": scan_id, "results": results}
+        
+    return results
+
+
+@router.get("/{scan_id}/details")
+async def get_scan_details(
+    scan_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """Retrieve detailed target breakdown for an active or completed scan."""
+    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+    scan = result.scalar_one_or_none()
+    if not scan:
+        raise HTTPException(status_code=404, detail="Scan not found")
+        
+    targets = json.loads(scan.targets_json) if scan.targets_json else []
+    
+    res_query = await db.execute(select(ScanResult).where(ScanResult.scan_id == scan_id))
+    rows = res_query.scalars().all()
+    
+    completed_targets = {r.target_url for r in rows if r.status == "completed"}
+    failed_targets = {r.target_url for r in rows if r.status == "failed"}
+    
+    running_targets = [t for t in targets if t not in completed_targets and t not in failed_targets]
+    
+    return {
+        "scan_id": scan_id,
+        "status": scan.status.value,
+        "total_targets": len(targets),
+        "succeeded": sorted(list(completed_targets)),
+        "failed": sorted(list(failed_targets)),
+        "running": sorted(running_targets)
+    }
 
 
 @router.delete("/{scan_id}")

@@ -103,6 +103,10 @@
           <select class="rk-form-control" id="newType"><option>web_app</option><option>api</option><option>vpn</option><option>server</option></select>
         </div>
         <div class="mb-3"><label class="rk-form-label">Owner</label><input class="rk-form-control" id="newOwner" placeholder="IT Security Team"></div>
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" id="newSubdomains">
+          <label class="form-check-label fs-13 text-muted">Automatically discover and add subdomains</label>
+        </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
         <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
@@ -203,23 +207,54 @@ async function loadAssets(page=1) {
   const d = await res.json();
   const tbody = document.getElementById('assetBody');
   if (!d.assets?.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>'; document.getElementById('selectAllAssets').checked = false; return; }
-  tbody.innerHTML = d.assets.map(a => `
-    <tr>
-      <td><input type="checkbox" class="form-check-input asset-checkbox" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
-      <td><strong>${a.name||'—'}</strong></td>
-      <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
-      <td class="text-muted fs-12">${a.ipv4||'—'}</td>
-      <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
-      <td class="text-muted fs-12">${a.owner||'—'}</td>
-      <td>${riskBadge(a.risk_level)}</td>
-      <td>${pqcBadge(a.pqc_label)}</td>
-      <td class="text-muted fs-12">${a.tls_version||'—'}</td>
-      <td class="text-muted fs-12">${a.key_length ? a.key_length+'b' : '—'}</td>
-      <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
-      <td class="text-end admin-only">
-        <button class="btn btn-sm text-danger px-1" title="Delete Asset" onclick="deleteAsset(${a.id})"><i class="bi bi-trash"></i></button>
-      </td>
-    </tr>`).join('');
+
+  // Group by root domain
+  const groups = {};
+  d.assets.forEach(a => {
+    const parts = (a.url || '').replace(/^https?:\/\//,'').split('/')[0].split('.');
+    const root = parts.length > 2 ? parts.slice(-2).join('.') : (parts.join('.') || a.url);
+    if (!groups[root]) groups[root] = [];
+    groups[root].push(a);
+  });
+
+  let html = '';
+  let gId = 0;
+  for (const [root, assets] of Object.entries(groups)) {
+    gId++;
+    if (assets.length > 1) {
+        html += `
+        <tr style="background:var(--rk-surface)">
+          <td><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.asset-checkbox-${gId}').forEach(cb=>cb.checked=this.checked); updateSelectAll();"></td>
+          <td><strong>${root}</strong> <span class="badge bg-secondary ms-1">${assets.length} hosts</span></td>
+          <td colspan="10"></td>
+        </tr>`;
+    }
+    
+    html += assets.map(a => {
+      const isGrouped = assets.length > 1;
+      const rowStyle = isGrouped ? 'style="background:rgba(255,255,255,0.01)"' : '';
+      const prefix = isGrouped ? '<span class="text-muted me-2">↳</span>' : '';
+      
+      return `<tr ${rowStyle}>
+        <td><input type="checkbox" class="form-check-input asset-checkbox ${isGrouped?'asset-checkbox-'+gId:''}" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
+        <td style="${isGrouped?'padding-left:1.5rem':''}">${prefix}<strong>${a.name||'—'}</strong></td>
+        <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
+        <td class="text-muted fs-12">${a.ipv4||'—'}</td>
+        <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
+        <td class="text-muted fs-12">${a.owner||'—'}</td>
+        <td>${riskBadge(a.risk_level)}</td>
+        <td>${pqcBadge(a.pqc_label)}</td>
+        <td class="text-muted fs-12">${a.tls_version||'—'}</td>
+        <td class="text-muted fs-12">${a.key_length ? a.key_length+'b' : '—'}</td>
+        <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
+        <td class="text-end admin-only">
+          <button class="btn btn-sm text-danger px-1" title="Delete Asset" onclick="deleteAsset(${a.id})"><i class="bi bi-trash"></i></button>
+        </td>
+      </tr>`;
+    }).join('');
+  }
+  
+  tbody.innerHTML = html;
   document.getElementById('assetCount').textContent = `Showing ${d.assets.length} of ${d.total} assets`;
   const totalPages = Math.ceil(d.total/10);
   renderPagination('assetPagination', currentPage, totalPages, 'loadAssets');
@@ -263,6 +298,7 @@ async function addAsset() {
     ipv4: document.getElementById('newIp').value || null,
     asset_type: document.getElementById('newType').value,
     owner: document.getElementById('newOwner').value || null,
+    include_subdomains: document.getElementById('newSubdomains').checked,
   });
   if (res?.ok) { showToast('Asset added!','success'); bootstrap.Modal.getInstance(document.getElementById('addAssetModal')).hide(); loadAssets(); loadMetrics(); }
   else { const d = await res.json(); showToast(d.detail||'Error adding asset','danger'); }

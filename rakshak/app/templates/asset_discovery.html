@@ -8,6 +8,34 @@
   </div>
 
   <!-- Category tabs — FR-37 -->
+  <div class="rk-card mb-4">    <div class="d-flex align-items-center gap-2">
+      <span class="fs-13 text-muted me-2">Filter:</span>
+      <div class="form-check me-2 d-none d-md-block" id="liveTargetsFilterContainer" style="display:none !important">
+        <input class="form-check-input" type="checkbox" id="liveTargetsOnly" onchange="loadDiscoveries()">
+        <label class="form-check-label fs-13 text-muted">Live Targets Only</label>
+      </div>
+      <button class="rk-btn rk-btn-sm rk-btn-primary" id="fAll" onclick="setFilter('', this)">All</button>
+      <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew" onclick="setFilter('new', this)">New</button>
+      <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf" onclick="setFilter('confirmed', this)">Confirmed</button>
+      <button class="rk-btn rk-btn-sm rk-btn-outline" id="fIgn" onclick="setFilter('false_positive', this)">Ignored</button>
+    </div>
+  </div>
+
+  <div class="d-flex align-items-center justify-content-between mb-3">
+    <div class="d-flex align-items-center gap-3">
+      <div class="rk-input-group" style="width: 250px;">
+        <i class="bi bi-search"></i>
+        <input type="text" class="rk-input" id="discSearch" placeholder="Search discoveries..." onkeyup="filterDiscTable()">
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedDiscoveries()"><i class="bi bi-trash"></i> Delete Selected</button>
+      <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="scanSelectedDiscoveries()"><i class="bi bi-play-fill text-success"></i> Scan Selected</button>
+      <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="triggerDiscover()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+      <a href="/asset-inventory" class="rk-btn rk-btn-sm rk-btn-outline">View Inventory</a>
+    </div>
+  </div>
+
   <div class="rk-card mb-4">
     <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
       <div class="rk-tabs" id="discTabs">
@@ -18,12 +46,6 @@
       </div>
       <!-- Status filter — FR-38 -->
       <div class="d-flex gap-2">
-        <button class="rk-btn rk-btn-sm rk-btn-primary" id="fAll"   onclick="setFilter('',this)">All</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew"   onclick="setFilter('new',this)">New</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf"  onclick="setFilter('confirmed',this)">Confirmed</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline" id="fFP"    onclick="setFilter('false_positive',this)">Ignored</button>
-        <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedDiscoveries()"><i class="bi bi-trash"></i> Delete Selected</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="triggerDiscover()"><i class="bi bi-radar"></i> Discover</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button>
       </div>
     </div>
@@ -75,6 +97,10 @@
     <div class="mb-3">
       <label class="fs-12 text-muted mb-1 d-block">Root Domain</label>
       <input id="subdomainInput" type="text" class="rk-input" placeholder="e.g. manipurrural.bank.in" style="width:100%" />
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="subdomainAutoScan">
+        <label class="form-check-label fs-13 text-muted">Automatically run vulnerability scan on live results</label>
+      </div>
     </div>
     <div class="d-flex gap-2 justify-content-end">
       <button class="rk-btn rk-btn-outline rk-btn-sm" onclick="closeSubdomainModal()">Cancel</button>
@@ -100,11 +126,15 @@ const HEADERS = {
   software:   ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','Status','Version','Product / Vendor','Discovered','Actions'],
 };
 
+let groupedDiscData = [];
+
 function switchTab(cat, btn) {
   currentCategory = cat;
   discCurrentPage = 1;
   document.querySelectorAll('#discTabs .rk-tab').forEach(t=>t.classList.remove('active'));
   btn.classList.add('active');
+  const dFilter = document.getElementById('liveTargetsFilterContainer');
+  if (dFilter) dFilter.style.display = (cat === 'domain') ? 'block' : 'none';
   loadDiscoveries();
 }
 
@@ -122,34 +152,78 @@ async function loadDiscoveries() {
   const res = await API.get(url);
   if (!res) return;
   discData = await res.json();
+  
+  const liveOnly = document.getElementById('liveTargetsOnly');
+  if (currentCategory === 'domain' && liveOnly && liveOnly.checked) {
+    discData = discData.filter(d => d.metadata && d.metadata.dns_status === 'live');
+  }
 
   const headers = HEADERS[currentCategory];
   document.getElementById('discHeader').innerHTML = headers.map(h=>`<th>${h}</th>`).join('');
   
+  if (currentCategory === 'domain') {
+    // Group by root domain
+    const groups = {};
+    discData.forEach(item => {
+      const parts = (item.value || '').split('.');
+      const root = parts.length > 2 ? parts.slice(-2).join('.') : item.value;
+      if (!groups[root]) groups[root] = [];
+      groups[root].push(item);
+    });
+    // Flatten grouped
+    groupedDiscData = [];
+    for (const [root, items] of Object.entries(groups)) {
+      groupedDiscData.push({ isGroup: true, root, count: items.length });
+      items.forEach(i => groupedDiscData.push({ ...i, groupRoot: root }));
+    }
+  } else {
+    groupedDiscData = discData;
+  }
+  
+  // Re-calculate totals based on group collapsing
   renderDiscPage();
   renderTopology(discData);
+}
+
+function toggleGroupCheck(root, checked) {
+  document.querySelectorAll(`.disc-checkbox[data-root="${root}"]`).forEach(cb => cb.checked = checked);
+  updateSelectAllDisc();
 }
 
 function renderDiscPage() {
   const tbody = document.getElementById('discBody');
   const headers = HEADERS[currentCategory];
 
-  if (!discData.length) { 
+  const dataSource = (currentCategory === 'domain') ? groupedDiscData : discData;
+
+  if (!dataSource.length) { 
     tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`; 
     document.getElementById('discPagination').classList.add('d-none');
     return; 
   }
 
-  const totalPages = Math.ceil(discData.length / discPageSize);
+  const totalPages = Math.ceil(dataSource.length / discPageSize);
   if (discCurrentPage < 1) discCurrentPage = 1;
   if (discCurrentPage > totalPages) discCurrentPage = totalPages;
 
   const start = (discCurrentPage - 1) * discPageSize;
   const end = start + discPageSize;
-  const pageData = discData.slice(start, end);
+  const pageData = dataSource.slice(start, end);
 
+  let html = '';
   const statusBadge = {new:'badge bg-info text-dark',confirmed:'badge bg-success',false_positive:'badge bg-secondary'};
-  tbody.innerHTML = pageData.map(item => {
+  
+  pageData.forEach((item, index) => {
+    if (item.isGroup) {
+      html += `
+      <tr style="background:var(--rk-surface)">
+        <td><input type="checkbox" class="form-check-input" onclick="toggleGroupCheck('${item.root}', this.checked)"></td>
+        <td><strong>${item.root}</strong> <span class="badge bg-secondary ms-1">${item.count} items</span></td>
+        <td colspan="${headers.length - 2}"></td>
+      </tr>`;
+      return;
+    }
+  
     const meta = item.metadata || {};
     let extraCols = '';
     if (currentCategory === 'domain') {
@@ -169,9 +243,13 @@ function renderDiscPage() {
     if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.ip_location||'—'}</td><td class="text-muted fs-12">${meta.subnets||'—'}</td><td class="text-muted fs-12">${meta.netnames||'—'}</td>`;
     if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.product||'—'}</td>`;
     
-    return `<tr>
-      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" onchange="updateSelectAllDisc()"></td>
-      <td><strong>${item.name||'—'}</strong></td>
+    // Slight indent for grouped rows
+    const rowStyle = (currentCategory === 'domain') ? 'style="background:rgba(255,255,255,0.01)"' : '';
+    const prefix = (currentCategory === 'domain') ? '<span class="text-muted me-2">↳</span>' : '';
+
+    html += `<tr ${rowStyle}>
+      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} onchange="updateSelectAllDisc()"></td>
+      <td style="${currentCategory==='domain'?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
       ${extraCols}
@@ -180,7 +258,9 @@ function renderDiscPage() {
         ${item.status==='new'?`<div class="admin-only d-inline-block"><button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.1);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button></div>`:''}
       </td>
     </tr>`;
-  }).join('');
+  });
+  
+  tbody.innerHTML = html;
 
   if (totalPages > 1) {
     document.getElementById('discPagination').classList.remove('d-none');
@@ -269,18 +349,9 @@ function closeSubdomainModal() {
 
 async function runSubdomainScan() {
   const domain = document.getElementById('subdomainInput').value.trim();
-  if (!domain) { showToast('Please enter a domain','error'); return; }
+  const autoScan = document.getElementById('subdomainAutoScan').checked;
+  if (!domain) return;
   const btn = document.getElementById('subdomainScanBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
-  const resultEl = document.getElementById('subdomainResult');
-  resultEl.style.display = 'none';
-  try {
-    const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
-    if (res?.ok) {
-      const data = await res.json();
-      let hostsHtml = '';
-      if (data.live_hosts && data.live_hosts.length > 0) {
-        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
           data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
           '</div>';
       }
