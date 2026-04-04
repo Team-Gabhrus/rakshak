@@ -23,7 +23,10 @@ jobs:
 
           # 3. Launch the fresh container with host-mapped database
           # Ensure the rakshak directory exists on host for the volume
-          mkdir -p rakshak
+          mkdir -p /home/ubuntu/psb-cyber-26/rakshak
+          
+          # Create an empty .env file if it doesn't exist so Docker doesn't crash
+          touch /home/ubuntu/psb-cyber-26/rakshak/.env
           
           docker run -d \
             --name rakshak \
@@ -31,5 +34,6 @@ jobs:
             -p 80:8000 \
             -v /var/run/docker.sock:/var/run/docker.sock \
             -v /home/ubuntu/psb-cyber-26/rakshak:/data \
+            --env-file /home/ubuntu/psb-cyber-26/rakshak/.env \
             -e DATABASE_URL="sqlite+aiosqlite:////data/rakshak.db" \
             rakshak-app
