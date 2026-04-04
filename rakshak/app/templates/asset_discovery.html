@@ -166,7 +166,11 @@ async function loadDiscoveries() {
     const groups = {};
     discData.forEach(item => {
       const parts = (item.value || '').split('.');
-      const root = parts.length > 2 ? parts.slice(-2).join('.') : item.value;
+      let root = item.value;
+      if (parts.length > 2) {
+        const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(parts.slice(-2).join('.'));
+        root = isTwoPartTLD ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
+      }
       if (!groups[root]) groups[root] = [];
       groups[root].push(item);
     });
@@ -211,14 +215,23 @@ function renderDiscPage() {
   const pageData = dataSource.slice(start, end);
 
   let html = '';
+  let groupIndex = 0;
   const statusBadge = {new:'badge bg-info text-dark',confirmed:'badge bg-success',false_positive:'badge bg-secondary'};
   
   pageData.forEach((item, index) => {
     if (item.isGroup) {
+      groupIndex++;
+      const safeRoot = item.root.replace(/[^a-zA-Z0-9_-]/g, '-');
       html += `
       <tr style="background:var(--rk-surface)">
         <td><input type="checkbox" class="form-check-input" onclick="toggleGroupCheck('${item.root}', this.checked)"></td>
-        <td><strong>${item.root}</strong> <span class="badge bg-secondary ms-1">${item.count} items</span></td>
+        <td>
+           <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.disc-row-${safeRoot}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
+             <i class="bi bi-chevron-down"></i>
+           </button>
+           <strong>${item.root}</strong> 
+           <span class="badge bg-secondary ms-1">${item.count} items</span>
+        </td>
         <td colspan="${headers.length - 2}"></td>
       </tr>`;
       return;
@@ -246,8 +259,9 @@ function renderDiscPage() {
     // Slight indent for grouped rows
     const rowStyle = (currentCategory === 'domain') ? 'style="background:rgba(255,255,255,0.01)"' : '';
     const prefix = (currentCategory === 'domain') ? '<span class="text-muted me-2">↳</span>' : '';
+    const safeExtRoot = (item.groupRoot||'').replace(/[^a-zA-Z0-9_-]/g, '-');
 
-    html += `<tr ${rowStyle}>
+    html += `<tr ${rowStyle} class="${currentCategory==='domain'?'disc-row-'+safeExtRoot:''}">
       <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} onchange="updateSelectAllDisc()"></td>
       <td style="${currentCategory==='domain'?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
