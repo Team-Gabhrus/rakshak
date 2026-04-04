@@ -128,6 +128,27 @@ async def delete_asset(
     return {"message": "Asset deleted successfully", "id": asset_id}
 
 
+class BulkDeleteRequest(BaseModel):
+    asset_ids: list[int]
+
+@router.post("/bulk-delete")
+async def bulk_delete_assets(
+    req: BulkDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Delete multiple assets at once."""
+    if not req.asset_ids:
+        return {"message": "No assets provided", "deleted": 0}
+        
+    from sqlalchemy import delete
+    from app.models.asset import Asset
+    result = await db.execute(delete(Asset).where(Asset.id.in_(req.asset_ids)))
+    await db.commit()
+    
+    return {"message": f"Successfully deleted {result.rowcount} assets", "deleted": result.rowcount}
+
+
 @router.post("/discover")
 async def trigger_discovery(
     db: AsyncSession = Depends(get_db),

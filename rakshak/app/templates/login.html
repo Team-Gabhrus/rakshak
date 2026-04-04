@@ -307,7 +307,10 @@ async function submitForgot() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email})
     });
-    alert('If that email exists, a reset link has been sent.');
+    
+    document.getElementById('loginError').textContent = 'If that email exists, a reset link has been sent.';
+    document.getElementById('loginError').className = 'alert alert-success py-2 fs-12';
+    document.getElementById('loginError').classList.remove('d-none');
     showLogin();
 }
 </script>

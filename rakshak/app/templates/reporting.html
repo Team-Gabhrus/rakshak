@@ -214,7 +214,8 @@ async function scheduleReport() {
 }
 
 async function deleteReport(id) {
-  if (!confirm("Are you sure you want to completely delete this report?")) return;
+  const confirmed = await rkConfirm("Are you sure you want to completely delete this report?", "Delete Report", true);
+  if (!confirmed) return;
   const res = await API.delete(`/api/reports/${id}`);
   if (res?.ok) {
     showToast('Report deleted successfully', 'success');
