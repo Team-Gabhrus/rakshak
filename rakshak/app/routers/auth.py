@@ -16,6 +16,11 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class OTPVerifyRequest(BaseModel):
+    username: str
+    otp: str
+
+
 class ForgotPasswordRequest(BaseModel):
     email: str
 
@@ -25,6 +30,72 @@ async def login(req: LoginRequest, response: Response, request: Request, db: Asy
     user = await auth_service.authenticate_user(db, req.username, req.password)
     if not user:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid email or password")
+
+    import random
+    from datetime import datetime, timedelta
+    from app.services.email_service import send_report_email
+    import asyncio
+    import logging
+
+    if user.username in ("admin", "checker"):
+        token = auth_service.create_access_token({"sub": str(user.id), "role": user.role.value})
+        user.active_session_token = token
+        user.last_login = datetime.utcnow()
+        await db.commit()
+        
+        real_ip = request.headers.get("X-Forwarded-For", request.headers.get("X-Real-IP", request.client.host if request.client else "Unknown")).split(",")[0].strip()
+        user_agent = request.headers.get("User-Agent", "Unknown Device")
+        location = "Local"
+        # Can easily extract identical IP lookup from verify-otp into a util if needed, 
+        # but for hackathon simple log is sufficient here for bypassed accounts.
+        details = f"Browser: {user_agent} | Location: {location} (Bypass 2FA)"
+        await log_event(db, "user_login", details, user.id, user.username, real_ip)
+        
+        return {"access_token": token, "token_type": "bearer", "role": user.role.value, "username": user.username, "require_otp": False}
+
+    otp = str(random.randint(100000, 999999))
+    user.otp_code = otp
+    user.otp_expiry = datetime.utcnow() + timedelta(minutes=5)
+    await db.commit()
+
+    email_body = f"Hello {user.username},\n\nYour 6-digit OTP for login is: {otp}\n\nIt expires in 5 minutes.\n\nIf you did not attempt to log in, please secure your account.\n\n— Rakshak Admin"
+    try:
+        asyncio.create_task(send_report_email(
+            to_email=user.email,
+            subject="Your Rakshak Login OTP",
+            body=email_body
+        ))
+        logging.getLogger(__name__).info(f"OTP dispatch initiated for {user.email}")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Failed to dispatch OTP email: {e}")
+
+    return {"message": "OTP sent", "require_otp": True, "username": user.username}
+
+
+@router.post("/verify-otp")
+async def verify_otp(req: OTPVerifyRequest, response: Response, request: Request, db: AsyncSession = Depends(get_db)):
+    from sqlalchemy import select
+    from app.models.user import User
+    from datetime import datetime
+
+    result = await db.execute(select(User).where(User.username == req.username))
+    user = result.scalar_one_or_none()
+
+    if not user or not user.otp_code:
+        raise HTTPException(status_code=400, detail="Invalid or expired OTP session")
+
+    if user.otp_expiry < datetime.utcnow():
+        user.otp_code = None
+        user.otp_expiry = None
+        await db.commit()
+        raise HTTPException(status_code=400, detail="OTP expired. Please log in again.")
+
+    if user.otp_code != req.otp:
+        raise HTTPException(status_code=400, detail="Invalid OTP code")
+
+    # Clean up OTP after success
+    user.otp_code = None
+    user.otp_expiry = None
 
     token = auth_service.create_access_token({"sub": str(user.id), "role": user.role.value})
 

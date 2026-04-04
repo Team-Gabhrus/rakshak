@@ -154,41 +154,130 @@
         <p class="text-center mt-2"><a href="#" onclick="showLogin()" style="font-size:12px;color:var(--rk-text-muted)">Back to login</a></p>
     </div>
 
+    <!-- OTP Form for 2FA -->
+    <div id="otpForm" class="d-none mt-3">
+        <hr style="border-color:var(--rk-border); margin-bottom: 24px;">
+        <div class="text-center mb-3">
+            <i class="bi bi-shield-lock" style="font-size: 32px; color: #f9bb1a; opacity: 0.8;"></i>
+        </div>
+        <p class="fs-13 text-muted mb-3 text-center" id="otpHelpText">Enter the 6-digit OTP sent to your email.</p>
+        <div class="mb-4">
+            <div style="position:relative">
+                <input type="text" class="rk-form-control text-center" id="otpCode" onkeydown="if(event.key === 'Enter') { event.preventDefault(); submitOtp(); }" style="font-size: 1.5rem; letter-spacing: 0.5em; font-weight: bold; background: rgba(255,255,255,0.08) !important;" placeholder="------" required autocomplete="one-time-code" maxlength="6" pattern="\d{6}">
+            </div>
+        </div>
+        <button onclick="submitOtp()" type="button" class="rk-btn btn-login-accent w-100 justify-content-center py-2" id="otpBtn">
+            Verify & Sign In <i class="bi bi-arrow-right" style="color:#fff !important; margin-left:6px"></i>
+        </button>
+        <p class="text-center mt-3 mb-0"><a href="#" onclick="showLogin()" style="font-size:12px;color:var(--rk-text-muted); transition: color 0.2s;">&larr; Cancel</a></p>
+    </div>
+
     <p class="text-center mt-4 mb-0" style="font-size:11px;color:rgba(255,255,255,0.3)">
         Default: <code style="color:#d29922;background:none;padding:0">admin / admin@123</code> &nbsp;|&nbsp; <code style="color:#f9bb1a;background:none;padding:0">checker / checker@123</code>
     </p>
 </div>
 
 <script>
+let currentUsername = "";
+
 document.getElementById('loginForm').addEventListener('submit', async (e) => {
     e.preventDefault();
     const btn = document.getElementById('loginBtn');
     btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Signing in...';
     btn.disabled = true;
 
-    const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({
-            username: document.getElementById('username').value,
-            password: document.getElementById('password').value,
-        })
-    });
-    const data = await res.json();
-    if (res.ok) {
-        localStorage.setItem('token', data.access_token);
-        localStorage.setItem('username', data.username);
-        localStorage.setItem('role', data.role);
-        document.cookie = `access_token=${data.access_token}; path=/; max-age=1800`;
-        window.location.href = '/home';
-    } else {
-        const errEl = document.getElementById('loginError');
-        errEl.textContent = data.detail || 'Invalid email or password';
-        errEl.classList.remove('d-none');
+    currentUsername = document.getElementById('username').value;
+    
+    try {
+        const res = await fetch('/api/auth/login', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: currentUsername,
+                password: document.getElementById('password').value,
+            })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+            if (data.require_otp) {
+                // Show OTP form instead of login 
+                document.getElementById('loginForm').classList.add('d-none');
+                document.getElementById('forgotForm').classList.add('d-none');
+                document.getElementById('otpForm').classList.remove('d-none');
+                document.getElementById('otpHelpText').innerHTML = `Enter the 6-digit OTP sent to your email. Expires in 5 minutes.`;
+                document.getElementById('loginError').classList.add('d-none');
+                btn.innerHTML = '<i class="bi bi-box-arrow-in-right" style="color:#fff !important; margin-right:6px"></i> Sign In';
+                btn.disabled = false;
+                document.getElementById('otpCode').focus();
+            } else {
+                // Fallback (if OTP disabled)
+                localStorage.setItem('token', data.access_token);
+                localStorage.setItem('username', data.username);
+                localStorage.setItem('role', data.role);
+                document.cookie = `access_token=${data.access_token}; path=/; max-age=1800`;
+                window.location.href = '/home';
+            }
+        } else {
+            const errEl = document.getElementById('loginError');
+            errEl.textContent = data.detail || 'Invalid email or password';
+            errEl.classList.remove('d-none');
+            btn.innerHTML = '<i class="bi bi-box-arrow-in-right" style="color:#fff !important; margin-right:6px"></i> Sign In';
+            btn.disabled = false;
+        }
+    } catch(err) {
+        document.getElementById('loginError').textContent = "Network error. Try again.";
+        document.getElementById('loginError').classList.remove('d-none');
         btn.innerHTML = '<i class="bi bi-box-arrow-in-right"></i> Sign In';
         btn.disabled = false;
     }
 });
+
+async function submitOtp() {
+    const btn = document.getElementById('otpBtn');
+    const otpCode = document.getElementById('otpCode').value.trim();
+    if (otpCode.length !== 6) {
+        document.getElementById('loginError').textContent = 'Please enter a valid 6-digit OTP';
+        document.getElementById('loginError').classList.remove('d-none');
+        return;
+    }
+    
+    document.getElementById('loginError').classList.add('d-none');
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Verifying...';
+    btn.disabled = true;
+
+    try {
+        const res = await fetch('/api/auth/verify-otp', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                username: currentUsername,
+                otp: otpCode,
+            })
+        });
+        const data = await res.json();
+        
+        if (res.ok) {
+            localStorage.setItem('token', data.access_token);
+            localStorage.setItem('username', data.username);
+            localStorage.setItem('role', data.role);
+            document.cookie = `access_token=${data.access_token}; path=/; max-age=1800`;
+            window.location.href = '/home';
+        } else {
+            const errEl = document.getElementById('loginError');
+            errEl.textContent = data.detail || 'Invalid OTP code';
+            errEl.classList.remove('d-none');
+            btn.innerHTML = 'Verify & Sign In <i class="bi bi-arrow-right" style="color:#fff !important; margin-left:6px"></i>';
+            btn.disabled = false;
+            document.getElementById('otpCode').value = '';
+        }
+    } catch(err) {
+        document.getElementById('loginError').textContent = "Network error verifying OTP.";
+        document.getElementById('loginError').classList.remove('d-none');
+        btn.innerHTML = 'Verify & Sign In <i class="bi bi-arrow-right" style="color:#fff !important; margin-left:6px"></i>';
+        btn.disabled = false;
+    }
+}
 
 function togglePwd() {
     const pwd = document.getElementById('password');
@@ -198,11 +287,18 @@ function togglePwd() {
 }
 function showForgot() {
     document.getElementById('loginForm').classList.add('d-none');
+    document.getElementById('otpForm').classList.add('d-none');
     document.getElementById('forgotForm').classList.remove('d-none');
+    document.getElementById('loginError').classList.add('d-none');
 }
+
 function showLogin() {
     document.getElementById('forgotForm').classList.add('d-none');
+    document.getElementById('otpForm').classList.add('d-none');
     document.getElementById('loginForm').classList.remove('d-none');
+    document.getElementById('loginError').classList.add('d-none');
+    const otpCodeEl = document.getElementById('otpCode');
+    if (otpCodeEl) otpCodeEl.value = '';
 }
 async function submitForgot() {
     const email = document.getElementById('forgotEmail').value;
