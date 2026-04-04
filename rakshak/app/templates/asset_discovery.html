@@ -22,6 +22,7 @@
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew"   onclick="setFilter('new',this)">New</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf"  onclick="setFilter('confirmed',this)">Confirmed</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="fFP"    onclick="setFilter('false_positive',this)">Ignored</button>
+        <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedDiscoveries()"><i class="bi bi-trash"></i> Delete Selected</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="triggerDiscover()"><i class="bi bi-radar"></i> Discover</button>
         <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button>
       </div>
@@ -93,10 +94,10 @@ let discCurrentPage = 1;
 const discPageSize = 10;
 
 const HEADERS = {
-  domain:     ['Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
-  ssl_cert:   ['Name','Value','Status','Fingerprint / Type','Certificate Authority','Discovered','Actions'],
-  ip_subnet:  ['Name','Value','Status','Location','Subnet','Netname','Discovered','Actions'],
-  software:   ['Name','Value','Status','Version','Product / Vendor','Discovered','Actions'],
+  domain:     ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
+  ssl_cert:   ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','Status','Fingerprint / Type','Certificate Authority','Discovered','Actions'],
+  ip_subnet:  ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','Status','Location','Subnet','Netname','Discovered','Actions'],
+  software:   ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','Status','Version','Product / Vendor','Discovered','Actions'],
 };
 
 function switchTab(cat, btn) {
@@ -169,6 +170,7 @@ function renderDiscPage() {
     if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.product||'—'}</td>`;
     
     return `<tr>
+      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" onchange="updateSelectAllDisc()"></td>
       <td><strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
@@ -215,6 +217,45 @@ async function triggerDiscover() {
   if (res?.ok) { showToast('Discovery triggered','success'); setTimeout(loadDiscoveries, 1000); }
 }
 
+function toggleAllDisc(checked) {
+  document.querySelectorAll('.disc-checkbox').forEach(cb => cb.checked = checked);
+}
+
+function updateSelectAllDisc() {
+  const all = document.querySelectorAll('.disc-checkbox');
+  const checked = document.querySelectorAll('.disc-checkbox:checked');
+  const selectAllCb = document.getElementById('selectAllDisc');
+  if (selectAllCb) {
+    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
+  }
+}
+
+async function deleteSelectedDiscoveries() {
+  const checked = document.querySelectorAll('.disc-checkbox:checked');
+  if (checked.length === 0) {
+    showToast('Please select at least one discovery record to delete.', 'warning');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete ${checked.length} discovery records?`)) return;
+  
+  const ids = Array.from(checked).map(cb => cb.value);
+  let successCount = 0;
+  
+  // Bulk delete by calling DELETE iteratively
+  for (const id of ids) {
+    const res = await fetch(`/api/assets/discovery/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
+    if (res.ok) successCount++;
+  }
+  
+  if (successCount > 0) {
+    showToast(`Successfully deleted ${successCount} records.`, 'success');
+  } else {
+    showToast('Failed to delete records.', 'danger');
+  }
+  
+  loadDiscoveries();
+}
+
 function openSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'flex';
   document.getElementById('subdomainResult').style.display = 'none';
@@ -236,7 +277,13 @@ async function runSubdomainScan() {
     const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
     if (res?.ok) {
       const data = await res.json();
-      resultEl.innerHTML = `<div class="text-success">✅ Done — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead (cert ghosts), <strong>${data.new_records}</strong> new records saved.</div>`;
+      let hostsHtml = '';
+      if (data.live_hosts && data.live_hosts.length > 0) {
+        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
+          data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
+          '</div>';
+      }
+      resultEl.innerHTML = `<div class="text-success">✅ Done — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead (cert ghosts), <strong>${data.new_records}</strong> new records saved.</div>${hostsHtml}`;
       resultEl.style.display = 'block';
       showToast(`Subdomain scan done: ${data.live} live hosts found`, 'success');
       setTimeout(loadDiscoveries, 600);

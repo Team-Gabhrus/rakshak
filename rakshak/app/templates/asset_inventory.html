@@ -9,6 +9,7 @@
     </div>
     <div class="d-flex gap-2">
       <button class="rk-btn rk-btn-outline rk-btn-sm admin-only" onclick="openBulkImport()"><i class="bi bi-upload"></i> Bulk Import</button>
+      <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedAssets()"><i class="bi bi-trash"></i> Delete Selected</button>
       <button class="rk-btn rk-btn-outline admin-only" onclick="scanSelected()"><i class="bi bi-play-fill"></i> Scan Selected</button>
       <button class="rk-btn rk-btn-outline admin-only" onclick="scanAll()"><i class="bi bi-play-circle-fill"></i> Scan All</button>
       <button class="rk-btn rk-btn-primary admin-only" onclick="openAddAsset()"><i class="bi bi-plus-lg"></i> Add Asset</button>
@@ -204,7 +205,7 @@ async function loadAssets(page=1) {
   if (!d.assets?.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>'; document.getElementById('selectAllAssets').checked = false; return; }
   tbody.innerHTML = d.assets.map(a => `
     <tr>
-      <td><input type="checkbox" class="form-check-input asset-checkbox" value="${a.url}" onchange="updateSelectAll()"></td>
+      <td><input type="checkbox" class="form-check-input asset-checkbox" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
       <td><strong>${a.name||'—'}</strong></td>
       <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
       <td class="text-muted fs-12">${a.ipv4||'—'}</td>
@@ -315,6 +316,33 @@ async function scanSelected() {
   const scanData = await scanRes.json();
   showToast(`Scan Selected started — Scan #${scanData.scan_id}, ${targets.length} targets.`,'success');
   toggleAll(false);
+}
+
+async function deleteSelectedAssets() {
+  const checked = document.querySelectorAll('.asset-checkbox:checked');
+  if (checked.length === 0) {
+    showToast('Please select at least one asset to delete.', 'warning');
+    return;
+  }
+  if (!confirm(`Are you sure you want to delete ${checked.length} assets? All associated scan records will be removed. This cannot be undone.`)) return;
+  
+  const ids = Array.from(checked).map(cb => cb.dataset.id);
+  let successCount = 0;
+  
+  for (const id of ids) {
+    const res = await fetch('/api/assets/' + id, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
+    if (res.ok) successCount++;
+  }
+  
+  if (successCount > 0) {
+    showToast(`Successfully deleted ${successCount} assets.`, 'success');
+  } else {
+    showToast('Failed to delete assets.', 'danger');
+  }
+  
+  toggleAll(false);
+  loadAssets(currentPage);
+  loadMetrics();
 }
 
 async function deleteAsset(id) {

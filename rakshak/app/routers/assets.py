@@ -353,6 +353,21 @@ async def update_discovery_status(
     return {"message": "Status updated", "id": disc_id, "status": new_status}
 
 
+@router.delete("/discovery/{disc_id}")
+async def delete_discovery(
+    disc_id: int,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    result = await db.execute(select(AssetDiscovery).where(AssetDiscovery.id == disc_id))
+    disc = result.scalar_one_or_none()
+    if not disc:
+        raise HTTPException(status_code=404, detail="Discovery not found")
+    await db.delete(disc)
+    await db.commit()
+    return {"message": "Discovery deleted", "id": disc_id}
+
+
 @router.get("/nameservers")
 async def list_nameservers(
     page: int = Query(1, ge=1),
