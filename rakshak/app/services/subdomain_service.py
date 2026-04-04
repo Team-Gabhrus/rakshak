@@ -77,6 +77,51 @@ def _scrape_wayback(domain: str, timeout: int = 30) -> set[str]:
     return set()
 
 
+def _scrape_csp(domain: str, timeout: int = 10) -> set[str]:
+    """Extract subdomains from the Content-Security-Policy header."""
+    try:
+        r = requests.get(f"https://{domain}", timeout=timeout)
+        csp_header = r.headers.get('Content-Security-Policy', '')
+        if csp_header:
+            return _extract_subdomains(csp_header, domain)
+    except Exception as e:
+        logger.warning(f"CSP extraction failed for {domain} over HTTPS: {e}")
+        
+    try:
+        r = requests.get(f"http://{domain}", timeout=timeout)
+        csp_header = r.headers.get('Content-Security-Policy', '')
+        if csp_header:
+            return _extract_subdomains(csp_header, domain)
+    except Exception:
+        pass
+    return set()
+
+
+def _generate_permutations(live_subdomains: set[str], domain: str) -> set[str]:
+    """Generate smart guesses based on actively resolved subdomains."""
+    environments = ['dev', 'uat', 'stg', 'test', 'api', 'v1', 'v2', 'staging', 'qa', 'internal', 'admin']
+    permutations = set()
+    
+    words = set()
+    for sub in live_subdomains:
+        sub_part = sub.replace(f".{domain}", "")
+        if sub_part == sub: continue
+        parts = re.split(r'[-.]', sub_part)
+        words.update(p for p in parts if p and len(p) > 2)
+        
+    for word in words:
+        for env in environments:
+            permutations.add(f"{word}-{env}.{domain}")
+            permutations.add(f"{env}-{word}.{domain}")
+            permutations.add(f"{word}.{env}.{domain}")
+            permutations.add(f"{env}.{word}.{domain}")
+            
+    for env in environments:
+        permutations.add(f"{env}.{domain}")
+        
+    return permutations
+
+
 # --- DNS verification -------------------------------------------
 
 def _resolve_single(host: str, timeout: float = 5.0) -> tuple[str, bool, list[str]]:
@@ -127,25 +172,45 @@ async def discover_subdomains(domain: str, db: AsyncSession) -> dict:
 
     # Run all OSINT sources concurrently in a thread pool
     loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as ex:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
         futs = [
             loop.run_in_executor(ex, _scrape_crtsh, domain),
             loop.run_in_executor(ex, _scrape_alienvault, domain),
             loop.run_in_executor(ex, _scrape_wayback, domain),
+            loop.run_in_executor(ex, _scrape_csp, domain),
         ]
         results = await asyncio.gather(*futs, return_exceptions=True)
 
-    all_subs: set[str] = set()
+    passive_subs: set[str] = set()
     for r in results:
         if isinstance(r, set):
-            all_subs |= r
+            passive_subs |= r
 
-    logger.info(f"Discovered {len(all_subs)} raw subdomains for {domain}")
+    logger.info(f"OSINT Pass: Discovered {len(passive_subs)} raw subdomains for {domain}")
 
-    # DNS verification (blocking, run in executor to not block event loop)
-    live, dead = await loop.run_in_executor(None, verify_dns, all_subs)
+    # Pass 1 DNS verification (blocking, run in executor)
+    live, dead = await loop.run_in_executor(None, verify_dns, passive_subs)
+    logger.info(f"OSINT DNS verified: {len(live)} live, {len(dead)} dead/ghost")
 
-    logger.info(f"DNS verified: {len(live)} live, {len(dead)} dead/ghost")
+    # Pass 2: Permutation & Recursion
+    perm_subs: set[str] = set()
+    if live:
+        logger.info(f"Pass 2: Generating permutations from {len(live)} live hosts...")
+        perm_subs = await loop.run_in_executor(None, _generate_permutations, set(live.keys()), domain)
+        
+        # Filter out domains we already resolved
+        perm_subs = perm_subs - passive_subs
+        
+        if perm_subs:
+            logger.info(f"Pass 2: Testing {len(perm_subs)} permutations...")
+            # Limit permutation threads to not overload DNS
+            live_p, dead_p = await loop.run_in_executor(None, verify_dns, perm_subs, 40)
+            logger.info(f"Permutations: Found {len(live_p)} new live hosts!")
+            live.update(live_p)
+            dead.extend(dead_p)
+
+    all_subs = passive_subs | perm_subs
+    logger.info(f"Final Count: {len(live)} live, {len(dead)} dead/ghost")
 
     # Upsert into AssetDiscovery
     new_records = 0
