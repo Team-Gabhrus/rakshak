@@ -516,10 +516,10 @@ function renderTopology(items) {
 
   // ── Force simulation ──────────────────────────────────────────────────
   let ALPHA = 1.0;
-  const REPEL = 2500;
-  const SPRING = 0.05;
-  const LENGTH = 100;
-  const DAMP = 0.82;
+  const REPEL = 1800;
+  const SPRING = 0.04;
+  const LENGTH = 120;
+  const DAMP = 0.85;
 
   function tick() {
     // Repulsion 
@@ -527,16 +527,13 @@ function renderTopology(items) {
         for (let j = i + 1; j < nodes.length; j++) {
             let dx = nodes[j].x - nodes[i].x;
             let dy = nodes[j].y - nodes[i].y;
-            if (dx === 0 && dy === 0) { dx = 0.1; dy = 0.1; }
-            const d = Math.sqrt(dx*dx + dy*dy);
-            const safeD = Math.max(d, 20); // Prevent force explosion when overlapping
-            const f = REPEL / (safeD * safeD);
-            const fx = (dx / d) * f * ALPHA;
-            const fy = (dy / d) * f * ALPHA;
-            nodes[i].vx -= fx;
-            nodes[i].vy -= fy;
-            nodes[j].vx += fx;
-            nodes[j].vy += fy;
+            const d2 = dx*dx + dy*dy || 1;
+            const safeD2 = Math.max(d2, 400); // 20^2 to prevent force explosion
+            const f = REPEL / safeD2;
+            nodes[i].vx -= dx * f * ALPHA;
+            nodes[i].vy -= dy * f * ALPHA;
+            nodes[j].vx += dx * f * ALPHA;
+            nodes[j].vy += dy * f * ALPHA;
         }
     }
     // Spring attraction for edges
@@ -552,8 +549,8 @@ function renderTopology(items) {
     });
     // Gravity toward center
     nodes.forEach(n => {
-      n.vx += (W/2 - n.x) * 0.03 * ALPHA; // Slightly stronger inward pull to counter edge stranding
-      n.vy += (H/2 - n.y) * 0.03 * ALPHA;
+      n.vx += (W/2 - n.x) * 0.01 * ALPHA; 
+      n.vy += (H/2 - n.y) * 0.01 * ALPHA;
       n.vx *= DAMP; n.vy *= DAMP;
       n.x += n.vx; n.y += n.vy;
       // Boundary clamp
