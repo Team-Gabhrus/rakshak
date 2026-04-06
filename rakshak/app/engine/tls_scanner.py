@@ -49,6 +49,7 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
             OQS_DOCKER_IMAGE,
             "openssl", "s_client",
             "-connect", f"{host}:{port}",
+            "-servername", host,  # Fix SNI
             "-showcerts",            # Show the full certificate chain
             "-groups", "mlkem768",  # Prefer PQC KEX (ML-KEM-768)
         ]
@@ -183,6 +184,12 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         sig_algos = result.get("signature_algorithms", [])
         pk_algos = result.get("public_key_algos", [])
         logger.info(f"OQS probe success: sig_algos={sig_algos}, pk_algos={pk_algos}, chain={result.get('chain_info')}, pqc_kex={result.get('pqc_kex_negotiated')}")
+        
+        # If openssl failed the handshake, we don't have a valid TLS connection
+        if "no peer certificate available" in output or "Cipher is (NONE)" in output or "error:" in output:
+            logger.warning(f"OQS probe failed handshake for {host}:{port} - {output[:100]}")
+            return None
+        
         return result
 
     except subprocess.TimeoutExpired:
