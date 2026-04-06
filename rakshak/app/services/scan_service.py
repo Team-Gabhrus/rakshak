@@ -444,8 +444,13 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
         "medium": RiskLevel.medium,
         "low": RiskLevel.low,
     }
-    from app.engine.rating_engine import get_risk_level_from_label
-    risk_str = get_risk_level_from_label(data.get("pqc_label", "unknown"))
+    from app.engine.rating_engine import get_risk_level_from_label, LABEL_SCORE
+    
+    pqc_label_str = data.get("pqc_label", "unknown")
+    risk_str = get_risk_level_from_label(pqc_label_str)
+    
+    # Compute individual asset cyber score based on PQC label (FR-47 mechanics)
+    cyber_score = float(LABEL_SCORE.get(pqc_label_str, 200))
 
     if asset:
         asset.tls_version = data.get("tls_version")
@@ -453,10 +458,11 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
         asset.key_length = cert.get("key_length")
         asset.cert_expiry = cert_not_after
         asset.cert_authority = cert.get("issuer_name")
-        asset.pqc_label = label_map.get(data.get("pqc_label", "unknown"), PQCLabel.unknown)
+        asset.pqc_label = label_map.get(pqc_label_str, PQCLabel.unknown)
         asset.risk_level = risk_map.get(risk_str, RiskLevel.unknown)
         asset.last_scan = datetime.utcnow()
         asset.ipv4 = data.get("ipv4")
+        asset.cyber_score = cyber_score
     else:
         hostname = target.replace("https://", "").replace("http://", "").split("/")[0]
         asset = Asset(
@@ -467,9 +473,10 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
             key_length=cert.get("key_length"),
             cert_expiry=cert_not_after,
             cert_authority=cert.get("issuer_name"),
-            pqc_label=label_map.get(data.get("pqc_label", "unknown"), PQCLabel.unknown),
+            pqc_label=label_map.get(pqc_label_str, PQCLabel.unknown),
             risk_level=risk_map.get(risk_str, RiskLevel.unknown),
             last_scan=datetime.utcnow(),
+            cyber_score=cyber_score,
         )
         db.add(asset)
 
