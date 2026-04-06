@@ -187,12 +187,15 @@ async function loadMetrics() {
   createBarChart('expiryChart',['30d','60d','90d','180d','365d+'],[{label:'Expiring Certs',data:[2,3,1,5,d.total||0],backgroundColor:'rgba(231,76,60,0.7)'}]);
 }
 
+let allAssetGroups = [];
+const ASSET_PAGE_SIZE = 10;
+
 async function loadAssets(page=1) {
   currentPage = page;
   const search = document.getElementById('assetSearch').value;
   const risk = document.getElementById('riskFilter').value;
   const type = document.getElementById('typeFilter').value;
-  let url = `/api/assets?page=${page}&page_size=10`;
+  let url = `/api/assets?page=1&page_size=100000`; // Fetch large dataset for pure frontend grouping
   if (search) url += `&search=${encodeURIComponent(search)}`;
   if (risk)   url += `&risk=${risk}`;
   if (type)   url += `&asset_type=${type}`;
@@ -206,15 +209,20 @@ async function loadAssets(page=1) {
   if (!res) return;
   const d = await res.json();
   const tbody = document.getElementById('assetBody');
-  if (!d.assets?.length) { tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>'; document.getElementById('selectAllAssets').checked = false; return; }
+  if (!d.assets?.length) { 
+      tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>';
+      document.getElementById('selectAllAssets').checked = false;
+      document.getElementById('assetPagination').innerHTML = '';
+      document.getElementById('assetCount').textContent = '';
+      return; 
+  }
 
   // Group by root domain
   const groups = {};
   d.assets.forEach(a => {
-    const parts = (a.url || '').replace(/^https?:\/\//,'').split('/')[0].split('.');
+    const parts = (a.url || '').replace(/^https?:\/\//, '').split('/')[0].split('.');
     let root = parts.join('.') || a.url;
     if (parts.length > 2) {
-      // Basic check for common 2-part TLDs (co.uk, bank.in, etc.)
       const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(parts.slice(-2).join('.'));
       root = isTwoPartTLD ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
     }
@@ -222,55 +230,76 @@ async function loadAssets(page=1) {
     groups[root].push(a);
   });
 
-  let html = '';
-  let gId = 0;
-  for (const [root, assets] of Object.entries(groups)) {
-    gId++;
-    if (assets.length > 1) {
-        html += `
-        <tr style="background:var(--rk-surface)">
-          <td><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.asset-checkbox-${gId}').forEach(cb=>cb.checked=this.checked); updateSelectAll();"></td>
-          <td>
-             <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.asset-row-${gId}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
-               <i class="bi bi-chevron-down"></i>
-             </button>
-             <strong>${root}</strong> 
-             <span class="badge bg-secondary ms-1">${assets.length} hosts</span>
-          </td>
-          <td colspan="10"></td>
-        </tr>`;
-    }
-    
-    html += assets.map(a => {
-      const isGrouped = assets.length > 1;
-      const rowStyle = isGrouped ? 'style="background:rgba(255,255,255,0.01)"' : '';
-      const prefix = isGrouped ? '<span class="text-muted me-2">↳</span>' : '';
-      
-      return `<tr ${rowStyle} class="${isGrouped ? 'asset-row-'+gId : ''}">
-        <td><input type="checkbox" class="form-check-input asset-checkbox ${isGrouped?'asset-checkbox-'+gId:''}" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
-        <td style="${isGrouped?'padding-left:1.5rem':''}">${prefix}<strong>${a.name||'—'}</strong></td>
-        <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
-        <td class="text-muted fs-12">${a.ipv4||'—'}</td>
-        <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
-        <td class="text-muted fs-12">${a.owner||'—'}</td>
-        <td>${riskBadge(a.risk_level)}</td>
-        <td>${pqcBadge(a.pqc_label)}</td>
-        <td class="text-muted fs-12">${a.tls_version||'—'}</td>
-        <td class="text-muted fs-12">${a.key_length ? a.key_length+'b' : '—'}</td>
-        <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
-        <td class="text-end admin-only">
-          <button class="btn btn-sm text-danger px-1" title="Delete Asset" onclick="deleteAsset(${a.id})"><i class="bi bi-trash"></i></button>
-        </td>
-      </tr>`;
-    }).join('');
-  }
-  
-  tbody.innerHTML = html;
-  document.getElementById('assetCount').textContent = `Showing ${d.assets.length} of ${d.total} assets`;
-  const totalPages = Math.ceil(d.total/10);
-  renderPagination('assetPagination', currentPage, totalPages, 'loadAssets');
-  updateSelectAll();
+  allAssetGroups = Object.entries(groups).map(([root, assets]) => ({ root, assets }));
+  renderAssetPage(currentPage);
 }
+
+function renderAssetPage(page) {
+    currentPage = page;
+    const totalGroups = allAssetGroups.length;
+    let totalPages = Math.ceil(totalGroups / ASSET_PAGE_SIZE);
+    if (totalPages === 0) totalPages = 1;
+    if (currentPage < 1) currentPage = 1;
+    if (currentPage > totalPages) currentPage = totalPages;
+
+    const start = (currentPage - 1) * ASSET_PAGE_SIZE;
+    const end = start + ASSET_PAGE_SIZE;
+    const pageGroups = allAssetGroups.slice(start, end);
+
+    let html = '';
+    let gId = start;
+    
+    pageGroups.forEach(({root, assets}) => {
+        gId++;
+        if (assets.length > 1) {
+            html += `
+            <tr style="background:var(--rk-surface)">
+              <td><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.asset-checkbox-${gId}').forEach(cb=>cb.checked=this.checked); updateSelectAll();"></td>
+              <td>
+                 <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.asset-row-${gId}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
+                   <i class="bi bi-chevron-right"></i>
+                 </button>
+                 <strong>${root}</strong> 
+                 <span class="badge bg-secondary ms-1">${assets.length} hosts</span>
+              </td>
+              <td colspan="10"></td>
+            </tr>`;
+        }
+        
+        html += assets.map(a => {
+          const isGrouped = assets.length > 1;
+          const rowStyle = isGrouped ? 'style="background:rgba(255,255,255,0.01); display:none;"' : '';
+          const prefix = isGrouped ? '<span class="text-muted me-2">↳</span>' : '';
+          
+          return `<tr ${rowStyle} class="${isGrouped ? 'asset-row-'+gId : ''}">
+            <td><input type="checkbox" class="form-check-input asset-checkbox ${isGrouped?'asset-checkbox-'+gId:''}" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
+            <td style="${isGrouped?'padding-left:1.5rem':''}">${prefix}<strong>${a.name||'—'}</strong></td>
+            <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
+            <td class="text-muted fs-12">${a.ipv4||'—'}</td>
+            <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
+            <td class="text-muted fs-12">${a.owner||'—'}</td>
+            <td>${riskBadge(a.risk_level)}</td>
+            <td>${pqcBadge(a.pqc_label)}</td>
+            <td class="text-muted fs-12">${a.tls_version||'—'}</td>
+            <td class="text-muted fs-12">${a.key_length ? a.key_length+'b' : '—'}</td>
+            <td class="text-muted fs-12">${fmtDate(a.last_scan)}</td>
+            <td class="text-end admin-only">
+              <button class="btn btn-sm text-danger px-1" title="Delete Asset" onclick="deleteAsset(${a.id})"><i class="bi bi-trash"></i></button>
+            </td>
+          </tr>`;
+        }).join('');
+    });
+
+    document.getElementById('assetBody').innerHTML = html;
+    
+    // Calculate total assets across all groups for info text
+    const totalAssets = allAssetGroups.reduce((acc, g) => acc + g.assets.length, 0);
+    document.getElementById('assetCount').textContent = `Showing domains ${start+1}-${Math.min(end, totalGroups)} of ${totalGroups} (${totalAssets} total assets)`;
+    
+    renderPagination('assetPagination', currentPage, totalPages, 'renderAssetPage');
+    updateSelectAll();
+}
+
 
 let nsPage = 1;
 async function loadNameservers(page = 1) {

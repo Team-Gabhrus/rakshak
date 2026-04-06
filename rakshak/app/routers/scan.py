@@ -184,8 +184,8 @@ async def get_scan_details(
     res_query = await db.execute(select(ScanResult).where(ScanResult.scan_id == scan_id))
     rows = res_query.scalars().all()
     
-    completed_targets = {r.target_url for r in rows if r.status == "completed"}
-    failed_targets = {r.target_url for r in rows if r.status == "failed"}
+    completed_targets = {r.target_url for r in rows if r.status == "success"}
+    failed_targets = {r.target_url for r in rows if r.status in ["failed", "timeout"]}
     
     running_targets = [t for t in targets if t not in completed_targets and t not in failed_targets]
     

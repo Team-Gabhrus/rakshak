@@ -34,7 +34,7 @@ async def list_assets(
     sort_by: Optional[str] = Query("created_at"),
     sort_dir: Optional[str] = Query("desc"),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=100000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
@@ -422,7 +422,7 @@ async def delete_discovery(
 @router.get("/nameservers")
 async def list_nameservers(
     page: int = Query(1, ge=1),
-    page_size: int = Query(10, ge=1, le=100),
+    page_size: int = Query(10, ge=1, le=100000),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):

@@ -10,10 +10,6 @@
   <!-- Category tabs — FR-37 -->
   <div class="rk-card mb-4">    <div class="d-flex align-items-center gap-2">
       <span class="fs-13 text-muted me-2">Filter:</span>
-      <div class="form-check me-2 d-none d-md-block" id="liveTargetsFilterContainer" style="display:none !important">
-        <input class="form-check-input" type="checkbox" id="liveTargetsOnly" onchange="loadDiscoveries()">
-        <label class="form-check-label fs-13 text-muted">Live Targets Only</label>
-      </div>
       <button class="rk-btn rk-btn-sm rk-btn-primary" id="fAll" onclick="setFilter('', this)">All</button>
       <button class="rk-btn rk-btn-sm rk-btn-outline" id="fNew" onclick="setFilter('new', this)">New</button>
       <button class="rk-btn rk-btn-sm rk-btn-outline" id="fConf" onclick="setFilter('confirmed', this)">Confirmed</button>
@@ -45,7 +41,11 @@
         <button class="rk-tab" onclick="switchTab('software',this)">Software</button>
       </div>
       <!-- Status filter — FR-38 -->
-      <div class="d-flex gap-2">
+      <div class="d-flex gap-2 align-items-center">
+        <div class="form-check me-2 d-none d-md-block" id="liveTargetsFilterContainer" style="display:block ">
+          <input class="form-check-input" type="checkbox" id="showDeadTargets" onchange="loadDiscoveries()">
+          <label class="form-check-label fs-13 text-muted" for="showDeadTargets">Show Dead</label>
+        </div>
         <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button>
       </div>
     </div>
@@ -76,14 +76,14 @@
         <p class="fs-13">Loading network topology…</p>
       </div>
       <canvas id="topoCanvas" style="width:100%;height:100%"></canvas>
-      <!-- Legend overlay -->
-      <div style="position:absolute;bottom:10px;left:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;pointer-events:none">
-        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3498DB;margin-right:4px"></span>Domain</span>
-        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2ECC71;margin-right:4px"></span>SSL Cert</span>
-        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F1C40F;margin-right:4px"></span>IP / Subnet</span>
-        <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E67E22;margin-right:4px"></span>Software</span>
-        <span style="font-size:11px;color:var(--rk-text-muted);margin-left:8px">Dot: <span style="color:#3498DB">●</span> New &nbsp;<span style="color:#2ECC71">●</span> Confirmed &nbsp;<span style="color:#7D8590">●</span> Ignored</span>
-      </div>
+    </div>
+    <!-- Legend overlay moved below the graph -->
+    <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;pointer-events:none">
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3498DB;margin-right:4px"></span>Domain</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2ECC71;margin-right:4px"></span>SSL Cert</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F1C40F;margin-right:4px"></span>IP / Subnet</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E67E22;margin-right:4px"></span>Software</span>
+      <span style="font-size:11px;color:var(--rk-text-muted);margin-left:8px">Dot: <span style="color:#3498DB">●</span> New &nbsp;<span style="color:#2ECC71">●</span> Confirmed &nbsp;<span style="color:#7D8590">●</span> Ignored</span>
     </div>
     <p class="fs-12 text-muted mt-2"><i class="bi bi-info-circle me-1"></i>Nodes represent discovered domains, IPs, SSL certificates, and software. Hover over a node to see details. Edges connect nodes to their domain hub. Up to 40 nodes shown.</p>
   </div>
@@ -146,27 +146,53 @@ function setFilter(status, btn) {
   loadDiscoveries();
 }
 
+let allDiscData = [];
+let filteredDiscData = [];
+
+
 async function loadDiscoveries() {
   let url = `/api/assets/discovery?category=${currentCategory}`;
   if (currentStatus) url += `&status=${currentStatus}`;
   const res = await API.get(url);
   if (!res) return;
-  discData = await res.json();
+  allDiscData = await res.json();
   
-  const liveOnly = document.getElementById('liveTargetsOnly');
-  if (currentCategory === 'domain' && liveOnly && liveOnly.checked) {
-    discData = discData.filter(d => d.metadata && d.metadata.dns_status === 'live');
+  const showDead = document.getElementById('showDeadTargets');
+  if (currentCategory === 'domain' && showDead && !showDead.checked) {
+    // If "Show Dead" is off (which is default), hide dead targets.
+    allDiscData = allDiscData.filter(d => !d.metadata || d.metadata.dns_status !== 'dead');
   }
 
   const headers = HEADERS[currentCategory];
   document.getElementById('discHeader').innerHTML = headers.map(h=>`<th>${h}</th>`).join('');
   
+  filterDiscTable();
+}
+
+function filterDiscTable() {
+  const q = document.getElementById('discSearch').value.toLowerCase();
+  
+  if (q) {
+      filteredDiscData = allDiscData.filter(item => {
+          const name = (item.name || '').toLowerCase();
+          const val = (item.value || '').toLowerCase();
+          const rootStr = (item.value || '').replace(/^https?:\/\//, '').split('/')[0].split('.');
+          let root = rootStr.join('.');
+          if (rootStr.length > 2) {
+              const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(rootStr.slice(-2).join('.'));
+              root = isTwoPartTLD ? rootStr.slice(-3).join('.') : rootStr.slice(-2).join('.');
+          }
+          return name.includes(q) || val.includes(q) || root.includes(q);
+      });
+  } else {
+      filteredDiscData = [...allDiscData];
+  }
+
   if (currentCategory === 'domain') {
-    // Group by root domain
     const groups = {};
-    discData.forEach(item => {
-      const parts = (item.value || '').split('.');
-      let root = item.value;
+    filteredDiscData.forEach(item => {
+      const parts = (item.value || '').replace(/^https?:\/\//, '').split('/')[0].split('.');
+      let root = parts.join('.') || item.value;
       if (parts.length > 2) {
         const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(parts.slice(-2).join('.'));
         root = isTwoPartTLD ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
@@ -174,19 +200,18 @@ async function loadDiscoveries() {
       if (!groups[root]) groups[root] = [];
       groups[root].push(item);
     });
-    // Flatten grouped
+
     groupedDiscData = [];
     for (const [root, items] of Object.entries(groups)) {
-      groupedDiscData.push({ isGroup: true, root, count: items.length });
-      items.forEach(i => groupedDiscData.push({ ...i, groupRoot: root }));
+      groupedDiscData.push({ isGroup: true, root, count: items.length, items: items });
     }
   } else {
-    groupedDiscData = discData;
+    groupedDiscData = filteredDiscData;
   }
   
-  // Re-calculate totals based on group collapsing
+  discCurrentPage = 1;
   renderDiscPage();
-  renderTopology(discData);
+  renderTopology(allDiscData);
 }
 
 function toggleGroupCheck(root, checked) {
@@ -198,45 +223,70 @@ function renderDiscPage() {
   const tbody = document.getElementById('discBody');
   const headers = HEADERS[currentCategory];
 
-  const dataSource = (currentCategory === 'domain') ? groupedDiscData : discData;
-
+  const dataSource = groupedDiscData;
+  
   if (!dataSource.length) { 
-    tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`; 
+    tbody.innerHTML = `<tr><td colspan="${headers.length}" class="text-center text-muted py-4">No ${currentCategory} records found</td></tr>`;
     document.getElementById('discPagination').classList.add('d-none');
     return; 
   }
 
-  const totalPages = Math.ceil(dataSource.length / discPageSize);
+  let totalPages = Math.ceil(dataSource.length / discPageSize);
+  if (totalPages === 0) totalPages = 1;
   if (discCurrentPage < 1) discCurrentPage = 1;
   if (discCurrentPage > totalPages) discCurrentPage = totalPages;
-
+  
   const start = (discCurrentPage - 1) * discPageSize;
   const end = start + discPageSize;
   const pageData = dataSource.slice(start, end);
 
   let html = '';
-  let groupIndex = 0;
   const statusBadge = {new:'badge bg-info text-dark',confirmed:'badge bg-success',false_positive:'badge bg-secondary'};
-  
+
   pageData.forEach((item, index) => {
     if (item.isGroup) {
-      groupIndex++;
       const safeRoot = item.root.replace(/[^a-zA-Z0-9_-]/g, '-');
       html += `
       <tr style="background:var(--rk-surface)">
         <td><input type="checkbox" class="form-check-input" onclick="toggleGroupCheck('${item.root}', this.checked)"></td>
         <td>
            <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.disc-row-${safeRoot}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
-             <i class="bi bi-chevron-down"></i>
+             <i class="bi bi-chevron-right"></i>
            </button>
            <strong>${item.root}</strong> 
            <span class="badge bg-secondary ms-1">${item.count} items</span>
         </td>
         <td colspan="${headers.length - 2}"></td>
       </tr>`;
-      return;
+      
+      item.items.forEach(child => {
+          html += renderDiscRow(child, true, safeRoot, headers, statusBadge);
+      });
+    } else {
+      html += renderDiscRow(item, false, '', headers, statusBadge);
     }
+  });
   
+  tbody.innerHTML = html;
+
+  if (totalPages > 1) {
+    document.getElementById('discPagination').classList.remove('d-none');
+    
+    const totalRendered = (currentCategory === 'domain') 
+        ? dataSource.reduce((acc, g) => acc + g.count, 0)
+        : dataSource.length;
+        
+    const itemLabel = currentCategory === 'domain' ? 'domains' : currentCategory;
+    document.getElementById('discPageInfo').textContent = `Showing ${itemLabel} ${start+1}-${Math.min(end, dataSource.length)} of ${dataSource.length} (${totalRendered} total assets)`;
+    
+    document.getElementById('discPrevBtn').disabled = discCurrentPage === 1;
+    document.getElementById('discNextBtn').disabled = discCurrentPage === totalPages;
+  } else {
+    document.getElementById('discPagination').classList.add('d-none');
+  }
+}
+
+function renderDiscRow(item, isChild, safeParentRoot, headers, statusBadge) {
     const meta = item.metadata || {};
     let extraCols = '';
     if (currentCategory === 'domain') {
@@ -256,14 +306,14 @@ function renderDiscPage() {
     if (currentCategory === 'ip_subnet') extraCols = `<td class="text-muted fs-12">${meta.ip_location||'—'}</td><td class="text-muted fs-12">${meta.subnets||'—'}</td><td class="text-muted fs-12">${meta.netnames||'—'}</td>`;
     if (currentCategory === 'software')  extraCols = `<td class="text-muted fs-12">${meta.version||'—'}</td><td class="text-muted fs-12">${meta.product||'—'}</td>`;
     
-    // Slight indent for grouped rows
-    const rowStyle = (currentCategory === 'domain') ? 'style="background:rgba(255,255,255,0.01)"' : '';
-    const prefix = (currentCategory === 'domain') ? '<span class="text-muted me-2">↳</span>' : '';
-    const safeExtRoot = (item.groupRoot||'').replace(/[^a-zA-Z0-9_-]/g, '-');
-
-    html += `<tr ${rowStyle} class="${currentCategory==='domain'?'disc-row-'+safeExtRoot:''}">
+    // By default keep nested rows collapsed
+    const rowStyle = isChild ? 'style="background:rgba(255,255,255,0.01); display:none;"' : '';
+    const prefix = isChild ? '<span class="text-muted me-2">↳</span>' : '';
+    const rowClass = isChild ? `disc-row-${safeParentRoot}` : '';
+    
+    return `<tr ${rowStyle} class="${rowClass}">
       <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} onchange="updateSelectAllDisc()"></td>
-      <td style="${currentCategory==='domain'?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
+      <td style="${isChild?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
       ${extraCols}
@@ -272,19 +322,9 @@ function renderDiscPage() {
         ${item.status==='new'?`<div class="admin-only d-inline-block"><button class="rk-btn rk-btn-outline rk-btn-sm me-1" onclick="updateStatus(${item.id},'confirmed')">✓ Confirm</button><button class="rk-btn rk-btn-sm" style="background:rgba(125,133,144,0.1);color:var(--rk-text-muted)" onclick="updateStatus(${item.id},'false_positive')">Ignore</button></div>`:''}
       </td>
     </tr>`;
-  });
-  
-  tbody.innerHTML = html;
-
-  if (totalPages > 1) {
-    document.getElementById('discPagination').classList.remove('d-none');
-    document.getElementById('discPageInfo').textContent = `Page ${discCurrentPage} of ${totalPages} (${discData.length} total)`;
-    document.getElementById('discPrevBtn').disabled = discCurrentPage === 1;
-    document.getElementById('discNextBtn').disabled = discCurrentPage === totalPages;
-  } else {
-    document.getElementById('discPagination').classList.add('d-none');
-  }
 }
+
+
 
 function prevDiscPage() {
   if (discCurrentPage > 1) {
@@ -294,7 +334,7 @@ function prevDiscPage() {
 }
 
 function nextDiscPage() {
-  const totalPages = Math.ceil(discData.length / discPageSize);
+  const totalPages = Math.ceil(groupedDiscData.length / discPageSize);
   if (discCurrentPage < totalPages) {
     discCurrentPage++;
     renderDiscPage();
@@ -313,6 +353,12 @@ async function triggerDiscover() {
 
 function toggleAllDisc(checked) {
   document.querySelectorAll('.disc-checkbox').forEach(cb => cb.checked = checked);
+  updateSelectAllDisc();
+}
+
+function toggleGroupCheck(root, checked) {
+  document.querySelectorAll(`.disc-checkbox[data-root="${root}"]`).forEach(cb => cb.checked = checked);
+  updateSelectAllDisc();
 }
 
 function updateSelectAllDisc() {
@@ -336,7 +382,6 @@ async function deleteSelectedDiscoveries() {
   const ids = Array.from(checked).map(cb => cb.value);
   let successCount = 0;
   
-  // Bulk delete by calling DELETE iteratively
   for (const id of ids) {
     const res = await fetch(`/api/assets/discovery/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
     if (res.ok) successCount++;
@@ -351,6 +396,7 @@ async function deleteSelectedDiscoveries() {
   loadDiscoveries();
 }
 
+
 function openSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'flex';
   document.getElementById('subdomainResult').style.display = 'none';
@@ -364,8 +410,18 @@ function closeSubdomainModal() {
 async function runSubdomainScan() {
   const domain = document.getElementById('subdomainInput').value.trim();
   const autoScan = document.getElementById('subdomainAutoScan').checked;
-  if (!domain) return;
+  if (!domain) { showToast('Please enter a domain','error'); return; }
   const btn = document.getElementById('subdomainScanBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
+  const resultEl = document.getElementById('subdomainResult');
+  resultEl.style.display = 'none';
+  try {
+    const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
+    if (res?.ok) {
+      const data = await res.json();
+      let hostsHtml = '';
+      if (data.live_hosts && data.live_hosts.length > 0) {
+        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
           data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
           '</div>';
       }
@@ -460,40 +516,44 @@ function renderTopology(items) {
 
   // ── Force simulation ──────────────────────────────────────────────────
   let ALPHA = 1.0;
-  const REPEL  = 1800;
-  const SPRING = 0.04;
-  const LENGTH = 120;
-  const DAMP   = 0.85;
+  const REPEL = 2500;
+  const SPRING = 0.05;
+  const LENGTH = 100;
+  const DAMP = 0.82;
 
   function tick() {
-    // Repulsion
+    // Repulsion 
     for (let i = 0; i < nodes.length; i++) {
-      for (let j = i + 1; j < nodes.length; j++) {
-        const dx = nodes[j].x - nodes[i].x;
-        const dy = nodes[j].y - nodes[i].y;
-        const d2 = dx*dx + dy*dy || 1;
-        const f = REPEL / d2;
-        nodes[i].vx -= dx * f * ALPHA;
-        nodes[i].vy -= dy * f * ALPHA;
-        nodes[j].vx += dx * f * ALPHA;
-        nodes[j].vy += dy * f * ALPHA;
-      }
+        for (let j = i + 1; j < nodes.length; j++) {
+            let dx = nodes[j].x - nodes[i].x;
+            let dy = nodes[j].y - nodes[i].y;
+            if (dx === 0 && dy === 0) { dx = 0.1; dy = 0.1; }
+            const d = Math.sqrt(dx*dx + dy*dy);
+            const safeD = Math.max(d, 20); // Prevent force explosion when overlapping
+            const f = REPEL / (safeD * safeD);
+            const fx = (dx / d) * f * ALPHA;
+            const fy = (dy / d) * f * ALPHA;
+            nodes[i].vx -= fx;
+            nodes[i].vy -= fy;
+            nodes[j].vx += fx;
+            nodes[j].vy += fy;
+        }
     }
     // Spring attraction for edges
     edges.forEach(e => {
-      const a = nodes[e.a], b = nodes[e.b];
-      if (!a || !b) return;
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const d = Math.sqrt(dx*dx + dy*dy) || 1;
-      const f = (d - LENGTH) * SPRING * ALPHA;
-      const fx = dx / d * f, fy = dy / d * f;
-      a.vx += fx; a.vy += fy;
-      b.vx -= fx; b.vy -= fy;
+        const a = nodes[e.a], b = nodes[e.b];
+        if (!a || !b) return;
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const d = Math.sqrt(dx*dx + dy*dy) || 1;
+        const f = (d - LENGTH) * SPRING * ALPHA;
+        const fx = dx / d * f, fy = dy / d * f;
+        a.vx += fx; a.vy += fy;
+        b.vx -= fx; b.vy -= fy;
     });
     // Gravity toward center
     nodes.forEach(n => {
-      n.vx += (W/2 - n.x) * 0.01 * ALPHA;
-      n.vy += (H/2 - n.y) * 0.01 * ALPHA;
+      n.vx += (W/2 - n.x) * 0.03 * ALPHA; // Slightly stronger inward pull to counter edge stranding
+      n.vy += (H/2 - n.y) * 0.03 * ALPHA;
       n.vx *= DAMP; n.vy *= DAMP;
       n.x += n.vx; n.y += n.vy;
       // Boundary clamp

@@ -92,7 +92,7 @@
     <div class="d-flex align-items-center justify-content-between mb-3">
       <div class="rk-section-title mb-0">Recent Scans</div>
       <div class="d-flex gap-2">
-        <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedScans()"><i class="bi bi-trash"></i> Delete Selected</button>
+        <!-- <button class="rk-btn rk-btn-sm text-danger border-danger admin-only" onclick="deleteSelectedScans()"><i class="bi bi-trash"></i> Delete Selected</button> -->
         <a href="/asset-inventory" class="rk-btn rk-btn-outline rk-btn-sm">View All Assets →</a>
       </div>
     </div>
@@ -266,16 +266,30 @@ async function loadScans() {
         <div class="d-flex align-items-center justify-content-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
       </td>
     </tr>`).join('');
+
+  // Re-expand previously opened rows
+  const expanded = JSON.parse(sessionStorage.getItem('expandedScans') || '[]');
+  expanded.forEach(id => {
+    const btn = document.querySelector(`#scan-chevron-${id}`)?.closest('button');
+    if (btn) toggleScanDetails(id, btn);
+  });
 }
 
 async function toggleScanDetails(scanId, btn) {
   const detailsRow = document.getElementById(`scan-details-${scanId}`);
   const chevron = document.getElementById(`scan-chevron-${scanId}`);
+  
+  let expandedScans = JSON.parse(sessionStorage.getItem('expandedScans') || '[]');
+
   if (detailsRow.style.display === 'none') {
     detailsRow.style.display = 'table-row';
     chevron.classList.replace('bi-chevron-right', 'bi-chevron-down');
     
-    // Fetch details
+    if (!expandedScans.includes(scanId)) {
+      expandedScans.push(scanId);
+      sessionStorage.setItem('expandedScans', JSON.stringify(expandedScans));
+    }
+
     const res = await API.get(`/api/scan/${scanId}/details`);
     if (res && res.ok) {
       const data = await res.json();
@@ -287,17 +301,17 @@ async function toggleScanDetails(scanId, btn) {
         html += `<div class="col-12 text-muted mb-2"><i class="bi bi-activity text-warning me-1"></i> Scan is currently running for ${data.total_targets} total targets...</div>`;
       }
       
-      if (data.failed.length > 0) {
+      if (data.failed && data.failed.length > 0) {
         html += `<div class="col-md-6 mb-2"><div class="text-danger fw-bold mb-1"><i class="bi bi-x-circle me-1"></i> Failed (${data.failed.length})</div>
-                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.failed.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.failed.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
       }
-      if (data.succeeded.length > 0) {
+      if (data.succeeded && data.succeeded.length > 0) {
         html += `<div class="col-md-6 mb-2"><div class="text-success fw-bold mb-1"><i class="bi bi-check-circle me-1"></i> Succeeded (${data.succeeded.length})</div>
-                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.succeeded.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.succeeded.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
       }
-      if (data.running.length > 0 && data.status !== 'completed') {
+      if (data.running && data.running.length > 0 && data.status !== 'completed') {
         html += `<div class="col-md-6 mb-2"><div class="text-warning fw-bold mb-1"><i class="bi bi-hourglass-split me-1"></i> Pending/Running (${data.running.length})</div>
-                 <div style="max-height:120px;overflow-y:auto;" class="text-muted">${data.running.map(t => `<div>${t}</div>`).join('')}</div></div>`;
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.running.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
       }
       html += `</div></div>`;
       cell.innerHTML = html;
@@ -307,6 +321,10 @@ async function toggleScanDetails(scanId, btn) {
   } else {
     detailsRow.style.display = 'none';
     chevron.classList.replace('bi-chevron-down', 'bi-chevron-right');
+    
+    // Remove from saved state
+    expandedScans = expandedScans.filter(id => id !== scanId);
+    sessionStorage.setItem('expandedScans', JSON.stringify(expandedScans));
   }
 }
 
