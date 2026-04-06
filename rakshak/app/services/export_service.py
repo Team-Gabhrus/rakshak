@@ -15,9 +15,9 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(exist_ok=True)
 
 
-async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report_id: int, password: str = None) -> str:
+async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report_id: int, password: str = None, asset_ids: list = None) -> str:
     """Generate a report file in the specified format and return path."""
-    data = await collect_report_data(db, modules)
+    data = await collect_report_data(db, modules, asset_ids)
     filename = f"rakshak_report_{report_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{fmt}"
     filepath = str(REPORTS_DIR / filename)
 
@@ -33,7 +33,7 @@ async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report
     return filepath
 
 
-async def collect_report_data(db: AsyncSession, modules: list) -> dict:
+async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list = None) -> dict:
     """Collect data from requested modules."""
     from app.models.asset import Asset, PQCLabel
     from app.models.cbom import CBOMSnapshot
@@ -43,7 +43,10 @@ async def collect_report_data(db: AsyncSession, modules: list) -> dict:
     data = {"generated_at": datetime.utcnow().isoformat(), "modules": modules}
 
     if "inventory" in modules:
-        result = await db.execute(select(Asset))
+        if asset_ids:
+            result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
+        else:
+            result = await db.execute(select(Asset))
         assets = result.scalars().all()
         data["inventory"] = [{"name": a.name, "url": a.url, "pqc_label": a.pqc_label.value if a.pqc_label else None,
                                "risk": a.risk_level.value if a.risk_level else None,
@@ -51,7 +54,13 @@ async def collect_report_data(db: AsyncSession, modules: list) -> dict:
 
     if "cbom" in modules:
         # Fetch the latest snapshot for each target (using a simple distinct by target logic or fetching all for now)
-        result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()))
+        if asset_ids:
+            from app.models.asset import Asset
+            res_assets = await db.execute(select(Asset.url).where(Asset.id.in_(asset_ids)))
+            target_urls = [a for a in res_assets.scalars().all()]
+            result = await db.execute(select(CBOMSnapshot).where(CBOMSnapshot.target_url.in_(target_urls)).order_by(CBOMSnapshot.created_at.desc()))
+        else:
+            result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()))
         snaps = result.scalars().all()
         seen_targets = set()
         unique_snaps = []
@@ -68,7 +77,10 @@ async def collect_report_data(db: AsyncSession, modules: list) -> dict:
                           "keys": json.loads(s.keys_json or "[]")} for s in unique_snaps]
 
     if "rating" in modules:
-        result = await db.execute(select(Asset))
+        if asset_ids:
+            result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
+        else:
+            result = await db.execute(select(Asset))
         assets = result.scalars().all()
         counts = {
             "fully_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.fully_quantum_safe),
