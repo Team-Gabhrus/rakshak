@@ -53,6 +53,39 @@
     <div class="row g-3" id="complianceMatrix"></div>
   </div>
 
+  <!-- Individual Asset Scores -->
+  <div class="rk-card mb-4" id="assetScoresSection">
+    <div class="d-flex align-items-center gap-3 mb-3 flex-wrap">
+      <div class="rk-section-title mb-0">Individual Asset Scores</div>
+      <input type="text" class="rk-form-control" id="assetScoreSearch" placeholder="Search assets..." style="max-width:280px" oninput="searchAssetScores(this.value)">
+      <select class="rk-form-control" id="scoreRiskFilter" style="max-width:140px" onchange="loadAssetScores()">
+        <option value="">All Risks</option>
+        <option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+      </select>
+      <select class="rk-form-control" id="scoreTypeFilter" style="max-width:140px" onchange="loadAssetScores()">
+        <option value="">All Types</option>
+        <option value="web_app">Web App</option><option value="api">API</option><option value="vpn">VPN</option><option value="server">Server</option>
+      </select>
+    </div>
+    <div class="rk-table-wrap">
+      <table class="rk-table">
+        <thead><tr>
+          <th class="sortable" onclick="sortScores('name')">Asset Name <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortScores('url')">URL <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortScores('asset_type')">Type <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortScores('risk_level')">Risk <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable" onclick="sortScores('pqc_label')">PQC Label <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+          <th class="sortable text-end" onclick="sortScores('cyber_score')">Cyber Score <i class="bi bi-arrow-down-up fs-12 text-muted"></i></th>
+        </tr></thead>
+        <tbody id="assetScoreBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="d-flex justify-content-between align-items-center mt-3 px-2">
+      <span class="fs-12 text-muted" id="assetScoreCount"></span>
+      <div id="assetScorePagination"></div>
+    </div>
+  </div>
+
   <!-- FR-50: Historical Trend -->
   <div class="rk-chart-card">
     <div class="rk-chart-title">Historical Trend Analysis</div>
@@ -144,5 +177,136 @@ async function loadHistory() {
 }
 
 loadRating(); loadHistory();
+
+let currentScorePage = 1;
+let scoreSortCol = 'cyber_score';
+let scoreSortDir = 'desc';
+let scoreSearchTimer;
+let allScoreGroups = [];
+const SCORE_PAGE_SIZE = 10;
+
+async function loadAssetScores(page=1) {
+  currentScorePage = page;
+  const search = document.getElementById('assetScoreSearch').value;
+  const risk = document.getElementById('scoreRiskFilter').value;
+  const type = document.getElementById('scoreTypeFilter').value;
+  
+  let url = `/api/assets?page=1&page_size=100000`; 
+  if (search) url += `&search=${encodeURIComponent(search)}`;
+  if (risk) url += `&risk=${risk}`;
+  if (type) url += `&asset_type=${type}`;
+  url += `&sort_by=${scoreSortCol}&sort_dir=${scoreSortDir}`;
+  
+  const res = await API.get(url);
+  if (!res) return;
+  const d = await res.json();
+  const tbody = document.getElementById('assetScoreBody');
+  
+  if (!d.assets?.length) { 
+      tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No assets found</td></tr>';
+      document.getElementById('assetScorePagination').innerHTML = '';
+      document.getElementById('assetScoreCount').textContent = '';
+      return; 
+  }
+
+  // Group by root domain exactly like Asset Inventory
+  const groups = {};
+  d.assets.forEach(a => {
+    const parts = (a.url || '').replace(/^https?:\/\//, '').split('/')[0].split('.');
+    let root = parts.join('.') || a.url;
+    if (parts.length > 2) {
+      const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(parts.slice(-2).join('.'));
+      root = isTwoPartTLD ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
+    }
+    if (!groups[root]) groups[root] = [];
+    groups[root].push(a);
+  });
+
+  allScoreGroups = Object.entries(groups).map(([root, assets]) => ({ root, assets }));
+  renderScorePage(currentScorePage);
+}
+
+function renderScorePage(page) {
+    currentScorePage = page;
+    const totalGroups = allScoreGroups.length;
+    let totalPages = Math.ceil(totalGroups / SCORE_PAGE_SIZE);
+    if (totalPages === 0) totalPages = 1;
+    if (currentScorePage < 1) currentScorePage = 1;
+    if (currentScorePage > totalPages) currentScorePage = totalPages;
+
+    const start = (currentScorePage - 1) * SCORE_PAGE_SIZE;
+    const end = start + SCORE_PAGE_SIZE;
+    const pageGroups = allScoreGroups.slice(start, end);
+
+    let html = '';
+    let gId = start;
+    
+    pageGroups.forEach(({root, assets}) => {
+        gId++;
+        if (assets.length > 1) {
+            html += `
+            <tr style="background:var(--rk-surface)">
+              <td colspan="6">
+                 <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.score-row-${gId}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
+                    <i class="bi bi-chevron-right"></i>
+                 </button>
+                 <strong>${root}</strong> 
+                 <span class="badge bg-secondary ms-1">${assets.length} hosts</span>
+              </td>
+            </tr>`;
+        }
+        
+        html += assets.map(a => {
+          const isGrouped = assets.length > 1;
+          const rowStyle = isGrouped ? 'style="background:rgba(255,255,255,0.01); display:none;"' : '';
+          const prefix = isGrouped ? '<span class="text-muted me-2">↳</span>' : '';
+          
+          let scoreDisplay = '—';
+          if (a.cyber_score !== null && a.cyber_score !== undefined) {
+             const sc = a.cyber_score;
+             let colorColor = '#888';
+             if (sc >= 800) colorColor = '#2ECC71';
+             else if (sc >= 600) colorColor = '#3498DB';
+             else if (sc >= 300) colorColor = '#F1C40F';
+             else colorColor = '#E74C3C';
+             
+             scoreDisplay = `<span style="font-weight:700; color:${colorColor}">${sc.toFixed(1)}</span>`;
+          }
+          
+          return `<tr ${rowStyle} class="${isGrouped ? 'score-row-'+gId : ''}">
+            <td style="${isGrouped?'padding-left:1.5rem':''}">${prefix}<strong>${a.name||'—'}</strong></td>
+            <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
+            <td><span class="badge bg-secondary">${a.asset_type||'—'}</span></td>
+            <td>${riskBadge(a.risk_level)}</td>
+            <td>${pqcBadge(a.pqc_label)}</td>
+            <td class="text-end">${scoreDisplay}</td>
+          </tr>`;
+        }).join('');
+    });
+
+    document.getElementById('assetScoreBody').innerHTML = html;
+    
+    const totalAssets = allScoreGroups.reduce((acc, g) => acc + g.assets.length, 0);
+    document.getElementById('assetScoreCount').textContent = `Showing domains ${start+1}-${Math.min(end, totalGroups)} of ${totalGroups} (${totalAssets} total assets)`;
+    
+    renderPagination('assetScorePagination', currentScorePage, totalPages, 'renderScorePage');
+}
+
+function sortScores(col) {
+  if (scoreSortCol === col) {
+    scoreSortDir = scoreSortDir === 'asc' ? 'desc' : 'asc';
+  } else {
+    scoreSortCol = col;
+    scoreSortDir = 'asc';
+  }
+  loadAssetScores(currentScorePage);
+}
+
+function searchAssetScores(q) { 
+  clearTimeout(scoreSearchTimer); 
+  scoreSearchTimer = setTimeout(()=>loadAssetScores(1), 400); 
+}
+
+loadAssetScores();
 </script>
 {% endblock %}
