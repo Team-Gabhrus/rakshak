@@ -516,9 +516,9 @@ function renderTopology(items) {
 
   // ── Force simulation ──────────────────────────────────────────────────
   let ALPHA = 1.0;
-  const REPEL = 1800;
+  const REPEL = 1200;
   const SPRING = 0.04;
-  const LENGTH = 120;
+  const LENGTH = 100;
   const DAMP = 0.85;
 
   function tick() {
@@ -553,9 +553,11 @@ function renderTopology(items) {
       n.vy += (H/2 - n.y) * 0.01 * ALPHA;
       n.vx *= DAMP; n.vy *= DAMP;
       n.x += n.vx; n.y += n.vy;
-      // Boundary clamp
-      n.x = Math.max(n.radius + 5, Math.min(W - n.radius - 5, n.x));
-      n.y = Math.max(n.radius + 5, Math.min(H - n.radius - 5, n.y));
+      // Boundary clamp (padding so text labels aren't cut off)
+      const marginX = n.radius + 60;
+      const marginY = n.radius + 30;
+      n.x = Math.max(marginX, Math.min(W - marginX, n.x));
+      n.y = Math.max(marginY, Math.min(H - marginY, n.y));
     });
     ALPHA = Math.max(0, ALPHA - 0.008);
   }

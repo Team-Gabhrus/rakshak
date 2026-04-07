@@ -483,7 +483,7 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
     await db.flush()
 
     # Create/Update NameserverRecord based on real DNS enumeration
-    hostname = target.replace("https://", "").replace("http://", "").split("/")[0]
+    hostname = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
     try:
         import socket
         from app.models.asset import NameserverRecord
