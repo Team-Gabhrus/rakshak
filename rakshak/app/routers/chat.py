@@ -5,8 +5,10 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from pydantic import BaseModel
 from typing import Optional
+from dotenv import load_dotenv
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, delete
 from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage, ChatSessionStatus
 from app.models.user import User
@@ -17,9 +19,9 @@ from app.services.audit_service import log_event
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
-# Gemini Flash API integration
+load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-2.0-flash-exp"
+GEMINI_MODEL = "gemini-3-flash-preview"
 
 
 class StartChatRequest(BaseModel):
@@ -28,7 +30,6 @@ class StartChatRequest(BaseModel):
 
 
 class SendMessageRequest(BaseModel):
-    session_id: int
     message: str
 
 
@@ -117,7 +118,7 @@ async def delete_chat_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    """Delete a chat session (soft delete - archive)."""
+    """Delete a chat session and all its messages."""
     result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
     session = result.scalar_one_or_none()
     if not session:
@@ -126,10 +127,11 @@ async def delete_chat_session(
     if session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    session.status = ChatSessionStatus.archived
+    await db.execute(delete(ChatMessage).where(ChatMessage.session_id == session_id))
+    await db.execute(delete(ChatSession).where(ChatSession.id == session_id))
     await db.commit()
 
-    await log_event(db, "chat_session_deleted", f"Session #{session_id} archived", current_user.id, current_user.username)
+    return {"status": "success", "message": "Session and all messages deleted"}
 
     return {"message": "Session archived successfully"}
 
@@ -178,11 +180,10 @@ async def get_session_messages(
 async def send_chat_message(
     session_id: int,
     req: SendMessageRequest,
-    background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    """Send a message to the chatbot and get a response."""
+    """Send a message to the chatbot and get a streamed response."""
     # Verify session
     result = await db.execute(select(ChatSession).where(ChatSession.id == session_id))
     session = result.scalar_one_or_none()
@@ -204,95 +205,75 @@ async def send_chat_message(
     session.updated_at = datetime.utcnow()
     await db.commit()
 
-    # Generate response in background
-    background_tasks.add_task(_generate_chat_response, session_id, current_user.id, db)
+    asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
+    asset = asset_result.scalar_one_or_none()
 
-    return {
-        "message_id": user_msg.id,
-        "status": "processing",
-        "message": "Your message has been received. Processing response...",
-    }
+    # Get last 15-20 messages for context
+    msg_result = await db.execute(
+        select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(desc(ChatMessage.created_at)).limit(40)
+    )
+    recent_messages = list(reversed(msg_result.scalars().all()))
 
+    # Get CBOM data for system prompt
+    cbom_result = await db.execute(
+        select(CBOMSnapshot).where(CBOMSnapshot.target_url == asset.url).order_by(desc(CBOMSnapshot.created_at)).limit(1)
+    )
+    cbom = cbom_result.scalar_one_or_none()
 
-async def _generate_chat_response(session_id: int, user_id: int, db: AsyncSession):
-    """Generate chatbot response using Gemini Flash."""
-    from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
-    from app.config import settings
+    system_prompt = await _build_system_prompt(asset, cbom)
 
-    # Create a new session for this task
-    engine = create_async_engine(settings.DATABASE_URL)
-    AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
+    messages_for_api = []
+    for msg in recent_messages:
+        messages_for_api.append({
+            "role": msg.role,
+            "parts": [{"text": msg.content}]
+        })
 
-    async with AsyncSessionLocal() as task_db:
-        # Get session and asset
-        sess_result = await task_db.execute(select(ChatSession).where(ChatSession.id == session_id))
-        session = sess_result.scalar_one_or_none()
-        if not session:
-            return
+    import google.generativeai as genai
+    genai.configure(api_key=GEMINI_API_KEY)
+    model = genai.GenerativeModel(
+        model_name=GEMINI_MODEL,
+        system_instruction=system_prompt,
+        generation_config={
+            "temperature": 0.7,
+            "top_p": 0.95,
+            "max_output_tokens": 2048,
+        }
+    )
 
-        asset_result = await task_db.execute(select(Asset).where(Asset.id == session.asset_id))
-        asset = asset_result.scalar_one_or_none()
-        if not asset:
-            return
-
-        # Get last 15-20 messages for context
-        msg_result = await task_db.execute(
-            select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(desc(ChatMessage.created_at)).limit(40)
-        )
-        recent_messages = list(reversed(msg_result.scalars().all()))
-
-        # Get CBOM data for system prompt
-        cbom_result = await task_db.execute(
-            select(CBOMSnapshot).where(CBOMSnapshot.target_url == asset.url).order_by(desc(CBOMSnapshot.created_at)).limit(1)
-        )
-        cbom = cbom_result.scalar_one_or_none()
-
-        # Build system prompt
-        system_prompt = await _build_system_prompt(asset, cbom)
-
-        # Build conversation history
-        messages_for_api = []
-        for msg in recent_messages:
-            messages_for_api.append({
-                "role": msg.role,
-                "parts": [{"text": msg.content}]
-            })
-
+    async def generate_response():
         try:
-            # Call Gemini Flash API
-            import google.generativeai as genai
-            genai.configure(api_key=GEMINI_API_KEY)
-            model = genai.GenerativeModel(
-                model_name=GEMINI_MODEL,
-                system_instruction=system_prompt,
-                generation_config={
-                    "temperature": 0.7,
-                    "top_p": 0.95,
-                    "max_output_tokens": 2048,
-                }
-            )
+            from app.database import AsyncSessionLocal
+            response = await model.generate_content_async(messages_for_api, stream=True)
+            full_reply = ""
+            async for chunk in response:
+                if chunk.text:
+                    full_reply += chunk.text
+                    yield chunk.text
 
-            # Send message with history
-            response = model.generate_content(
-                messages_for_api,
-                stream=False,
-            )
-
-            assistant_reply = response.text
+            # After yielding all chunks, store assistant response in a new DB session
+            async with AsyncSessionLocal() as task_db:
+                task_sess = await task_db.execute(select(ChatSession).where(ChatSession.id == session_id))
+                tsession = task_sess.scalar_one()
+                assistant_msg = ChatMessage(
+                    session_id=session_id,
+                    user_id=current_user.id,
+                    role="assistant",
+                    content=full_reply,
+                )
+                task_db.add(assistant_msg)
+                tsession.message_count += 1
+                await task_db.commit()
 
         except Exception as e:
-            assistant_reply = f"I encountered an error while processing your request: {str(e)}. Please try again or contact support."
+            error_msg = f"\n\nI encountered an error while processing your request: {str(e)}. Please try again."
+            yield error_msg
 
-        # Store assistant response
-        assistant_msg = ChatMessage(
-            session_id=session_id,
-            user_id=user_id,
-            role="assistant",
-            content=assistant_reply,
-        )
-        task_db.add(assistant_msg)
-        session.message_count += 1
-        await task_db.commit()
+    return StreamingResponse(generate_response(), media_type="text/plain")
+
+
+async def _generate_chat_response(*args, **kwargs):
+    pass
 
 
 async def _build_system_prompt(asset: Asset, cbom: CBOMSnapshot) -> str:
