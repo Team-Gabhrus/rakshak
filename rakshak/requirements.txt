@@ -28,6 +28,9 @@ httpx>=0.25.0
 # Scheduling
 apscheduler>=3.10.0
 
+# LLM / Chatbot
+google-generativeai>=0.3.0
+
 # Utilities
 python-dotenv>=1.0.0
 websockets>=12.0

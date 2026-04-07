@@ -1,0 +1,360 @@
+{% extends "base.html" %}
+{% block title %}Chat — Rakshak{% endblock %}
+{% block content %}
+<div class="rk-fade-in" style="display: flex; height: 100vh; gap: 1rem; padding: 1rem; overflow: hidden;">
+  
+  <!-- Sidebar: Sessions -->
+  <div style="width: 320px; background: var(--rk-surface); border-radius: 8px; border: 1px solid var(--rk-border); display: flex; flex-direction: column; overflow: hidden;">
+    <div style="padding: 1.5rem; border-bottom: 1px solid var(--rk-border);">
+      <h2 style="margin: 0 0 1rem 0; font-size: 1.1rem; color: var(--rk-text);">Chat Sessions</h2>
+      <button class="rk-btn rk-btn-primary rk-btn-sm" onclick="openNewSessionModal()" style="width: 100%;"><i class="bi bi-plus-lg"></i> New Session</button>
+    </div>
+
+    <div style="flex: 1; overflow-y: auto; padding: 0.5rem;">
+      <div id="sessionsList">
+        <div class="text-center text-muted py-5">
+          <p style="font-size: 0.85rem;">No chat sessions yet. Start one to begin!</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Chat Area -->
+  <div style="flex: 1; background: var(--rk-surface); border-radius: 8px; border: 1px solid var(--rk-border); display: flex; flex-direction: column; overflow: hidden;">
+    
+    <!-- Header -->
+    <div id="chatHeader" style="padding: 1.5rem; border-bottom: 1px solid var(--rk-border); display: none;">
+      <div style="display: flex; justify-content: space-between; align-items: start;">
+        <div>
+          <h2 id="chatTitle" style="margin: 0; color: var(--rk-text); font-size: 1.3rem;"></h2>
+          <p id="chatAssetInfo" style="margin: 0.5rem 0 0 0; color: #999; font-size: 0.85rem;"></p>
+        </div>
+        <button class="btn btn-sm text-danger px-2" onclick="deleteCurrentSession()" title="Delete Session"><i class="bi bi-trash"></i></button>
+      </div>
+    </div>
+
+    <!-- No Session Selected State -->
+    <div id="noSessionState" style="flex: 1; display: flex; align-items: center; justify-content: center; padding: 2rem;">
+      <div style="text-align: center;">
+        <i class="bi bi-chat-dots-fill" style="font-size: 3rem; color: #999; display: block; margin-bottom: 1rem;"></i>
+        <h3 style="color: var(--rk-text); margin-bottom: 0.5rem;">No Session Selected</h3>
+        <p style="color: #999; margin-bottom: 1.5rem;">Start a new session or select an existing one from the sidebar</p>
+        <button class="rk-btn rk-btn-primary" onclick="openNewSessionModal()"><i class="bi bi-plus-lg"></i> New Session</button>
+      </div>
+    </div>
+
+    <!-- Messages Area -->
+    <div id="messagesArea" style="flex: 1; overflow-y: auto; padding: 1.5rem; display: none; background: var(--rk-surface);">
+      <div id="messagesList"></div>
+    </div>
+
+    <!-- Input Area -->
+    <div id="inputArea" style="padding: 1.5rem; border-top: 1px solid var(--rk-border); display: none; background: var(--rk-surface);">
+      <div style="display: flex; gap: 1rem;">
+        <textarea id="messageInput" placeholder="Ask about this asset's security posture, PQC readiness, remediation steps..." class="rk-form-control" style="flex: 1; resize: none; height: 60px;" onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}" autofocus></textarea>
+        <button class="rk-btn rk-btn-primary" onclick="sendMessage()" style="align-self: flex-end; height: fit-content;"><i class="bi bi-send-fill"></i></button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- New Session Modal -->
+<div class="modal fade" id="newSessionModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content" style="background: var(--rk-surface); border: 1px solid var(--rk-border);">
+      <div class="modal-header" style="border-color: var(--rk-border);">
+        <h5 class="modal-title" style="color: var(--rk-text);">Start New Chat Session</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-3">
+          <label class="rk-form-label">Select Asset *</label>
+          <select class="rk-form-control" id="assetSelectModal" onchange="updateAssetInfo()">
+            <option value="">Loading assets...</option>
+          </select>
+          <small class="text-muted" id="assetDetails" style="display: block; margin-top: 0.5rem;"></small>
+        </div>
+        <div class="mb-3">
+          <label class="rk-form-label">Session Title (Optional)</label>
+          <input class="rk-form-control" id="sessionTitle" placeholder="e.g., PQC Migration Planning">
+        </div>
+      </div>
+      <div class="modal-footer" style="border-color: var(--rk-border);">
+        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
+        <button class="rk-btn rk-btn-primary" onclick="createNewSession()"><i class="bi bi-plus-lg"></i> Start Session</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+let currentSession = null;
+let allAssets = [];
+let sessionRefreshTimer = null;
+
+async function loadAssets() {
+  const res = await API.get('/api/assets?page_size=10000');
+  if (!res) return;
+  const d = await res.json();
+  allAssets = d.assets || [];
+  
+  const select = document.getElementById('assetSelectModal');
+  select.innerHTML = '<option value="">Choose an asset...</option>' + 
+    allAssets.map(a => `<option value="${a.id}" data-url="${a.url}" data-type="${a.asset_type}" data-risk="${a.risk_level}">${a.name || a.url}</option>`).join('');
+}
+
+function updateAssetInfo() {
+  const assetId = parseInt(document.getElementById('assetSelectModal').value);
+  const asset = allAssets.find(a => a.id === assetId);
+  const details = document.getElementById('assetDetails');
+  if (asset) {
+    const riskColor = getRiskColor(asset.risk_level);
+    details.innerHTML = `<strong>${asset.url}</strong> • Type: ${asset.asset_type} • Risk: <span style="color:${riskColor};">${asset.risk_level}</span>`;
+  }
+}
+
+function openNewSessionModal() {
+  loadAssets();
+  new bootstrap.Modal(document.getElementById('newSessionModal')).show();
+}
+
+async function createNewSession() {
+  const assetId = parseInt(document.getElementById('assetSelectModal').value);
+  const title = document.getElementById('sessionTitle').value;
+  
+  if (!assetId) {
+    showToast('Please select an asset', 'warning');
+    return;
+  }
+
+  const res = await API.post('/api/chat/sessions/start', {
+    asset_id: assetId,
+    title: title || null,
+  });
+
+  if (res?.ok) {
+    const d = await res.json();
+    showToast('Chat session started!', 'success');
+    bootstrap.Modal.getInstance(document.getElementById('newSessionModal')).hide();
+    loadSessions();
+    selectSession(d.session_id);
+  } else {
+    showToast('Failed to create session', 'danger');
+  }
+}
+
+async function loadSessions() {
+  const res = await API.get('/api/chat/sessions');
+  if (!res) return;
+  
+  const sessions = await res.json();
+  const list = document.getElementById('sessionsList');
+  
+  if (!sessions.length) {
+    list.innerHTML = `<div class="text-center text-muted py-5"><p style="font-size: 0.85rem;">No chat sessions yet. Start one!</p></div>`;
+    return;
+  }
+
+  list.innerHTML = sessions.map(s => `
+    <div class="rk-stat-card" style="padding: 1rem; margin-bottom: 0.5rem; cursor: pointer; border: 2px solid ${currentSession?.id === s.id ? 'var(--rk-accent)' : 'var(--rk-border)'}; transition: all 0.2s;" onclick="selectSession(${s.id})">
+      <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+        <strong style="font-size: 0.9rem; color: var(--rk-text);">${s.title}</strong>
+        <span class="badge ${s.status === 'active' ? 'bg-success' : 'bg-secondary'}" style="font-size: 0.7rem;">${s.status}</span>
+      </div>
+      <p style="margin: 0; font-size: 0.8rem; color: #999;">${s.asset_name}</p>
+      <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: #666;">${s.message_count} messages</p>
+    </div>
+  `).join('');
+}
+
+async function selectSession(sessionId) {
+  const res = await API.get(`/api/chat/sessions/${sessionId}/messages`);
+  if (!res) return;
+
+  const d = await res.json();
+  currentSession = {
+    id: sessionId,
+    asset_id: d.asset_id,
+    asset_name: d.asset_name,
+    asset_url: d.asset_url,
+  };
+
+  // Update header
+  const header = document.getElementById('chatHeader');
+  const noSession = document.getElementById('noSessionState');
+  const messagesArea = document.getElementById('messagesArea');
+  const inputArea = document.getElementById('inputArea');
+
+  header.style.display = 'block';
+  noSession.style.display = 'none';
+  messagesArea.style.display = 'block';
+  inputArea.style.display = 'block';
+
+  document.getElementById('chatTitle').textContent = `Chat with ${currentSession.asset_name}`;
+  document.getElementById('chatAssetInfo').textContent = `Asset ID: ${currentSession.asset_id} • ${currentSession.asset_url}`;
+
+  // Render messages
+  renderMessages(d.messages);
+  loadSessions();
+}
+
+function renderMessages(messages) {
+  const list = document.getElementById('messagesList');
+  
+  if (!messages.length) {
+    list.innerHTML = `<div style="text-align: center; color: #999; padding: 2rem;"><p>Start the conversation by asking about this asset's security posture!</p></div>`;
+    return;
+  }
+
+  list.innerHTML = messages.map(m => {
+    const isUser = m.role === 'user';
+    return `
+      <div style="margin-bottom: 1.5rem; display: flex; ${isUser ? 'justify-content: flex-end;' : 'justify-content: flex-start;'}">
+        <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: ${isUser ? 'var(--rk-accent)' : 'var(--rk-border)'}; color: ${isUser ? 'white' : 'var(--rk-text)'}; line-height: 1.5; word-wrap: break-word;">
+          <p style="margin: 0; white-space: pre-wrap;">${escapeHtml(m.content)}</p>
+          <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; opacity: 0.7;">${new Date(m.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</p>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  // Scroll to bottom
+  setTimeout(() => {
+    const area = document.getElementById('messagesArea');
+    area.scrollTop = area.scrollHeight;
+  }, 0);
+}
+
+async function sendMessage() {
+  if (!currentSession) return;
+
+  const input = document.getElementById('messageInput');
+  const message = input.value.trim();
+
+  if (!message) {
+    showToast('Please enter a message', 'warning');
+    return;
+  }
+
+  input.value = '';
+  input.focus();
+
+  // Immediately show user message
+  const list = document.getElementById('messagesList');
+  if (list.innerHTML.includes('Start the conversation')) {
+    list.innerHTML = '';
+  }
+
+  list.innerHTML += `
+    <div style="margin-bottom: 1.5rem; display: flex; justify-content: flex-end;">
+      <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: var(--rk-accent); color: white; line-height: 1.5; word-wrap: break-word;">
+        <p style="margin: 0; white-space: pre-wrap;">${escapeHtml(message)}</p>
+      </div>
+    </div>
+  `;
+
+  // Show loading indicator
+  list.innerHTML += `
+    <div id="loadingIndicator" style="margin-bottom: 1.5rem; display: flex; justify-content: flex-start;">
+      <div style="padding: 1rem; border-radius: 12px; background: var(--rk-border);">
+        <div class="spinner-border spinner-border-sm text-secondary" role="status"></div>
+        <span class="ms-2 text-muted">Rakshak is thinking...</span>
+      </div>
+    </div>
+  `;
+
+  // Scroll to bottom
+  const area = document.getElementById('messagesArea');
+  area.scrollTop = area.scrollHeight;
+
+  // Send message
+  const res = await API.post(`/api/chat/sessions/${currentSession.id}/message`, {
+    message: message,
+  });
+
+  if (res?.ok) {
+    // Poll for response
+    await pollForResponse();
+  } else {
+    showToast('Failed to send message', 'danger');
+    const loading = document.getElementById('loadingIndicator');
+    if (loading) loading.remove();
+  }
+}
+
+async function pollForResponse() {
+  let attempts = 0;
+  const maxAttempts = 120; // 2 minutes with 1-second intervals
+
+  const checkResponse = async () => {
+    attempts++;
+    const res = await API.get(`/api/chat/sessions/${currentSession.id}/messages`);
+    if (!res) return false;
+
+    const d = await res.json();
+    const messages = d.messages || [];
+
+    // Check if latest message is from assistant
+    if (messages.length > 0 && messages[messages.length - 1].role === 'assistant') {
+      renderMessages(messages);
+      return true;
+    }
+
+    if (attempts < maxAttempts) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      return checkResponse();
+    }
+
+    return false;
+  };
+
+  await checkResponse();
+}
+
+async function deleteCurrentSession() {
+  if (!currentSession) return;
+
+  const confirmed = await rkConfirm('Are you sure you want to delete this chat session?', 'Delete Session', true);
+  if (!confirmed) return;
+
+  const res = await API.delete(`/api/chat/sessions/${currentSession.id}`);
+  if (res?.ok) {
+    showToast('Session deleted', 'success');
+    currentSession = null;
+    document.getElementById('chatHeader').style.display = 'none';
+    document.getElementById('noSessionState').style.display = 'flex';
+    document.getElementById('messagesArea').style.display = 'none';
+    document.getElementById('inputArea').style.display = 'none';
+    loadSessions();
+  }
+}
+
+function escapeHtml(text) {
+  const map = {
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#039;'
+  };
+  return text.replace(/[&<>"']/g, m => map[m]);
+}
+
+function getRiskColor(risk) {
+  const colors = {
+    'critical': '#E74C3C',
+    'high': '#E67E22',
+    'medium': '#F1C40F',
+    'low': '#2ECC71'
+  };
+  return colors[risk] || '#95A5A6';
+}
+
+// Initial load
+loadSessions();
+setInterval(loadSessions, 5000);
+</script>
+{% endblock %}

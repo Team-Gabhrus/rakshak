@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db, get_db
-from app.routers import auth, scan, assets, cbom, pqc, rating, reports, webhooks, ws
+from app.routers import auth, scan, assets, cbom, pqc, rating, reports, webhooks, ws, chat
 from app.services.auth_service import create_user
 from app.models.user import UserRole
 
@@ -101,6 +101,7 @@ app.include_router(cbom.router)
 app.include_router(pqc.router)
 app.include_router(rating.router)
 app.include_router(reports.router)
+app.include_router(chat.router)
 app.include_router(webhooks.router)
 app.include_router(ws.router)
 
@@ -164,6 +165,11 @@ async def cyber_rating_page(request: Request):
 @app.get("/reporting", response_class=HTMLResponse)
 async def reporting_page(request: Request):
     return templates.TemplateResponse("reporting.html", {"request": request})
+
+
+@app.get("/chat", response_class=HTMLResponse)
+async def chat_page(request: Request):
+    return templates.TemplateResponse("chat.html", {"request": request})
 
 
 @app.get("/user-management", response_class=HTMLResponse)
