@@ -502,7 +502,9 @@ async function runSubdomainScan(pendingTargets = null) {
       
     } else {
       const err = await res?.json().catch(()=>({}));
-      resultEl.innerHTML = `<div class="text-danger">❌ Error: ${err?.detail || 'Subdomain scan failed'}</div>`;
+      let errStr = err?.detail || 'Subdomain scan failed';
+      if (typeof errStr === 'object') errStr = JSON.stringify(errStr);
+      resultEl.innerHTML = `<div class="text-danger">❌ Error: ${errStr}</div>`;
       resultEl.style.display = 'block';
     }
   } catch(e) {
