@@ -265,13 +265,21 @@ function renderMessages(messages) {
     return;
   }
 
-  list.innerHTML = messages.map(m => {
+  list.innerHTML = messages.map((m, idx) => {
     const isUser = m.role === 'user';
     const contentHtml = isUser ? escapeHtml(m.content) : DOMPurify.sanitize(marked.parse(m.content));
+    const actionBtns = !isUser ? `
+      <div style="display:flex; gap:0.4rem; margin-top:0.5rem; justify-content:flex-start;">
+        <button onclick="copyMessage(this)" data-raw="${encodeURIComponent(m.content)}" title="Copy" style="background:none;border:1px solid var(--rk-border);border-radius:6px;padding:3px 8px;cursor:pointer;color:#999;font-size:0.75rem;display:flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.color='var(--rk-accent)';this.style.borderColor='var(--rk-accent)'" onmouseout="this.style.color='#999';this.style.borderColor='var(--rk-border)'"><i class="bi bi-clipboard"></i> Copy</button>
+        ${idx === messages.length - 1 ? `<button onclick="retryLastMessage()" title="Retry" style="background:none;border:1px solid var(--rk-border);border-radius:6px;padding:3px 8px;cursor:pointer;color:#999;font-size:0.75rem;display:flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.color='var(--rk-accent)';this.style.borderColor='var(--rk-accent)'" onmouseout="this.style.color='#999';this.style.borderColor='var(--rk-border)'"><i class="bi bi-arrow-clockwise"></i> Retry</button>` : ''}
+      </div>` : '';
     return `
       <div style="margin-bottom: 1.5rem; display: flex; ${isUser ? 'justify-content: flex-end;' : 'justify-content: flex-start;'}">
-        <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: ${isUser ? 'var(--rk-accent)' : 'var(--rk-border)'}; color: ${isUser ? 'white' : 'var(--rk-text)'}; line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
-          <div class="${isUser ? '' : 'markdown-body'}" style="margin: 0;">${contentHtml}</div>
+        <div style="max-width: 70%;">
+          <div style="padding: 1rem; border-radius: 12px; background: ${isUser ? 'var(--rk-accent)' : 'var(--rk-border)'}; color: ${isUser ? 'white' : 'var(--rk-text)'}; line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
+            <div class="${isUser ? '' : 'markdown-body'}" style="margin: 0;">${contentHtml}</div>
+          </div>
+          ${actionBtns}
         </div>
       </div>
     `;
@@ -316,10 +324,13 @@ async function sendMessage() {
   const timeString = new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
   list.insertAdjacentHTML('beforeend', `
     <div id="container-${msgId}" style="margin-bottom: 1.5rem; display: flex; justify-content: flex-start;">
-      <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: var(--rk-border); color: var(--rk-text); line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
-        <div id="${msgId}" class="markdown-body" style="margin: 0;">
-          <div class="rk-typing-dots"><span></span><span></span><span></span></div>
+      <div style="max-width: 70%;">
+        <div style="padding: 1rem; border-radius: 12px; background: var(--rk-border); color: var(--rk-text); line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
+          <div id="${msgId}" class="markdown-body" style="margin: 0;">
+            <div class="rk-typing-dots"><span></span><span></span><span></span></div>
+          </div>
         </div>
+        <div id="actions-${msgId}" style="display:none; gap:0.4rem; margin-top:0.5rem; justify-content:flex-start;"></div>
       </div>
     </div>
   `);
@@ -350,6 +361,15 @@ async function sendMessage() {
       const { done, value } = await reader.read();
       if (done) {
         msgElement.innerHTML = DOMPurify.sanitize(marked.parse(fullResponse));
+        // Show action buttons
+        const actionsEl = document.getElementById(`actions-${msgId}`);
+        if (actionsEl) {
+          actionsEl.style.display = 'flex';
+          actionsEl.innerHTML = `
+            <button onclick="copyMessage(this)" data-raw="${encodeURIComponent(fullResponse)}" title="Copy" style="background:none;border:1px solid var(--rk-border);border-radius:6px;padding:3px 8px;cursor:pointer;color:#999;font-size:0.75rem;display:flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.color='var(--rk-accent)';this.style.borderColor='var(--rk-accent)'" onmouseout="this.style.color='#999';this.style.borderColor='var(--rk-border)'"><i class="bi bi-clipboard"></i> Copy</button>
+            <button onclick="retryLastMessage()" title="Retry" style="background:none;border:1px solid var(--rk-border);border-radius:6px;padding:3px 8px;cursor:pointer;color:#999;font-size:0.75rem;display:flex;align-items:center;gap:4px;transition:all 0.2s;" onmouseover="this.style.color='var(--rk-accent)';this.style.borderColor='var(--rk-accent)'" onmouseout="this.style.color='#999';this.style.borderColor='var(--rk-border)'"><i class="bi bi-arrow-clockwise"></i> Retry</button>
+          `;
+        }
         break;
       }
       
@@ -368,6 +388,30 @@ async function sendMessage() {
 }
 
 async function pollForResponse() {}
+
+function copyMessage(btn) {
+  const raw = decodeURIComponent(btn.getAttribute('data-raw'));
+  navigator.clipboard.writeText(raw).then(() => {
+    const orig = btn.innerHTML;
+    btn.innerHTML = '<i class="bi bi-check-lg"></i> Copied!';
+    btn.style.color = 'var(--rk-accent)';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = '#999'; }, 1500);
+  });
+}
+
+async function retryLastMessage() {
+  if (!currentSession) return;
+  // Reload messages, get the last user message, and resend
+  const res = await API.get(`/api/chat/sessions/${currentSession.id}/messages`);
+  if (!res) return;
+  const d = await res.json();
+  const userMsgs = d.messages.filter(m => m.role === 'user');
+  if (!userMsgs.length) { showToast('No message to retry', 'warning'); return; }
+  const lastUserMsg = userMsgs[userMsgs.length - 1].content;
+  document.getElementById('messageInput').value = lastUserMsg;
+  sendMessage();
+}
+
 async function deleteCurrentSession() {
   if (!currentSession) return;
 
