@@ -12,7 +12,7 @@ from sqlalchemy import select, desc, delete
 from app.database import get_db
 from app.models.chat import ChatSession, ChatMessage, ChatSessionStatus
 from app.models.user import User
-from app.models.asset import Asset
+from app.models.asset import Asset, AssetDiscovery, DiscoveryCategory
 from app.models.cbom import CBOMSnapshot
 from app.dependencies import require_any_role
 from app.services.audit_service import log_event
@@ -27,6 +27,7 @@ GEMINI_MODEL = "gemini-3-flash-preview"
 class StartChatRequest(BaseModel):
     asset_id: int
     title: Optional[str] = None
+    domain: Optional[str] = None  # Optional root domain for subdomain context
 
 
 class SendMessageRequest(BaseModel):
@@ -64,11 +65,18 @@ async def start_chat_session(
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
 
+    # Fetch domain context if provided
+    domain_context_json = None
+    if req.domain:
+        domain_data = await _fetch_domain_context(req.domain, db)
+        domain_context_json = json.dumps(domain_data)
+
     # Create session
     session = ChatSession(
         user_id=current_user.id,
         asset_id=req.asset_id,
         title=req.title or f"Chat with {asset.name or asset.url}",
+        domain_context_json=domain_context_json,
     )
     db.add(session)
     await db.commit()
@@ -81,6 +89,7 @@ async def start_chat_session(
         "asset_id": session.asset_id,
         "asset_name": asset.name or asset.url,
         "title": session.title,
+        "domain": req.domain,
         "message": "Chat session started. Ask me anything about this asset!",
     }
 
@@ -222,6 +231,11 @@ async def send_chat_message(
 
     system_prompt = await _build_system_prompt(asset, cbom)
 
+    # Inject domain context if available
+    if session.domain_context_json:
+        domain_ctx = json.loads(session.domain_context_json)
+        system_prompt += _format_domain_context(domain_ctx)
+
     messages_for_api = []
     for msg in recent_messages:
         messages_for_api.append({
@@ -341,3 +355,90 @@ def _format_list(items: list, key: str) -> str:
     if not items:
         return "- None"
     return "\n".join([f"- {item.get(key, str(item))}" for item in items[:10]])  # Limit to 10 items
+
+
+async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
+    """Fetch subdomain data for a root domain from AssetDiscovery."""
+    result = await db.execute(
+        select(AssetDiscovery).where(
+            AssetDiscovery.category == DiscoveryCategory.domain
+        )
+    )
+    discoveries = result.scalars().all()
+
+    subdomains = []
+    live_count = 0
+    dead_count = 0
+    for d in discoveries:
+        meta = json.loads(d.metadata_json) if d.metadata_json else {}
+        root = meta.get("root_domain", "")
+        # Match discoveries belonging to this root domain, or the domain itself
+        if root == domain or d.value == domain or d.value.endswith("." + domain):
+            dns_status = meta.get("dns_status", "unknown")
+            subdomains.append({
+                "hostname": d.value,
+                "dns_status": dns_status,
+                "ips": meta.get("ips", []),
+                "status": d.status.value if d.status else "new",
+            })
+            if dns_status == "live":
+                live_count += 1
+            elif dns_status == "dead":
+                dead_count += 1
+
+    return {
+        "root_domain": domain,
+        "total_subdomains": len(subdomains),
+        "live": live_count,
+        "dead": dead_count,
+        "subdomains": subdomains,
+    }
+
+
+def _format_domain_context(ctx: dict) -> str:
+    """Format domain context for injection into the system prompt."""
+    if not ctx or not ctx.get("subdomains"):
+        return ""
+    lines = [f"\n\n## Domain Intelligence: {ctx['root_domain']}"]
+    lines.append(f"- **Total Subdomains:** {ctx['total_subdomains']}")
+    lines.append(f"- **Live:** {ctx['live']}")
+    lines.append(f"- **Dead (cert ghosts):** {ctx['dead']}")
+    lines.append("\n### Subdomain Details:")
+    for s in ctx["subdomains"][:30]:  # cap at 30
+        ips = ", ".join(s.get("ips", [])) if s.get("ips") else "no IPs"
+        lines.append(f"- {s['hostname']} — {s['dns_status']} ({ips}) [{s['status']}]")
+    lines.append("\nYou can use this subdomain data to answer questions about the domain's attack surface, exposure, and infrastructure.")
+    return "\n".join(lines)
+
+
+@router.get("/domain-context")
+async def get_domain_context(
+    domain: str,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """Get subdomain context for a root domain."""
+    return await _fetch_domain_context(domain, db)
+
+
+@router.get("/domains")
+async def list_available_domains(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    """List unique root domains from AssetDiscovery for the domain selector."""
+    result = await db.execute(
+        select(AssetDiscovery).where(
+            AssetDiscovery.category == DiscoveryCategory.domain
+        )
+    )
+    discoveries = result.scalars().all()
+
+    roots: dict[str, int] = {}
+    for d in discoveries:
+        meta = json.loads(d.metadata_json) if d.metadata_json else {}
+        root = meta.get("root_domain", "")
+        if root:
+            roots[root] = roots.get(root, 0) + 1
+
+    return [{"domain": k, "subdomain_count": v} for k, v in sorted(roots.items())]

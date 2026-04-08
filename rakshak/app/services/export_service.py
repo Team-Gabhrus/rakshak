@@ -91,6 +91,49 @@ async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list =
         }
         data["cyber_rating"] = compute_enterprise_score(counts)
 
+    if "discovery" in modules:
+        from app.models.asset import AssetDiscovery, DiscoveryCategory
+        result = await db.execute(
+            select(AssetDiscovery).where(AssetDiscovery.category == DiscoveryCategory.domain)
+        )
+        discoveries = result.scalars().all()
+        # Group by root_domain from metadata
+        domain_groups: dict[str, dict] = {}
+        for d in discoveries:
+            meta = json.loads(d.metadata_json) if d.metadata_json else {}
+            root = meta.get("root_domain", d.value)
+            if root not in domain_groups:
+                domain_groups[root] = {"root_domain": root, "subdomains": [], "live": 0, "dead": 0}
+            domain_groups[root]["subdomains"].append({
+                "name": d.value,
+                "dns_status": meta.get("dns_status", "unknown"),
+                "ips": meta.get("ips", []),
+                "status": d.status.value if d.status else "new",
+            })
+            if meta.get("dns_status") == "live":
+                domain_groups[root]["live"] += 1
+            elif meta.get("dns_status") == "dead":
+                domain_groups[root]["dead"] += 1
+        # If asset_ids provided, filter to matching root domains
+        if asset_ids:
+            from app.models.asset import Asset as AssetModel
+            res_a = await db.execute(select(AssetModel.url).where(AssetModel.id.in_(asset_ids)))
+            selected_urls = [u for u in res_a.scalars().all()]
+            selected_roots = set()
+            for u in selected_urls:
+                hostname = u.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+                parts = hostname.split(".")
+                if len(parts) >= 3:
+                    import re as _re
+                    if _re.match(r'^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$', ".".join(parts[-2:])):
+                        selected_roots.add(".".join(parts[-3:]))
+                    else:
+                        selected_roots.add(".".join(parts[-2:]))
+                elif len(parts) == 2:
+                    selected_roots.add(hostname)
+            domain_groups = {k: v for k, v in domain_groups.items() if k in selected_roots}
+        data["discovery"] = list(domain_groups.values())
+
     return data
 
 
@@ -394,6 +437,63 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
                     story.append(Spacer(1, 10))
                 
                 story.append(Spacer(1, 15))
+
+        # Domain Discovery Summary
+        if "discovery" in data and data["discovery"]:
+            story.append(PageBreak())
+            story.append(Paragraph("Domain Discovery Summary", heading_style))
+            story.append(Paragraph("Domains and their discovered subdomains via passive OSINT reconnaissance.", normal_style))
+            story.append(Spacer(1, 10))
+
+            disc_header = [["Root Domain", "Total Subdomains", "Live", "Dead"]]
+            disc_rows = disc_header + [
+                [
+                    str(dg.get("root_domain", "")),
+                    str(len(dg.get("subdomains", []))),
+                    Paragraph(f'<font color="#2ecc71">{dg.get("live", 0)}</font>', cell_style),
+                    Paragraph(f'<font color="#e74c3c">{dg.get("dead", 0)}</font>', cell_style),
+                ] for dg in data["discovery"]
+            ]
+            t_disc = Table(disc_rows, colWidths=[250, 120, 80, 80], hAlign="LEFT")
+            t_disc.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1A0509")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 9),
+                ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ]))
+            story.append(t_disc)
+            story.append(Spacer(1, 15))
+
+            # Detailed subdomain list per domain
+            for dg in data["discovery"]:
+                subs = dg.get("subdomains", [])
+                if not subs:
+                    continue
+                story.append(Paragraph(f"Subdomains of <b>{dg['root_domain']}</b> ({len(subs)} total)", subheading_style))
+                sub_header = [["Hostname", "DNS Status", "IPs", "Review Status"]]
+                sub_rows = sub_header + [
+                    [
+                        Paragraph(str(s.get("name", "")), cell_style),
+                        Paragraph(f'<font color="{"#2ecc71" if s.get("dns_status")=="live" else "#e74c3c"}">{s.get("dns_status", "unknown")}</font>', cell_style),
+                        str(", ".join(s.get("ips", [])) if s.get("ips") else "—"),
+                        str(s.get("status", "")),
+                    ] for s in subs[:50]  # cap at 50 per domain
+                ]
+                t_sub = Table(sub_rows, colWidths=[250, 80, 200, 80], hAlign="LEFT")
+                t_sub.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), HexColor("#A3112E")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                    ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                    ("FONTSIZE", (0, 0), (-1, -1), 8),
+                    ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ]))
+                story.append(t_sub)
+                story.append(Spacer(1, 10))
 
         # Append Legend
         story.append(PageBreak())

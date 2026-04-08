@@ -186,6 +186,9 @@ async def discover_subdomains(domain: str, db: AsyncSession) -> dict:
         if isinstance(r, set):
             passive_subs |= r
 
+    # Always include the root domain itself so it gets DNS-verified
+    passive_subs.add(domain)
+
     logger.info(f"OSINT Pass: Discovered {len(passive_subs)} raw subdomains for {domain}")
 
     # Pass 1 DNS verification (blocking, run in executor)

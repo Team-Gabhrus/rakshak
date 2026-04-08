@@ -30,3 +30,10 @@ async def init_db():
             await conn.execute(text("ALTER TABLE users ADD COLUMN otp_expiry DATETIME"))
     except Exception:
         pass # Columns already exist
+    
+    # Add domain_context_json column to chat_sessions
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN domain_context_json TEXT"))
+    except Exception:
+        pass # Column already exists

@@ -94,6 +94,13 @@
           <small class="text-muted" id="assetDetails" style="display: block; margin-top: 0.5rem;"></small>
         </div>
         <div class="mb-3">
+          <label class="rk-form-label">Select Domain (Optional)</label>
+          <select class="rk-form-control" id="domainSelectModal">
+            <option value="">None — no domain context</option>
+          </select>
+          <small class="text-muted" id="domainDetails" style="display: block; margin-top: 0.5rem;">Select a domain to include subdomain intelligence in AI responses.</small>
+        </div>
+        <div class="mb-3">
           <label class="rk-form-label">Session Title (Optional)</label>
           <input class="rk-form-control" id="sessionTitle" placeholder="e.g., PQC Migration Planning">
         </div>
@@ -137,6 +144,7 @@ function updateAssetInfo() {
 
 function openNewSessionModal() {
   loadAssets();
+  loadDomains();
   new bootstrap.Modal(document.getElementById('newSessionModal')).show();
 }
 
@@ -152,6 +160,7 @@ async function createNewSession() {
   const res = await API.post('/api/chat/sessions/start', {
     asset_id: assetId,
     title: title || null,
+    domain: document.getElementById('domainSelectModal').value || null,
   });
 
   if (res?.ok) {
@@ -373,5 +382,18 @@ function getRiskColor(risk) {
 // Initial load
 loadSessions();
 setInterval(loadSessions, 5000);
+
+async function loadDomains() {
+  try {
+    const res = await API.get('/api/chat/domains');
+    if (!res) return;
+    const domains = await res.json();
+    const select = document.getElementById('domainSelectModal');
+    select.innerHTML = '<option value="">None — no domain context</option>' +
+      domains.map(d => `<option value="${d.domain}">${d.domain} (${d.subdomain_count} subdomains)</option>`).join('');
+  } catch(e) {
+    console.warn('Could not load domains', e);
+  }
+}
 </script>
 {% endblock %}

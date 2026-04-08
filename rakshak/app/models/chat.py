@@ -22,6 +22,7 @@ class ChatSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     message_count: Mapped[int] = mapped_column(Integer, default=0)
+    domain_context_json: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ChatMessage(Base):

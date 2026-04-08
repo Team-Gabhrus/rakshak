@@ -397,6 +397,33 @@ async function deleteSelectedDiscoveries() {
 }
 
 
+async function scanSelectedDiscoveries() {
+  const checked = document.querySelectorAll('.disc-checkbox:checked');
+  if (checked.length === 0) {
+    showToast('Please select at least one discovered asset to scan.', 'warning');
+    return;
+  }
+  const targets = Array.from(checked).map(cb => cb.getAttribute('data-val')).filter(Boolean);
+  if (targets.length === 0) {
+    showToast('No valid targets selected.', 'warning');
+    return;
+  }
+  const confirmed = await rkConfirm(`Submit ${targets.length} target(s) to the vulnerability scanner?`);
+  if (!confirmed) return;
+  try {
+    const res = await API.post('/api/scan', { targets });
+    if (res?.ok) {
+      const data = await res.json();
+      showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+    } else {
+      const err = await res?.json().catch(() => ({}));
+      showToast(err?.detail?.message || 'Failed to start scan', 'danger');
+    }
+  } catch (e) {
+    showToast(`Error: ${e.message}`, 'danger');
+  }
+}
+
 function openSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'flex';
   document.getElementById('subdomainResult').style.display = 'none';
