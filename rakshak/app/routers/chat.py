@@ -63,7 +63,16 @@ async def start_chat_session(
         raise HTTPException(status_code=400, detail="Please select an asset or a domain")
 
     asset = None
-    if req.asset_id:
+    if req.domain and not req.asset_id:
+        # Domain-only session: find or create a placeholder asset for this domain
+        result = await db.execute(select(Asset).where(Asset.url == req.domain))
+        asset = result.scalar_one_or_none()
+        if not asset:
+            asset = Asset(name=f"Domain: {req.domain}", url=req.domain)
+            db.add(asset)
+            await db.commit()
+            await db.refresh(asset)
+    elif req.asset_id:
         result = await db.execute(select(Asset).where(Asset.id == req.asset_id))
         asset = result.scalar_one_or_none()
         if not asset:
@@ -72,8 +81,11 @@ async def start_chat_session(
     # Fetch domain context if domain provided
     domain_context_json = None
     if req.domain:
-        domain_data = await _fetch_domain_context(req.domain, db)
-        domain_context_json = json.dumps(domain_data)
+        try:
+            domain_data = await _fetch_domain_context(req.domain, db)
+            domain_context_json = json.dumps(domain_data)
+        except Exception:
+            domain_context_json = None
 
     # Build title
     if req.title:
@@ -86,16 +98,24 @@ async def start_chat_session(
         title = "Chat session"
 
     # Create session
-    session = ChatSession(
-        user_id=current_user.id,
-        asset_id=req.asset_id,
-        domain=req.domain,
-        title=title,
-        domain_context_json=domain_context_json,
-    )
-    db.add(session)
-    await db.commit()
-    await db.refresh(session)
+    try:
+        session = ChatSession(
+            user_id=current_user.id,
+            asset_id=asset.id,
+            title=title,
+            domain_context_json=domain_context_json,
+        )
+        # Set domain if the column exists
+        try:
+            session.domain = req.domain
+        except Exception:
+            pass
+        db.add(session)
+        await db.commit()
+        await db.refresh(session)
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=f"Failed to create session: {str(e)}")
 
     ctx_name = req.domain or (asset.name if asset else "unknown")
     await log_event(db, "chat_session_started", f"Session #{session.id} for {ctx_name}", current_user.id, current_user.username)
@@ -103,7 +123,7 @@ async def start_chat_session(
     return {
         "session_id": session.id,
         "asset_id": session.asset_id,
-        "domain": session.domain,
+        "domain": req.domain,
         "title": session.title,
         "message": "Chat session started. Ask me anything!",
     }
@@ -123,17 +143,24 @@ async def list_chat_sessions(
 
     sessions = []
     for session, asset in rows:
+        # Detect domain session from domain_context_json or title
+        is_domain = bool(session.domain_context_json) or (session.title and session.title.startswith("Chat about "))
         if asset:
             ctx_name = asset.name or asset.url
-        elif session.domain:
-            ctx_name = session.domain
         else:
             ctx_name = "Unknown"
+        
+        domain_val = None
+        try:
+            domain_val = session.domain
+        except Exception:
+            pass
+        
         sessions.append({
             "id": session.id,
             "asset_id": session.asset_id,
             "asset_name": ctx_name,
-            "domain": session.domain,
+            "domain": domain_val,
             "title": session.title,
             "status": session.status,
             "created_at": session.created_at.isoformat(),
@@ -183,11 +210,18 @@ async def get_session_messages(
     if session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # Get asset details for context (may be None for domain-only sessions)
+    # Get asset details for context
     asset = None
     if session.asset_id:
         asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
         asset = asset_result.scalar_one_or_none()
+
+    # Detect domain
+    domain_val = None
+    try:
+        domain_val = session.domain
+    except Exception:
+        pass
 
     # Get messages
     msg_result = await db.execute(select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at))
@@ -196,9 +230,9 @@ async def get_session_messages(
     return {
         "session_id": session.id,
         "asset_id": session.asset_id,
-        "asset_name": (asset.name or asset.url) if asset else (session.domain or "Domain session"),
-        "asset_url": asset.url if asset else (session.domain or ""),
-        "domain": session.domain,
+        "asset_name": (asset.name or asset.url) if asset else "Session",
+        "asset_url": asset.url if asset else "",
+        "domain": domain_val,
         "messages": [
             {
                 "id": m.id,
@@ -252,8 +286,26 @@ async def send_chat_message(
     )
     recent_messages = list(reversed(msg_result.scalars().all()))
 
+    # Detect if this is a domain session
+    is_domain_session = bool(session.domain_context_json)
+
     # Build system prompt based on session type
-    if asset:
+    if is_domain_session:
+        # Extract domain from context or title
+        domain_name = "unknown"
+        if session.domain_context_json:
+            try:
+                ctx = json.loads(session.domain_context_json)
+                domain_name = ctx.get("domain", "unknown")
+            except Exception:
+                pass
+        try:
+            if session.domain:
+                domain_name = session.domain
+        except Exception:
+            pass
+        system_prompt = _build_domain_system_prompt(domain_name)
+    elif asset:
         # Get CBOM data for system prompt
         cbom_result = await db.execute(
             select(CBOMSnapshot).where(CBOMSnapshot.target_url == asset.url).order_by(desc(CBOMSnapshot.created_at)).limit(1)
@@ -261,13 +313,15 @@ async def send_chat_message(
         cbom = cbom_result.scalar_one_or_none()
         system_prompt = await _build_system_prompt(asset, cbom)
     else:
-        # Domain-only session — build a domain-focused prompt
-        system_prompt = _build_domain_system_prompt(session.domain or "unknown")
+        system_prompt = "You are Rakshak AI, a cybersecurity assistant. Answer questions about security and PQC."
 
     # Inject domain context if available
     if session.domain_context_json:
-        domain_ctx = json.loads(session.domain_context_json)
-        system_prompt += _format_domain_context(domain_ctx)
+        try:
+            domain_ctx = json.loads(session.domain_context_json)
+            system_prompt += _format_domain_context(domain_ctx)
+        except Exception:
+            pass
 
     messages_for_api = []
     for msg in recent_messages:
