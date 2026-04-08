@@ -97,6 +97,37 @@ def _scrape_csp(domain: str, timeout: int = 10) -> set[str]:
     return set()
 
 
+def _scrape_jldc(domain: str, timeout: int = 20) -> set[str]:
+    """Extract subdomains using jldc.me (Anubis). Very effective for massive domains."""
+    try:
+        r = requests.get(f"https://jldc.me/anubis/subdomains/{domain}", timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            found = set()
+            for sub in data:
+                if sub.endswith(domain) and not sub.startswith('*'):
+                    found.add(sub)
+            return found
+    except Exception as e:
+        logger.warning(f"jldc.me failed for {domain}: {e}")
+    return set()
+
+def _scrape_certspotter(domain: str, timeout: int = 20) -> set[str]:
+    """Extract subdomains using CertSpotter."""
+    try:
+        r = requests.get(f"https://api.certspotter.com/v1/issuances?domain={domain}&include_subdomains=true&expand=dns_names", timeout=timeout)
+        if r.status_code == 200:
+            data = r.json()
+            found = set()
+            for cert in data:
+                for dns_name in cert.get("dns_names", []):
+                    if dns_name.endswith(domain) and not dns_name.startswith('*'):
+                        found.add(dns_name)
+            return found
+    except Exception as e:
+        logger.warning(f"certspotter failed for {domain}: {e}")
+    return set()
+
 def _generate_permutations(live_subdomains: set[str], domain: str) -> set[str]:
     """Generate smart guesses based on actively resolved subdomains."""
     environments = ['dev', 'uat', 'stg', 'test', 'api', 'v1', 'v2', 'staging', 'qa', 'internal', 'admin']
@@ -161,38 +192,55 @@ def verify_dns(subdomains: set[str], max_workers: int = 30) -> tuple[dict, list]
 
 # --- Main service function -------------------------------------
 
-async def discover_subdomains(domain: str, db: AsyncSession) -> dict:
+async def discover_subdomains(domain: str, db: AsyncSession, pending_targets: list[str] = None) -> dict:
     """
     Run passive subdomain discovery for `domain`, verify DNS for each result,
     and upsert findings into the AssetDiscovery table.
 
-    Returns a summary dict: {domain, total_found, live, dead, new_records}
+    If `pending_targets` is provided, skip OSINT scraping and process those directly.
+    Only processes up to 1000 targets at a time.
+    Returns a summary dict with 'has_more' and 'pending' remaining targets.
     """
     logger.info(f"Starting subdomain discovery for {domain}")
 
-    # Run all OSINT sources concurrently in a thread pool
-    loop = asyncio.get_event_loop()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
-        futs = [
-            loop.run_in_executor(ex, _scrape_crtsh, domain),
-            loop.run_in_executor(ex, _scrape_alienvault, domain),
-            loop.run_in_executor(ex, _scrape_wayback, domain),
-            loop.run_in_executor(ex, _scrape_csp, domain),
-        ]
-        results = await asyncio.gather(*futs, return_exceptions=True)
-
     passive_subs: set[str] = set()
-    for r in results:
-        if isinstance(r, set):
-            passive_subs |= r
+    
+    if pending_targets is not None:
+        passive_subs = set(pending_targets)
+        logger.info(f"Using {len(passive_subs)} pending targets provided by client.")
+    else:
+        # Run all OSINT sources concurrently in a thread pool
+        loop = asyncio.get_event_loop()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            futs = [
+                loop.run_in_executor(ex, _scrape_crtsh, domain),
+                loop.run_in_executor(ex, _scrape_alienvault, domain),
+                loop.run_in_executor(ex, _scrape_wayback, domain),
+                loop.run_in_executor(ex, _scrape_csp, domain),
+                loop.run_in_executor(ex, _scrape_jldc, domain),
+                loop.run_in_executor(ex, _scrape_certspotter, domain),
+            ]
+            results = await asyncio.gather(*futs, return_exceptions=True)
 
-    # Always include the root domain itself so it gets DNS-verified
-    passive_subs.add(domain)
+        for r in results:
+            if isinstance(r, set):
+                passive_subs |= r
 
-    logger.info(f"OSINT Pass: Discovered {len(passive_subs)} raw subdomains for {domain}")
+        # Always include the root domain itself so it gets DNS-verified
+        passive_subs.add(domain)
+
+    logger.info(f"Total raw candidates for DNS phase: {len(passive_subs)}")
+    
+    # Enforce chunking: Process only 1000 at a time
+    passive_list = list(passive_subs)
+    batch = passive_list[:1000]
+    remaining = passive_list[1000:]
+    
+    logger.info(f"Processing batch of {len(batch)} candidates. {len(remaining)} remaining.")
 
     # Pass 1 DNS verification (blocking, run in executor)
-    live, dead = await loop.run_in_executor(None, verify_dns, passive_subs)
+    if 'loop' not in locals(): loop = asyncio.get_event_loop()
+    live, dead = await loop.run_in_executor(None, verify_dns, set(batch))
     logger.info(f"OSINT DNS verified: {len(live)} live, {len(dead)} dead/ghost")
 
     # Pass 2: Permutation & Recursion
@@ -279,4 +327,6 @@ async def discover_subdomains(domain: str, db: AsyncSession) -> dict:
         "new_records": new_records,
         "live_hosts": sorted(live.keys()),
         "dead_hosts": sorted(dead),
+        "has_more": len(remaining) > 0,
+        "pending": remaining,
     }

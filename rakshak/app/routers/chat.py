@@ -575,11 +575,21 @@ async def list_available_domains(
     )
     discoveries = result.scalars().all()
 
-    roots: dict[str, int] = {}
+    roots: dict[str, list[str]] = {}
     for d in discoveries:
         meta = json.loads(d.metadata_json) if d.metadata_json else {}
         root = meta.get("root_domain", "")
         if root:
-            roots[root] = roots.get(root, 0) + 1
+            if root not in roots:
+                roots[root] = []
+            roots[root].append(d.value)
 
-    return [{"domain": k, "subdomain_count": v} for k, v in sorted(roots.items())]
+    # Sort subdomains within each root, and then sort roots by name
+    result_list = []
+    for k in sorted(roots.keys()):
+        result_list.append({
+            "domain": k,
+            "subdomain_count": len(roots[k]),
+            "subdomains": sorted(list(set(roots[k])))
+        })
+    return result_list

@@ -461,8 +461,23 @@ async function loadDomains() {
     if (!res) return;
     const domains = await res.json();
     const select = document.getElementById('domainSelectModal');
-    select.innerHTML = '<option value="">None — no domain context</option>' +
-      domains.map(d => `<option value="${d.domain}">${d.domain} (${d.subdomain_count} subdomains)</option>`).join('');
+    
+    let html = '<option value="">None — no domain context</option>';
+    
+    domains.forEach(d => {
+        html += `<optgroup label="${d.domain}">`;
+        html += `<option value="${d.domain}">${d.domain} (All ${d.subdomain_count} subdomains)</option>`;
+        if (d.subdomains && d.subdomains.length) {
+            d.subdomains.forEach(sub => {
+                if (sub !== d.domain) {
+                    html += `<option value="${sub}">${sub}</option>`;
+                }
+            });
+        }
+        html += `</optgroup>`;
+    });
+    
+    select.innerHTML = html;
   } catch(e) {
     console.warn('Could not load domains', e);
   }

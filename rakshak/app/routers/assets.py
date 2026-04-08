@@ -325,13 +325,17 @@ async def asset_metrics(
     }
 
 
+class SubdomainScanRequest(BaseModel):
+    domain: str
+    auto_scan: bool = False
+    pending_targets: Optional[list[str]] = None
+
 @router.post("/discover/subdomains")
 async def discover_subdomains_endpoint(
+    req: SubdomainScanRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
-    domain: str = Query(..., description="Root domain to scan, e.g. manipurrural.bank.in"),
-    auto_scan: bool = Query(False, description="Automatically submit live subdomains to vulnerability scanner"),
 ):
     """
     Run passive subdomain OSINT for a specific root domain.
@@ -340,9 +344,9 @@ async def discover_subdomains_endpoint(
     """
     from app.services.subdomain_service import discover_subdomains
     try:
-        result = await discover_subdomains(domain, db)
+        result = await discover_subdomains(req.domain, db, pending_targets=req.pending_targets)
         
-        if auto_scan and result.get("live_hosts"):
+        if req.auto_scan and result.get("live_hosts"):
             from app.services.scan_service import validate_targets, run_scan
             from app.models.scan import Scan
             from app.config import settings

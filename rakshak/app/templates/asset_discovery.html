@@ -452,16 +452,26 @@ function closeSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'none';
 }
 
-async function runSubdomainScan() {
+async function runSubdomainScan(pendingTargets = null) {
   const domain = document.getElementById('subdomainInput').value.trim();
   const autoScan = document.getElementById('subdomainAutoScan').checked;
   if (!domain) { showToast('Please enter a domain','error'); return; }
   const btn = document.getElementById('subdomainScanBtn');
   btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
   const resultEl = document.getElementById('subdomainResult');
-  resultEl.style.display = 'none';
+  if (!pendingTargets) {
+    resultEl.style.display = 'none';
+  } else {
+    resultEl.innerHTML = `<div class="text-info"><span class="rk-spinner" style="width:14px;height:14px"></span> Processing next batch of targets...</div>`;
+    resultEl.style.display = 'block';
+  }
+  
   try {
-    const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
+    const res = await API.post(`/api/assets/discover/subdomains`, {
+        domain: domain,
+        auto_scan: autoScan,
+        pending_targets: pendingTargets
+    });
     if (res?.ok) {
       const data = await res.json();
       let hostsHtml = '';
@@ -470,10 +480,26 @@ async function runSubdomainScan() {
           data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
           '</div>';
       }
-      resultEl.innerHTML = `<div class="text-success">✅ Done — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead (cert ghosts), <strong>${data.new_records}</strong> new records saved.</div>${hostsHtml}`;
+      
+      let statusHtml = `<div class="text-success">✅ Batch Complete — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead, <strong>${data.new_records}</strong> new records saved.</div>`;
+      if (data.has_more) {
+        statusHtml += `<div class="text-warning mt-1 fs-12">⚠️ <strong>${data.pending.length}</strong> targets remaining to process!</div>`;
+      }
+      
+      resultEl.innerHTML = statusHtml + hostsHtml;
       resultEl.style.display = 'block';
-      showToast(`Subdomain scan done: ${data.live} live hosts found`, 'success');
+      showToast(`Batch done: ${data.live} live hosts found`, 'success');
       setTimeout(loadDiscoveries, 600);
+      
+      // Pause check
+      if (data.has_more && data.pending && data.pending.length > 0) {
+          btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan Next Batch';
+          const confirmed = await rkConfirm(`Processed a batch of 1000 targets (${data.live} live). There are ${data.pending.length} targets remaining to be processed in background DNS resolution.\n\nContinue processing the next batch?`);
+          if (confirmed) {
+              return runSubdomainScan(data.pending);
+          }
+      }
+      
     } else {
       const err = await res?.json().catch(()=>({}));
       resultEl.innerHTML = `<div class="text-danger">❌ Error: ${err?.detail || 'Subdomain scan failed'}</div>`;
