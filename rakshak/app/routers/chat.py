@@ -25,9 +25,9 @@ GEMINI_MODEL = "gemini-3-flash-preview"
 
 
 class StartChatRequest(BaseModel):
-    asset_id: int
+    asset_id: Optional[int] = None
+    domain: Optional[str] = None
     title: Optional[str] = None
-    domain: Optional[str] = None  # Optional root domain for subdomain context
 
 
 class SendMessageRequest(BaseModel):
@@ -58,39 +58,54 @@ async def start_chat_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    """Start a new chat session for a specific asset."""
-    # Verify asset exists
-    result = await db.execute(select(Asset).where(Asset.id == req.asset_id))
-    asset = result.scalar_one_or_none()
-    if not asset:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    """Start a new chat session for a specific asset or domain."""
+    if not req.asset_id and not req.domain:
+        raise HTTPException(status_code=400, detail="Please select an asset or a domain")
 
-    # Fetch domain context if provided
+    asset = None
+    if req.asset_id:
+        result = await db.execute(select(Asset).where(Asset.id == req.asset_id))
+        asset = result.scalar_one_or_none()
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+    # Fetch domain context if domain provided
     domain_context_json = None
     if req.domain:
         domain_data = await _fetch_domain_context(req.domain, db)
         domain_context_json = json.dumps(domain_data)
 
+    # Build title
+    if req.title:
+        title = req.title
+    elif req.domain:
+        title = f"Chat about {req.domain}"
+    elif asset:
+        title = f"Chat with {asset.name or asset.url}"
+    else:
+        title = "Chat session"
+
     # Create session
     session = ChatSession(
         user_id=current_user.id,
         asset_id=req.asset_id,
-        title=req.title or f"Chat with {asset.name or asset.url}",
+        domain=req.domain,
+        title=title,
         domain_context_json=domain_context_json,
     )
     db.add(session)
     await db.commit()
     await db.refresh(session)
 
-    await log_event(db, "chat_session_started", f"Session #{session.id} for asset {asset.name}", current_user.id, current_user.username)
+    ctx_name = req.domain or (asset.name if asset else "unknown")
+    await log_event(db, "chat_session_started", f"Session #{session.id} for {ctx_name}", current_user.id, current_user.username)
 
     return {
         "session_id": session.id,
         "asset_id": session.asset_id,
-        "asset_name": asset.name or asset.url,
+        "domain": session.domain,
         "title": session.title,
-        "domain": req.domain,
-        "message": "Chat session started. Ask me anything about this asset!",
+        "message": "Chat session started. Ask me anything!",
     }
 
 
@@ -100,17 +115,25 @@ async def list_chat_sessions(
     current_user: User = Depends(require_any_role),
 ):
     """List all chat sessions for the current user."""
+    # Use outerjoin since domain-only sessions have no asset_id
     result = await db.execute(
-        select(ChatSession, Asset).join(Asset).where(ChatSession.user_id == current_user.id).order_by(desc(ChatSession.updated_at))
+        select(ChatSession, Asset).outerjoin(Asset, ChatSession.asset_id == Asset.id).where(ChatSession.user_id == current_user.id).order_by(desc(ChatSession.updated_at))
     )
     rows = result.all()
 
     sessions = []
     for session, asset in rows:
+        if asset:
+            ctx_name = asset.name or asset.url
+        elif session.domain:
+            ctx_name = session.domain
+        else:
+            ctx_name = "Unknown"
         sessions.append({
             "id": session.id,
             "asset_id": session.asset_id,
-            "asset_name": asset.name or asset.url,
+            "asset_name": ctx_name,
+            "domain": session.domain,
             "title": session.title,
             "status": session.status,
             "created_at": session.created_at.isoformat(),
@@ -160,9 +183,11 @@ async def get_session_messages(
     if session.user_id != current_user.id:
         raise HTTPException(status_code=403, detail="Unauthorized")
 
-    # Get asset details for context
-    asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
-    asset = asset_result.scalar_one_or_none()
+    # Get asset details for context (may be None for domain-only sessions)
+    asset = None
+    if session.asset_id:
+        asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
+        asset = asset_result.scalar_one_or_none()
 
     # Get messages
     msg_result = await db.execute(select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at))
@@ -170,9 +195,10 @@ async def get_session_messages(
 
     return {
         "session_id": session.id,
-        "asset_id": asset.id,
-        "asset_name": asset.name or asset.url,
-        "asset_url": asset.url,
+        "asset_id": session.asset_id,
+        "asset_name": (asset.name or asset.url) if asset else (session.domain or "Domain session"),
+        "asset_url": asset.url if asset else (session.domain or ""),
+        "domain": session.domain,
         "messages": [
             {
                 "id": m.id,
@@ -214,8 +240,11 @@ async def send_chat_message(
     session.updated_at = datetime.utcnow()
     await db.commit()
 
-    asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
-    asset = asset_result.scalar_one_or_none()
+    asset = None
+    cbom = None
+    if session.asset_id:
+        asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
+        asset = asset_result.scalar_one_or_none()
 
     # Get last 15-20 messages for context
     msg_result = await db.execute(
@@ -223,13 +252,17 @@ async def send_chat_message(
     )
     recent_messages = list(reversed(msg_result.scalars().all()))
 
-    # Get CBOM data for system prompt
-    cbom_result = await db.execute(
-        select(CBOMSnapshot).where(CBOMSnapshot.target_url == asset.url).order_by(desc(CBOMSnapshot.created_at)).limit(1)
-    )
-    cbom = cbom_result.scalar_one_or_none()
-
-    system_prompt = await _build_system_prompt(asset, cbom)
+    # Build system prompt based on session type
+    if asset:
+        # Get CBOM data for system prompt
+        cbom_result = await db.execute(
+            select(CBOMSnapshot).where(CBOMSnapshot.target_url == asset.url).order_by(desc(CBOMSnapshot.created_at)).limit(1)
+        )
+        cbom = cbom_result.scalar_one_or_none()
+        system_prompt = await _build_system_prompt(asset, cbom)
+    else:
+        # Domain-only session — build a domain-focused prompt
+        system_prompt = _build_domain_system_prompt(session.domain or "unknown")
 
     # Inject domain context if available
     if session.domain_context_json:
@@ -348,6 +381,30 @@ async def _build_system_prompt(asset: Asset, cbom: CBOMSnapshot) -> str:
 **Remember:** Your scope is strictly this asset. Do not discuss other assets or unrelated topics."""
 
     return system_prompt
+
+
+def _build_domain_system_prompt(domain: str) -> str:
+    """Build system prompt for domain-only sessions (no specific asset)."""
+    return f"""You are Rakshak AI, a specialized cybersecurity assistant focused on Post-Quantum Cryptography (PQC) and TLS security posture.
+
+## Domain Context
+- **Root Domain:** {domain}
+- This session is focused on the domain "{domain}" and all its discovered subdomains.
+
+## Your Role
+1. **Answer domain-specific questions:** Help users understand the attack surface, subdomain exposure, DNS health, and infrastructure layout of "{domain}".
+2. **Subdomain analysis:** Use the provided subdomain data (hostnames, DNS status, IPs) to answer questions about live/dead subdomains, common patterns, potential shadow IT, and exposed services.
+3. **Provide remediation guidance:** Help users understand how to reduce their attack surface, consolidate subdomains, and improve DNS hygiene.
+4. **PQC & TLS guidance:** When asked, advise on how to migrate the domain's infrastructure to post-quantum cryptography.
+5. **Scope enforcement:** If a user asks about unrelated topics, politely redirect them by saying: "I can only answer queries about the domain '{domain}' and its subdomains in this session."
+
+## Response Guidelines
+- Be technical but clear
+- Reference the subdomain data provided to you when answering
+- Highlight any interesting patterns (e.g., many dead subdomains, cloud provider concentration)
+- Be conversational and helpful
+
+**Remember:** Your scope is strictly this domain and its subdomains."""
 
 
 def _format_list(items: list, key: str) -> str:

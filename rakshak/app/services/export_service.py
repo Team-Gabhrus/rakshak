@@ -92,47 +92,50 @@ async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list =
         data["cyber_rating"] = compute_enterprise_score(counts)
 
     if "discovery" in modules:
-        from app.models.asset import AssetDiscovery, DiscoveryCategory
-        result = await db.execute(
-            select(AssetDiscovery).where(AssetDiscovery.category == DiscoveryCategory.domain)
-        )
-        discoveries = result.scalars().all()
-        # Group by root_domain from metadata
-        domain_groups: dict[str, dict] = {}
-        for d in discoveries:
-            meta = json.loads(d.metadata_json) if d.metadata_json else {}
-            root = meta.get("root_domain", d.value)
-            if root not in domain_groups:
-                domain_groups[root] = {"root_domain": root, "subdomains": [], "live": 0, "dead": 0}
-            domain_groups[root]["subdomains"].append({
-                "name": d.value,
-                "dns_status": meta.get("dns_status", "unknown"),
-                "ips": meta.get("ips", []),
-                "status": d.status.value if d.status else "new",
-            })
-            if meta.get("dns_status") == "live":
-                domain_groups[root]["live"] += 1
-            elif meta.get("dns_status") == "dead":
-                domain_groups[root]["dead"] += 1
-        # If asset_ids provided, filter to matching root domains
-        if asset_ids:
-            from app.models.asset import Asset as AssetModel
-            res_a = await db.execute(select(AssetModel.url).where(AssetModel.id.in_(asset_ids)))
-            selected_urls = [u for u in res_a.scalars().all()]
-            selected_roots = set()
-            for u in selected_urls:
-                hostname = u.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-                parts = hostname.split(".")
-                if len(parts) >= 3:
-                    import re as _re
-                    if _re.match(r'^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$', ".".join(parts[-2:])):
-                        selected_roots.add(".".join(parts[-3:]))
-                    else:
-                        selected_roots.add(".".join(parts[-2:]))
-                elif len(parts) == 2:
-                    selected_roots.add(hostname)
-            domain_groups = {k: v for k, v in domain_groups.items() if k in selected_roots}
-        data["discovery"] = list(domain_groups.values())
+        try:
+            from app.models.asset import AssetDiscovery, DiscoveryCategory
+            result = await db.execute(
+                select(AssetDiscovery).where(AssetDiscovery.category == DiscoveryCategory.domain)
+            )
+            discoveries = result.scalars().all()
+            # Group by root_domain from metadata
+            domain_groups: dict[str, dict] = {}
+            for d in discoveries:
+                meta = json.loads(d.metadata_json) if d.metadata_json else {}
+                root = meta.get("root_domain", d.value)
+                if root not in domain_groups:
+                    domain_groups[root] = {"root_domain": root, "subdomains": [], "live": 0, "dead": 0}
+                domain_groups[root]["subdomains"].append({
+                    "name": d.value,
+                    "dns_status": meta.get("dns_status", "unknown"),
+                    "ips": meta.get("ips", []),
+                    "status": d.status.value if d.status else "new",
+                })
+                if meta.get("dns_status") == "live":
+                    domain_groups[root]["live"] += 1
+                elif meta.get("dns_status") == "dead":
+                    domain_groups[root]["dead"] += 1
+            # If asset_ids provided, filter to matching root domains
+            if asset_ids:
+                from app.models.asset import Asset as AssetModel
+                res_a = await db.execute(select(AssetModel.url).where(AssetModel.id.in_(asset_ids)))
+                selected_urls = [u for u in res_a.scalars().all()]
+                selected_roots = set()
+                for u in selected_urls:
+                    hostname = u.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+                    parts = hostname.split(".")
+                    if len(parts) >= 3:
+                        import re as _re
+                        if _re.match(r'^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$', ".".join(parts[-2:])):
+                            selected_roots.add(".".join(parts[-3:]))
+                        else:
+                            selected_roots.add(".".join(parts[-2:]))
+                    elif len(parts) == 2:
+                        selected_roots.add(hostname)
+                domain_groups = {k: v for k, v in domain_groups.items() if k in selected_roots}
+            data["discovery"] = list(domain_groups.values())
+        except Exception:
+            data["discovery"] = []
 
     return data
 

@@ -87,18 +87,29 @@
       </div>
       <div class="modal-body">
         <div class="mb-3">
+          <label class="rk-form-label">Context Type *</label>
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="rk-btn rk-btn-sm rk-btn-primary" id="btnModeAsset" onclick="setChatMode('asset')" style="flex:1;">
+              <i class="bi bi-server"></i> Asset
+            </button>
+            <button class="rk-btn rk-btn-sm rk-btn-outline" id="btnModeDomain" onclick="setChatMode('domain')" style="flex:1;">
+              <i class="bi bi-globe2"></i> Domain
+            </button>
+          </div>
+        </div>
+        <div id="assetSection" class="mb-3">
           <label class="rk-form-label">Select Asset *</label>
           <select class="rk-form-control" id="assetSelectModal" onchange="updateAssetInfo()">
             <option value="">Loading assets...</option>
           </select>
           <small class="text-muted" id="assetDetails" style="display: block; margin-top: 0.5rem;"></small>
         </div>
-        <div class="mb-3">
-          <label class="rk-form-label">Select Domain (Optional)</label>
+        <div id="domainSection" class="mb-3" style="display: none;">
+          <label class="rk-form-label">Select Domain *</label>
           <select class="rk-form-control" id="domainSelectModal">
-            <option value="">None — no domain context</option>
+            <option value="">Loading domains...</option>
           </select>
-          <small class="text-muted" id="domainDetails" style="display: block; margin-top: 0.5rem;">Select a domain to include subdomain intelligence in AI responses.</small>
+          <small class="text-muted" id="domainDetails" style="display: block; margin-top: 0.5rem;">All subdomains and root domain data will be loaded into AI context.</small>
         </div>
         <div class="mb-3">
           <label class="rk-form-label">Session Title (Optional)</label>
@@ -120,6 +131,15 @@
 let currentSession = null;
 let allAssets = [];
 let sessionRefreshTimer = null;
+let chatMode = 'asset'; // 'asset' or 'domain'
+
+function setChatMode(mode) {
+  chatMode = mode;
+  document.getElementById('assetSection').style.display = mode === 'asset' ? 'block' : 'none';
+  document.getElementById('domainSection').style.display = mode === 'domain' ? 'block' : 'none';
+  document.getElementById('btnModeAsset').className = mode === 'asset' ? 'rk-btn rk-btn-sm rk-btn-primary' : 'rk-btn rk-btn-sm rk-btn-outline';
+  document.getElementById('btnModeDomain').className = mode === 'domain' ? 'rk-btn rk-btn-sm rk-btn-primary' : 'rk-btn rk-btn-sm rk-btn-outline';
+}
 
 async function loadAssets() {
   const res = await API.get('/api/assets?page_size=10000');
@@ -145,23 +165,31 @@ function updateAssetInfo() {
 function openNewSessionModal() {
   loadAssets();
   loadDomains();
+  setChatMode('asset');
   new bootstrap.Modal(document.getElementById('newSessionModal')).show();
 }
 
 async function createNewSession() {
-  const assetId = parseInt(document.getElementById('assetSelectModal').value);
   const title = document.getElementById('sessionTitle').value;
-  
-  if (!assetId) {
-    showToast('Please select an asset', 'warning');
-    return;
+  let payload = { title: title || null };
+
+  if (chatMode === 'asset') {
+    const assetId = parseInt(document.getElementById('assetSelectModal').value);
+    if (!assetId) {
+      showToast('Please select an asset', 'warning');
+      return;
+    }
+    payload.asset_id = assetId;
+  } else {
+    const domain = document.getElementById('domainSelectModal').value;
+    if (!domain) {
+      showToast('Please select a domain', 'warning');
+      return;
+    }
+    payload.domain = domain;
   }
 
-  const res = await API.post('/api/chat/sessions/start', {
-    asset_id: assetId,
-    title: title || null,
-    domain: document.getElementById('domainSelectModal').value || null,
-  });
+  const res = await API.post('/api/chat/sessions/start', payload);
 
   if (res?.ok) {
     const d = await res.json();

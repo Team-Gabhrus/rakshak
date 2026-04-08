@@ -16,13 +16,14 @@ class ChatSession(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, index=True)
     user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id"), nullable=False, index=True)
-    asset_id: Mapped[int] = mapped_column(Integer, ForeignKey("assets.id"), nullable=False, index=True)
+    asset_id: Mapped[int | None] = mapped_column(Integer, ForeignKey("assets.id"), nullable=True, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[ChatSessionStatus] = mapped_column(String(20), default=ChatSessionStatus.active)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     message_count: Mapped[int] = mapped_column(Integer, default=0)
     domain_context_json: Mapped[str | None] = mapped_column(Text, nullable=True)
+    domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
 
 class ChatMessage(Base):
