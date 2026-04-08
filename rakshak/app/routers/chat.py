@@ -469,7 +469,7 @@ def _format_list(items: list, key: str) -> str:
 
 
 async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
-    """Fetch subdomain data for a root domain from AssetDiscovery."""
+    """Fetch subdomain data and CBOM details for a root domain."""
     result = await db.execute(
         select(AssetDiscovery).where(
             AssetDiscovery.category == DiscoveryCategory.domain
@@ -497,6 +497,32 @@ async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
             elif dns_status == "dead":
                 dead_count += 1
 
+    # Fetch CBOM data for all these hostnames
+    hostnames = [s["hostname"] for s in subdomains]
+    asset_result = await db.execute(
+        select(Asset, CBOMSnapshot)
+        .outerjoin(CBOMSnapshot, CBOMSnapshot.asset_id == Asset.id)
+        .where(Asset.url.in_(hostnames))
+    )
+    asset_data = asset_result.all()
+    cbom_map = {}
+    for a, c in asset_data:
+        if c:
+            cbom_map[a.url] = {
+                "pqc_label": c.pqc_label,
+                "cbom_timestamp": c.created_at.isoformat() if c.created_at else None,
+                # Include counts rather than raw JSON to preserve token window
+                "algorithms_count": len(json.loads(c.algorithms_json or "[]")),
+                "protocols_count": len(json.loads(c.protocols_json or "[]")),
+                "certificates_count": len(json.loads(c.certificates_json or "[]")),
+            }
+        else:
+            cbom_map[a.url] = {"pqc_label": "Unknown", "algorithms_count": 0, "protocols_count": 0, "certificates_count": 0}
+
+    # Attach CBOM data to subdomains
+    for s in subdomains:
+        s["cbom"] = cbom_map.get(s["hostname"])
+
     return {
         "root_domain": domain,
         "total_subdomains": len(subdomains),
@@ -514,10 +540,14 @@ def _format_domain_context(ctx: dict) -> str:
     lines.append(f"- **Total Subdomains:** {ctx['total_subdomains']}")
     lines.append(f"- **Live:** {ctx['live']}")
     lines.append(f"- **Dead (cert ghosts):** {ctx['dead']}")
-    lines.append("\n### Subdomain Details:")
+    lines.append("\n### Subdomain Details and CBOM Context:")
     for s in ctx["subdomains"][:30]:  # cap at 30
         ips = ", ".join(s.get("ips", [])) if s.get("ips") else "no IPs"
-        lines.append(f"- {s['hostname']} — {s['dns_status']} ({ips}) [{s['status']}]")
+        cbom_info = ""
+        if s.get("cbom"):
+            c = s["cbom"]
+            cbom_info = f" | PQC: {c['pqc_label']} | Algos: {c['algorithms_count']} | Protos: {c['protocols_count']} | Certs: {c['certificates_count']}"
+        lines.append(f"- {s['hostname']} — {s['dns_status']} ({ips}) [{s['status']}]{cbom_info}")
     lines.append("\nYou can use this subdomain data to answer questions about the domain's attack surface, exposure, and infrastructure.")
     return "\n".join(lines)
 

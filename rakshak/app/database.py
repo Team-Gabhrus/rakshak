@@ -44,3 +44,16 @@ async def init_db():
             await conn.execute(text("ALTER TABLE chat_sessions ADD COLUMN domain VARCHAR(255)"))
     except Exception:
         pass # Column already exists
+
+    # Add asset_ids_json column to reports
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE reports ADD COLUMN asset_ids_json TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE scheduled_reports ADD COLUMN asset_ids_json TEXT"))
+    except Exception:
+        pass
