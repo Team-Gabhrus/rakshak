@@ -117,7 +117,9 @@ let currentCategory = 'domain';
 let currentStatus = '';
 let discData = [];
 let discCurrentPage = 1;
-const discPageSize = 10;
+const discPageSize = 100;
+let selectedDiscIds = new Set();
+let selectedDiscUrls = new Set();
 
 const HEADERS = {
   domain:     ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
@@ -313,7 +315,7 @@ function renderDiscRow(item, isChild, safeParentRoot, headers, statusBadge) {
     const rowClass = isChild ? `disc-row-${safeParentRoot}` : '';
     
     return `<tr ${rowStyle} class="${rowClass}">
-      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} onchange="updateSelectAllDisc()"></td>
+      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} ${selectedDiscIds.has(item.id.toString()) ? 'checked' : ''} onchange="updateSelectAllDisc()"></td>
       <td style="${isChild?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
@@ -353,7 +355,7 @@ async function triggerDiscover() {
 }
 
 function toggleAllDisc(checked) {
-  document.querySelectorAll('.disc-checkbox').forEach(cb => cb.checked = checked);
+  document.querySelectorAll('.disc-checkbox').forEach(cb => { cb.checked = checked; });
   updateSelectAllDisc();
 }
 
@@ -364,23 +366,33 @@ function toggleGroupCheck(root, checked) {
 
 function updateSelectAllDisc() {
   const all = document.querySelectorAll('.disc-checkbox');
-  const checked = document.querySelectorAll('.disc-checkbox:checked');
+  const checkedDOM = document.querySelectorAll('.disc-checkbox:checked');
   const selectAllCb = document.getElementById('selectAllDisc');
+  
+  all.forEach(cb => {
+    if (cb.checked) {
+      selectedDiscIds.add(cb.value);
+      selectedDiscUrls.add(cb.getAttribute('data-val'));
+    } else {
+      selectedDiscIds.delete(cb.value);
+      selectedDiscUrls.delete(cb.getAttribute('data-val'));
+    }
+  });
+
   if (selectAllCb) {
-    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
+    selectAllCb.checked = (all.length > 0 && all.length === checkedDOM.length);
   }
 }
 
 async function deleteSelectedDiscoveries() {
-  const checked = document.querySelectorAll('.disc-checkbox:checked');
-  if (checked.length === 0) {
+  if (selectedDiscIds.size === 0) {
     showToast('Please select at least one discovery record to delete.', 'warning');
     return;
   }
-  const confirmed = await rkConfirm(`Are you sure you want to delete ${checked.length} discovery records?`);
+  const confirmed = await rkConfirm(`Are you sure you want to delete ${selectedDiscIds.size} discovery records?`);
   if (!confirmed) return;
   
-  const ids = Array.from(checked).map(cb => cb.value);
+  const ids = Array.from(selectedDiscIds);
   let successCount = 0;
   
   for (const id of ids) {
@@ -394,17 +406,18 @@ async function deleteSelectedDiscoveries() {
     showToast('Failed to delete records.', 'danger');
   }
   
+  selectedDiscIds.clear();
+  selectedDiscUrls.clear();
   loadDiscoveries();
 }
 
 
 async function scanSelectedDiscoveries() {
-  const checked = document.querySelectorAll('.disc-checkbox:checked');
-  if (checked.length === 0) {
+  if (selectedDiscUrls.size === 0) {
     showToast('Please select at least one discovered asset to scan.', 'warning');
     return;
   }
-  const targets = Array.from(checked).map(cb => cb.getAttribute('data-val')).filter(Boolean);
+  const targets = Array.from(selectedDiscUrls).filter(Boolean);
   if (targets.length === 0) {
     showToast('No valid targets selected.', 'warning');
     return;
@@ -423,6 +436,10 @@ async function scanSelectedDiscoveries() {
   } catch (e) {
     showToast(`Error: ${e.message}`, 'danger');
   }
+  
+  selectedDiscIds.clear();
+  selectedDiscUrls.clear();
+  toggleAllDisc(false);
 }
 
 function openSubdomainModal() {

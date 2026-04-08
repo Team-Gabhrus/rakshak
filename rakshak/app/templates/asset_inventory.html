@@ -143,6 +143,8 @@ let currentPage = 1;
 let currentSortCol = 'created_at';
 let currentSortDir = 'desc';
 let searchTimer;
+let selectedAssetUrls = new Set();
+let selectedAssetIds = new Set();
 
 async function loadMetrics() {
   let url = '/api/assets/metrics';
@@ -254,7 +256,7 @@ function renderAssetPage(page) {
         if (assets.length > 1) {
             html += `
             <tr style="background:var(--rk-surface)">
-              <td><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.asset-checkbox-${gId}').forEach(cb=>cb.checked=this.checked); updateSelectAll();"></td>
+              <td><input type="checkbox" class="form-check-input group-checkbox-${gId}" onclick="document.querySelectorAll('.asset-checkbox-${gId}').forEach(cb=>{cb.checked=this.checked;}); updateSelectAll();"></td>
               <td>
                  <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.asset-row-${gId}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
                    <i class="bi bi-chevron-right"></i>
@@ -272,7 +274,7 @@ function renderAssetPage(page) {
           const prefix = isGrouped ? '<span class="text-muted me-2">↳</span>' : '';
           
           return `<tr ${rowStyle} class="${isGrouped ? 'asset-row-'+gId : ''}">
-            <td><input type="checkbox" class="form-check-input asset-checkbox ${isGrouped?'asset-checkbox-'+gId:''}" value="${a.url}" data-id="${a.id}" onchange="updateSelectAll()"></td>
+            <td><input type="checkbox" class="form-check-input asset-checkbox ${isGrouped?'asset-checkbox-'+gId:''}" value="${a.url}" data-id="${a.id}" ${selectedAssetUrls.has(a.url) ? 'checked' : ''} onchange="updateSelectAll()"></td>
             <td style="${isGrouped?'padding-left:1.5rem':''}">${prefix}<strong>${a.name||'—'}</strong></td>
             <td><a href="${a.url}" target="_blank" class="text-blue fs-12 cell-truncate" title="${a.url}">${a.url}</a></td>
             <td class="text-muted fs-12">${a.ipv4||'—'}</td>
@@ -368,25 +370,37 @@ async function scanAll() {
 }
 
 function toggleAll(checked) {
-  document.querySelectorAll('.asset-checkbox').forEach(cb => cb.checked = checked);
+  document.querySelectorAll('.asset-checkbox').forEach(cb => { cb.checked = checked; });
+  updateSelectAll();
 }
 
 function updateSelectAll() {
   const all = document.querySelectorAll('.asset-checkbox');
-  const checked = document.querySelectorAll('.asset-checkbox:checked');
+  const checkedDOM = document.querySelectorAll('.asset-checkbox:checked');
   const selectAllCb = document.getElementById('selectAllAssets');
+  
+  // Sync HTML state to global sets
+  all.forEach(cb => {
+    if (cb.checked) {
+      selectedAssetUrls.add(cb.value);
+      selectedAssetIds.add(cb.getAttribute('data-id'));
+    } else {
+      selectedAssetUrls.delete(cb.value);
+      selectedAssetIds.delete(cb.getAttribute('data-id'));
+    }
+  });
+
   if (selectAllCb) {
-    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
+    selectAllCb.checked = (all.length > 0 && all.length === checkedDOM.length);
   }
 }
 
   async function deleteSelected() {
-    const checked = document.querySelectorAll('.asset-checkbox:checked');
-    if (checked.length === 0) {
+    if (selectedAssetIds.size === 0) {
       showToast('Please select at least one asset to delete.', 'warning');
       return;
     }
-    const targets = Array.from(checked).map(cb => parseInt(cb.dataset.id)).filter(id => !isNaN(id));
+    const targets = Array.from(selectedAssetIds).map(id => parseInt(id)).filter(id => !isNaN(id));
     if (!targets.length) return;
     
     const confirmed = await rkConfirm(`Are you sure you want to delete ${targets.length} assets? All associated records will be permanently removed.`, 'Delete Selected Assets', true);
@@ -405,6 +419,8 @@ function updateSelectAll() {
     if (res.ok) {
       const data = await res.json();
       showToast(data.message, 'success');
+      selectedAssetIds.clear();
+      selectedAssetUrls.clear();
       toggleAll(false);
       loadAssets(1);
       loadMetrics();
@@ -415,16 +431,17 @@ function updateSelectAll() {
 
 
   async function scanSelected() {
-  const checked = document.querySelectorAll('.asset-checkbox:checked');
-  if (checked.length === 0) {
+  if (selectedAssetUrls.size === 0) {
     showToast('Please select at least one asset to scan.', 'warning');
     return;
   }
-  const targets = Array.from(checked).map(cb => cb.value);
+  const targets = Array.from(selectedAssetUrls);
   const scanRes = await API.post('/api/scan', {targets});
   if (!scanRes) return;
   const scanData = await scanRes.json();
   showToast(`Scan Selected started — Scan #${scanData.scan_id}, ${targets.length} targets.`,'success');
+  selectedAssetUrls.clear();
+  selectedAssetIds.clear();
   toggleAll(false);
 }
 
