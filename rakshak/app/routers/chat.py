@@ -17,6 +17,7 @@ from app.models.cbom import CBOMSnapshot
 from app.dependencies import require_any_role
 from app.services.audit_service import log_event
 from app.services.domain_service import (
+    get_assets_for_domains,
     get_latest_cbom_by_target,
     get_latest_scan_results_by_target,
     list_domain_inventory,
@@ -74,6 +75,19 @@ async def start_chat_session(
         asset = result.scalar_one_or_none()
         if not asset:
             raise HTTPException(status_code=404, detail="Asset not found")
+    elif req.domain:
+        domain_assets = await get_assets_for_domains(db, [req.domain])
+        if domain_assets:
+            # Anchor domain sessions to one real asset so older deployed schemas
+            # that still expect a non-null asset_id continue to work safely.
+            asset = sorted(
+                domain_assets,
+                key=lambda item: (
+                    item.last_scan or item.created_at,
+                    item.url or "",
+                ),
+                reverse=True,
+            )[0]
 
     # Fetch domain context if domain provided
     domain_context_json = None
@@ -81,8 +95,16 @@ async def start_chat_session(
         try:
             domain_data = await _fetch_domain_context(req.domain, db)
             domain_context_json = json.dumps(domain_data)
+            if not asset and domain_data.get("targets"):
+                first_target_url = domain_data["targets"][0].get("url")
+                if first_target_url:
+                    asset_result = await db.execute(select(Asset).where(Asset.url == first_target_url))
+                    asset = asset_result.scalar_one_or_none()
         except Exception:
             domain_context_json = None
+
+    if req.domain and not asset:
+        raise HTTPException(status_code=400, detail="Selected domain has no inventory-backed targets available for chat.")
 
     # Build title
     if req.title:

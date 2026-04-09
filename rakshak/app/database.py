@@ -45,6 +45,50 @@ async def init_db():
     except Exception:
         pass # Column already exists
 
+    # Older deployed SQLite databases created chat_sessions.asset_id as NOT NULL.
+    # Rebuild the table once so domain-only chat sessions can be stored safely.
+    try:
+        async with engine.begin() as conn:
+            rows = await conn.execute(text("PRAGMA table_info(chat_sessions)"))
+            columns = rows.fetchall()
+            asset_id_col = next((row for row in columns if row[1] == "asset_id"), None)
+            if asset_id_col and int(asset_id_col[3] or 0) == 1:
+                await conn.execute(text("PRAGMA foreign_keys=OFF"))
+                await conn.execute(text("""
+                    CREATE TABLE chat_sessions_new (
+                        id INTEGER PRIMARY KEY,
+                        user_id INTEGER NOT NULL,
+                        asset_id INTEGER,
+                        title VARCHAR(255) NOT NULL,
+                        status VARCHAR(20) NOT NULL,
+                        created_at DATETIME NOT NULL,
+                        updated_at DATETIME NOT NULL,
+                        message_count INTEGER NOT NULL DEFAULT 0,
+                        domain_context_json TEXT,
+                        domain VARCHAR(255),
+                        FOREIGN KEY(user_id) REFERENCES users (id),
+                        FOREIGN KEY(asset_id) REFERENCES assets (id)
+                    )
+                """))
+                await conn.execute(text("""
+                    INSERT INTO chat_sessions_new (
+                        id, user_id, asset_id, title, status, created_at, updated_at,
+                        message_count, domain_context_json, domain
+                    )
+                    SELECT
+                        id, user_id, asset_id, title, status, created_at, updated_at,
+                        message_count, domain_context_json, domain
+                    FROM chat_sessions
+                """))
+                await conn.execute(text("DROP TABLE chat_sessions"))
+                await conn.execute(text("ALTER TABLE chat_sessions_new RENAME TO chat_sessions"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_user_id ON chat_sessions (user_id)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_asset_id ON chat_sessions (asset_id)"))
+                await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_chat_sessions_created_at ON chat_sessions (created_at)"))
+                await conn.execute(text("PRAGMA foreign_keys=ON"))
+    except Exception:
+        pass
+
     # Add asset_ids_json column to reports
     try:
         async with engine.begin() as conn:
