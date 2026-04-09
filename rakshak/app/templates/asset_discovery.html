@@ -101,6 +101,7 @@ const discPageSize = 100;
 let selectedDiscIds = new Set();
 let selectedDiscUrls = new Set();
 let activeSubdomainJobId = null;
+let promptedDiscoveryScanJobs = new Set();
 
 const HEADERS = {
   domain:     ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
@@ -410,6 +411,9 @@ async function scanSelectedDiscoveries() {
     if (res?.ok) {
       const data = await res.json();
       showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+      if (typeof loadTaskStatus === 'function') loadTaskStatus();
+      await rkAlert(`Scan #${data.scan_id} was queued for ${data.target_count} target(s). Redirecting to Home so you can monitor Recent Scans and live progress.`, 'Scan Queued', 'info');
+      window.location.href = '/home';
     } else {
       const err = await res?.json().catch(() => ({}));
       showToast(err?.detail?.message || 'Failed to start scan', 'danger');
@@ -476,6 +480,14 @@ async function runSubdomainScan(pendingTargets = null) {
         document.getElementById('scanDiscoveredDiscoveryBtn').classList.toggle('d-none', !(live > 0));
         showToast(`Discovery finished: ${live} live / ${dead} dead`, 'success');
         loadDiscoveries();
+        if (typeof loadTaskStatus === 'function') loadTaskStatus();
+        if (live > 0 && activeSubdomainJobId && !promptedDiscoveryScanJobs.has(activeSubdomainJobId)) {
+          promptedDiscoveryScanJobs.add(activeSubdomainJobId);
+          const shouldScanNow = await rkConfirm(`Discovery finished with ${live} live target(s). Start the quantum vulnerability scan now?`, 'Start Quantum Scan');
+          if (shouldScanNow) {
+            await scanDiscoveredSubdomainTargets();
+          }
+        }
       }
 
       if (msg.phase === 'failed') {
@@ -511,6 +523,9 @@ async function scanDiscoveredSubdomainTargets() {
     return;
   }
   showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+  if (typeof loadTaskStatus === 'function') loadTaskStatus();
+  await rkAlert(`Scan #${data.scan_id} was queued for ${data.target_count} target(s). Redirecting to Home so you can monitor Recent Scans and live progress.`, 'Scan Queued', 'info');
+  window.location.href = '/home';
 }
 
 function renderTopology(items) {

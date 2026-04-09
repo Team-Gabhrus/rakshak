@@ -170,6 +170,99 @@
 <script>
 let scanWorkbenchMode = 'manual';
 let activeDiscoveryJobId = null;
+let activeScanSocket = null;
+let promptedDiscoveryScanJobs = new Set();
+
+function closeActiveScanSocket() {
+  if (activeScanSocket) {
+    try { activeScanSocket.close(); } catch (err) {}
+    activeScanSocket = null;
+  }
+}
+
+function appendScanLog(message, color = 'var(--rk-text-muted)') {
+  const log = document.getElementById('scanLog');
+  if (!log) return;
+  log.innerHTML += `<div style="padding:1px 0;color:${color}">${message}</div>`;
+  log.scrollTop = log.scrollHeight;
+}
+
+function showQueuedScanProgress(scanId, targetCount) {
+  const progressEl = document.getElementById('scanProgress');
+  progressEl.classList.remove('d-none');
+  document.querySelector('.rk-progress').classList.add('scanning');
+  document.getElementById('scanMsg').textContent = `Scan #${scanId} queued`;
+  document.getElementById('scanPct').textContent = `0 / ${targetCount}`;
+  document.getElementById('scanBar').style.width = '0%';
+  document.getElementById('scanSubPhase').textContent = 'Waiting for live scan updates...';
+  appendScanLog(`Queued scan #${scanId} for ${targetCount} target(s).`, 'var(--rk-accent)');
+}
+
+function handleScanProgressMessage(msg) {
+  const total = msg.total || 0;
+  const current = msg.current || 0;
+  const pct = Math.max(0, Math.min(100, msg.pct || 0));
+  const subPhaseEl = document.getElementById('scanSubPhase');
+  const startBtn = document.getElementById('startScanBtn');
+
+  document.getElementById('scanMsg').textContent = total ? `Target ${current} / ${total}` : (msg.message || 'Scan in progress');
+  document.getElementById('scanPct').textContent = `${pct}%`;
+  document.getElementById('scanBar').style.width = `${pct}%`;
+  if (msg.message) {
+    subPhaseEl.textContent = msg.message;
+  }
+
+  let logColor = 'var(--rk-text-muted)';
+  if (msg.phase === 'completed_target') logColor = '#2ECC71';
+  else if (msg.phase === 'failed_target') logColor = '#E74C3C';
+  else if (msg.sub_phase === 'oqs') logColor = '#3498DB';
+
+  if (msg.message) {
+    appendScanLog(msg.message, logColor);
+  }
+
+  if (msg.phase === 'done') {
+    startBtn.disabled = false;
+    document.querySelector('.rk-progress').classList.remove('scanning');
+    document.getElementById('scanShimmer').style.animation = 'none';
+    subPhaseEl.innerHTML = '<span style="color:#2ECC71">✅ Scan complete!</span>';
+    showToast('Scan complete!', 'success');
+    loadPageData();
+    loadScans();
+    if (typeof loadTaskStatus === 'function') loadTaskStatus();
+    closeActiveScanSocket();
+  }
+}
+
+function watchQueuedScan(scanId, targetCount) {
+  closeActiveScanSocket();
+  showQueuedScanProgress(scanId, targetCount);
+  loadScans();
+  if (typeof loadTaskStatus === 'function') loadTaskStatus();
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}/ws/scan/${scanId}`);
+  activeScanSocket = ws;
+
+  ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    handleScanProgressMessage(msg);
+  };
+
+  ws.onerror = () => {
+    appendScanLog(`Scan #${scanId} is queued. Recent Scans will update automatically.`, '#F1C40F');
+    loadScans();
+    if (typeof loadTaskStatus === 'function') loadTaskStatus();
+  };
+
+  ws.onclose = () => {
+    if (activeScanSocket === ws) {
+      activeScanSocket = null;
+    }
+    loadScans();
+    if (typeof loadTaskStatus === 'function') loadTaskStatus();
+  };
+}
 
 async function loadPageData() {
   let url = '/api/home/summary';
@@ -344,6 +437,7 @@ function setScanMode(mode, btn) {
 
 function resetScanWorkbench() {
   activeDiscoveryJobId = null;
+  closeActiveScanSocket();
   document.getElementById('scanProgress').classList.add('d-none');
   document.getElementById('startScanBtn').disabled = false;
   document.getElementById('scanLog').innerHTML = '';
@@ -387,43 +481,7 @@ async function startScan() {
 
   const scanId = data.scan_id;
   showToast(`Scan #${scanId} started — ${data.target_count} targets`, 'success');
-
-  // WebSocket progress
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const ws = new WebSocket(`${protocol}//${location.host}/ws/scan/${scanId}`);
-  const log = document.getElementById('scanLog');
-  const subPhaseEl = document.getElementById('scanSubPhase');
-
-  ws.onmessage = (e) => {
-    const msg = JSON.parse(e.data);
-    document.getElementById('scanMsg').textContent = `Target ${msg.current||'?'} / ${msg.total||'?'}`;
-    document.getElementById('scanPct').textContent = (msg.pct||0) + '%';
-    document.getElementById('scanBar').style.width = (msg.pct||0) + '%';
-
-    // Sub-phase live status
-    if (msg.sub_phase) {
-      subPhaseEl.textContent = msg.message || '';
-    }
-
-    // Color-coded log entries
-    let logColor = 'var(--rk-text-muted)';
-    let logPrefix = '';
-    if (msg.phase === 'completed_target') { logColor = '#2ECC71'; }
-    else if (msg.phase === 'failed_target') { logColor = '#E74C3C'; }
-    else if (msg.sub_phase === 'oqs') { logColor = '#3498DB'; }
-
-    log.innerHTML += `<div style="color:${logColor};padding:1px 0">${msg.message}</div>`;
-    log.scrollTop = log.scrollHeight;
-
-    if (msg.phase === 'done') {
-      document.getElementById('startScanBtn').disabled = false;
-      document.querySelector('.rk-progress').classList.remove('scanning');
-      document.getElementById('scanShimmer').style.animation = 'none';
-      subPhaseEl.innerHTML = '<span style="color:#2ECC71">✅ Scan complete!</span>';
-      showToast('Scan complete!', 'success');
-      loadPageData(); loadScans();
-    }
-  };
+  watchQueuedScan(scanId, data.target_count);
 }
 
 async function startDomainDiscovery() {
@@ -484,6 +542,14 @@ async function startDomainDiscovery() {
       document.getElementById('scanDiscoveredBtn').classList.toggle('d-none', !(msg.live_count > 0));
       showToast(`Discovery finished: ${msg.live_count || 0} live targets found`, 'success');
       loadScans();
+      if (typeof loadTaskStatus === 'function') loadTaskStatus();
+      if ((msg.live_count || 0) > 0 && activeDiscoveryJobId && !promptedDiscoveryScanJobs.has(activeDiscoveryJobId)) {
+        promptedDiscoveryScanJobs.add(activeDiscoveryJobId);
+        const shouldScanNow = await rkConfirm(`Discovery finished with ${msg.live_count} live target(s). Start the quantum vulnerability scan now?`, 'Start Quantum Scan');
+        if (shouldScanNow) {
+          await scanDiscoveredTargets();
+        }
+      }
     }
 
     if (msg.phase === 'failed') {
@@ -513,7 +579,7 @@ async function scanDiscoveredTargets() {
     return;
   }
   showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
-  loadScans();
+  watchQueuedScan(data.scan_id, data.target_count);
 }
 
 function toggleAllScans(checked) {

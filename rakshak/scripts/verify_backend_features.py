@@ -42,6 +42,8 @@ from app.models.chat import ChatMessage, ChatSession  # noqa: E402
 from app.models.report import DeliveryChannel, Report, ReportFormat  # noqa: E402
 from app.models.scan import Scan, ScanResult, ScanStatus  # noqa: E402
 from app.models.user import User  # noqa: E402
+import app.routers.scan as scan_router  # noqa: E402
+import app.services.scan_service as scan_service  # noqa: E402
 from app.services.domain_service import list_domain_inventory  # noqa: E402
 from app.services.export_service import collect_report_data  # noqa: E402
 from app.services.subdomain_service import (  # noqa: E402
@@ -370,6 +372,47 @@ async def verify_script() -> None:
             expect("Task status includes queued scans", task_data["counts"]["scans"] >= 1)
             expect("Task status includes generating reports", task_data["counts"]["reports"] >= 1)
             expect("Task status includes discovery jobs", task_data["counts"]["discovery_jobs"] >= 1)
+
+            original_router_run_scan = scan_router.run_scan
+            original_service_run_scan = scan_service.run_scan
+
+            async def fake_run_scan(scan_id: int, targets: list[str], db_url: str):
+                return None
+
+            scan_router.run_scan = fake_run_scan
+            scan_service.run_scan = fake_run_scan
+            try:
+                submit_scan_res = await client.post("/api/scan", headers=headers, json={"targets": [fixture["root_domain"]]})
+                expect("Manual scan submission endpoint", submit_scan_res.status_code == 200)
+                submitted_scan_id = submit_scan_res.json()["scan_id"]
+
+                async with AsyncSessionLocal() as db:
+                    submitted_scan = (await db.execute(select(Scan).where(Scan.id == submitted_scan_id))).scalar_one_or_none()
+                    expect("Manual scan creates scan row", submitted_scan is not None and submitted_scan.target_count == 1)
+
+                queued_job_id = f"{marker}-queued-scan-job"
+                subdomain_scan_states[queued_job_id] = SubdomainScanState(
+                    job_id=queued_job_id,
+                    domain=fixture["root_domain"],
+                    status="completed",
+                    live_hosts={fixture["root_domain"], f"app.{fixture['root_domain']}"},
+                    dead_hosts={fixture["discovered_dead_host"]},
+                    live_count=2,
+                    dead_count=1,
+                    processed_count=3,
+                )
+
+                discovered_scan_res = await client.post(f"/api/assets/discover/subdomains/{queued_job_id}/scan", headers=headers)
+                expect("Discovered-target scan submission endpoint", discovered_scan_res.status_code == 200)
+                discovered_scan_id = discovered_scan_res.json()["scan_id"]
+
+                async with AsyncSessionLocal() as db:
+                    discovered_scan = (await db.execute(select(Scan).where(Scan.id == discovered_scan_id))).scalar_one_or_none()
+                    expect("Discovered-target scan creates scan row", discovered_scan is not None and discovered_scan.target_count == 2)
+            finally:
+                scan_router.run_scan = original_router_run_scan
+                scan_service.run_scan = original_service_run_scan
+                subdomain_scan_states.pop(f"{marker}-queued-scan-job", None)
 
             decision_summary = await decide_subdomain_job(checkpoint_job_id, False)
             expect("Subdomain checkpoint decision stops scanning", checkpoint_state.stop_requested is True and checkpoint_state.continue_scan is False)
