@@ -16,6 +16,7 @@ from app.models.asset import Asset, AssetDiscovery, DiscoveryCategory
 from app.models.cbom import CBOMSnapshot
 from app.dependencies import require_any_role
 from app.services.audit_service import log_event
+import re
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
@@ -468,6 +469,26 @@ def _format_list(items: list, key: str) -> str:
     return "\n".join([f"- {item.get(key, str(item))}" for item in items[:10]])  # Limit to 10 items
 
 
+def get_root_domain(hostname: str) -> str:
+    """Extract root domain from a hostname, handling two-part TLDs."""
+    if not hostname: return ""
+    # Remove protocol if present and ignore paths
+    h = hostname.lower().split("://")[-1].split("/")[0]
+    # Remove any port
+    h = h.split(":")[0]
+    parts = h.split(".")
+    if len(parts) <= 2:
+        return h
+    
+    # Check for two-part TLDs (co.uk, com.au, etc)
+    tld_suffix = ".".join(parts[-2:])
+    is_two_part = re.match(r"^(co|com|gov|org|edu|ac|bank|net|res|mod)\.[a-z]{2,3}$", tld_suffix)
+    
+    if is_two_part:
+        return ".".join(parts[-3:])
+    return ".".join(parts[-2:])
+
+
 async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
     """Fetch subdomain data and CBOM details for a root domain."""
     result = await db.execute(
@@ -482,9 +503,8 @@ async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
     dead_count = 0
     for d in discoveries:
         meta = json.loads(d.metadata_json) if d.metadata_json else {}
-        root = meta.get("root_domain", "")
-        # Match discoveries belonging to this root domain, or the domain itself
-        if root == domain or d.value == domain or d.value.endswith("." + domain):
+        # Match if it belongs to this root domain
+        if get_root_domain(d.value) == domain:
             dns_status = meta.get("dns_status", "unknown")
             subdomains.append({
                 "hostname": d.value,
@@ -570,7 +590,7 @@ async def list_available_domains(
     """List unique root domains from AssetDiscovery for the domain selector."""
     result = await db.execute(
         select(AssetDiscovery).where(
-            AssetDiscovery.category == DiscoveryCategory.domain
+            AssetDiscovery.category.in_([DiscoveryCategory.domain, DiscoveryCategory.ssl_cert])
         )
     )
     discoveries = result.scalars().all()
@@ -578,12 +598,16 @@ async def list_available_domains(
     roots: dict[str, list[str]] = {}
     for d in discoveries:
         meta = json.loads(d.metadata_json) if d.metadata_json else {}
-        root = meta.get("root_domain", "")
+        # Calculate root domain robustly
+        root = meta.get("root_domain") or get_root_domain(d.value)
         dns_status = meta.get("dns_status", "unknown")
-        if root and dns_status == "live":
+        
+        if root:
             if root not in roots:
                 roots[root] = []
-            roots[root].append(d.value)
+            # Only add if it's live or if it's the root domain itself
+            if dns_status == "live" or d.value == root:
+                roots[root].append(d.value)
 
     # Sort subdomains within each root, and then sort roots by name
     result_list = []
