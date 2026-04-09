@@ -59,6 +59,35 @@ class ChatMessageResponse(BaseModel):
     created_at: str
 
 
+async def _refresh_domain_session_context(session: ChatSession, db: AsyncSession) -> dict | None:
+    """Refresh persisted domain context so existing sessions see newly scanned targets."""
+    domain_value = None
+    try:
+        domain_value = session.domain
+    except Exception:
+        domain_value = None
+
+    if not domain_value:
+        return None
+
+    domain_data = await _fetch_domain_context(domain_value, db)
+    session.domain_context_json = json.dumps(domain_data)
+
+    if domain_data.get("targets"):
+        target_urls = [target.get("url") for target in domain_data["targets"] if target.get("url")]
+        if target_urls:
+            preferred_url = next(
+                (target["url"] for target in domain_data["targets"] if target.get("is_live")),
+                target_urls[0],
+            )
+            asset_result = await db.execute(select(Asset).where(Asset.url == preferred_url))
+            anchor_asset = asset_result.scalar_one_or_none()
+            if anchor_asset:
+                session.asset_id = anchor_asset.id
+
+    return domain_data
+
+
 @router.post("/sessions/start")
 async def start_chat_session(
     req: StartChatRequest,
@@ -239,9 +268,17 @@ async def get_session_messages(
     except Exception:
         pass
 
+    if domain_val:
+        await _refresh_domain_session_context(session, db)
+        await db.commit()
+
     # Get messages
     msg_result = await db.execute(select(ChatMessage).where(ChatMessage.session_id == session_id).order_by(ChatMessage.created_at))
     messages = msg_result.scalars().all()
+
+    if session.asset_id:
+        asset_result = await db.execute(select(Asset).where(Asset.id == session.asset_id))
+        asset = asset_result.scalar_one_or_none()
 
     return {
         "session_id": session.id,
@@ -304,12 +341,20 @@ async def send_chat_message(
 
     # Detect if this is a domain session
     is_domain_session = bool(session.domain_context_json)
+    if getattr(session, "domain", None):
+        domain_ctx = await _refresh_domain_session_context(session, db)
+        await db.commit()
+        is_domain_session = True
+    else:
+        domain_ctx = None
 
     # Build system prompt based on session type
     if is_domain_session:
         # Extract domain from context or title
         domain_name = "unknown"
-        if session.domain_context_json:
+        if domain_ctx:
+            domain_name = domain_ctx.get("root_domain", "unknown")
+        elif session.domain_context_json:
             try:
                 ctx = json.loads(session.domain_context_json)
                 domain_name = ctx.get("domain", "unknown")
@@ -332,10 +377,12 @@ async def send_chat_message(
         system_prompt = "You are Rakshak AI, a cybersecurity assistant. Answer questions about security and PQC."
 
     # Inject domain context if available
-    if session.domain_context_json:
+    if domain_ctx:
+        system_prompt += _format_domain_context(domain_ctx)
+    elif session.domain_context_json:
         try:
-            domain_ctx = json.loads(session.domain_context_json)
-            system_prompt += _format_domain_context(domain_ctx)
+            stored_domain_ctx = json.loads(session.domain_context_json)
+            system_prompt += _format_domain_context(stored_domain_ctx)
         except Exception:
             pass
 
