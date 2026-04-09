@@ -27,14 +27,20 @@ function logout() {
     window.location.href = '/login';
 }
 
+window.logout = logout;
+
 // ── Sidebar / topbar init ─────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     const username = localStorage.getItem('username') || 'User';
     const role     = localStorage.getItem('role') || 'checker';
     const el = document.getElementById('currentUsername');
     const re = document.getElementById('currentRole');
+    const profileUser = document.getElementById('profileModalUsername');
+    const profileRole = document.getElementById('profileModalRole');
     if (el) el.textContent = username;
     if (re) re.textContent = role.charAt(0).toUpperCase() + role.slice(1);
+    if (profileUser) profileUser.textContent = username;
+    if (profileRole) profileRole.textContent = role.charAt(0).toUpperCase() + role.slice(1);
 
     // Highlight active nav
     const path = window.location.pathname;
@@ -76,8 +82,72 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!localStorage.getItem('token') || !hasCookie) {
             logout();
         }
+
+        loadTaskStatus();
+        setInterval(loadTaskStatus, 10000);
     }
 });
+
+function openProfileModal() {
+    const modalEl = document.getElementById('profileModal');
+    if (!modalEl || typeof bootstrap === 'undefined') return;
+    new bootstrap.Modal(modalEl).show();
+}
+
+function goToUsersFromProfile() {
+    const modalEl = document.getElementById('profileModal');
+    if (modalEl && typeof bootstrap !== 'undefined') {
+        bootstrap.Modal.getOrCreateInstance(modalEl).hide();
+    }
+    window.location.href = '/user-management';
+}
+
+async function loadTaskStatus() {
+    if (window.location.pathname === '/login') return;
+    const badge = document.getElementById('taskBellBadge');
+    if (!badge) return;
+
+    try {
+        const res = await API.get('/api/tasks/status');
+        if (!res || !res.ok) return;
+        const data = await res.json();
+        badge.style.display = data.has_running_tasks ? 'block' : 'none';
+        badge.dataset.counts = JSON.stringify(data.counts || {});
+    } catch (err) {
+        console.warn('Failed to load task status', err);
+    }
+}
+
+async function openTaskStatusModal() {
+    const badge = document.getElementById('taskBellBadge');
+    let counts = {};
+    try {
+        counts = JSON.parse(badge?.dataset.counts || '{}');
+    } catch (err) {
+        counts = {};
+    }
+
+    const total = counts.total || 0;
+    if (!total) {
+        await rkAlert('No running tasks right now.', 'Task Status', 'info');
+        return;
+    }
+
+    const body = `
+        <div><strong>${total}</strong> running task(s)</div>
+        <div class="mt-2">Scans: <strong>${counts.scans || 0}</strong></div>
+        <div>Reports: <strong>${counts.reports || 0}</strong></div>
+        <div>Subdomain Discovery: <strong>${counts.discovery_jobs || 0}</strong></div>
+    `;
+    await rkAlert(body, 'Task Status', 'info');
+}
+
+async function confirmLargeScan(count) {
+    if (count <= 100) return true;
+    return rkConfirm(`Warning! You are about to scan ${count} targets. Continue?`, 'Large Scan Warning');
+}
+
+window.confirmLargeScan = confirmLargeScan;
 
 function toggleSidebar() {
     document.getElementById('sidebar')?.classList.toggle('collapsed');
@@ -264,7 +334,7 @@ function drawGauge(canvasId, score, maxScore = 1000) {
 function showToast(message, type = 'success') {
     const container = document.getElementById('toastContainer');
     if (!container) return;
-    const colorMap = { success: '#2ECC71', danger: '#E74C3C', info: '#3498DB', warning: '#F1C40F' };
+    const colorMap = { success: '#2ECC71', danger: '#E74C3C', error: '#E74C3C', info: '#3498DB', warning: '#F1C40F' };
     const id = 'toast-' + Date.now();
     container.insertAdjacentHTML('beforeend', `
         <div id="${id}" class="toast align-items-center text-white border-0 show" role="alert" style="background:var(--rk-surface);border:1px solid ${colorMap[type]}!important;min-width:280px">
@@ -364,11 +434,11 @@ function _initRkModal() {
                   </div>
                   <h5 class="modal-title fw-bold m-0" id="rkGlobalModalTitle" style="color: var(--rk-text, #fff); font-size: 18px; letter-spacing: -0.3px;"></h5>
                 </div>
+                <button type="button" class="btn-close btn-close-white ms-auto" id="rkGlobalModalClose" aria-label="Close"></button>
               </div>
               <div class="modal-body fs-14" id="rkGlobalModalBody" style="padding: 1rem 1.5rem 1.5rem; color: var(--rk-text-muted, #8b949e); line-height: 1.5;">
               </div>
               <div class="modal-footer border-0" style="padding: 0 1.5rem 1.5rem; justify-content: flex-end; gap: 8px;">
-                <button type="button" class="rk-btn" style="background: transparent; color: var(--rk-text-muted, #8b949e); padding: 8px 16px; border: 1px solid var(--rk-border, #30363d); font-weight: 500;" data-bs-dismiss="modal" id="rkGlobalModalCancel">Cancel</button>
                 <button type="button" class="rk-btn" id="rkGlobalModalConfirm" style="padding: 8px 20px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">Confirm</button>
               </div>
             </div>
@@ -380,7 +450,7 @@ function _initRkModal() {
     // Safety check for Bootstrap
     if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
         if (!_rkGlobalModalInstance) {
-            _rkGlobalModalInstance = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: false });
+            _rkGlobalModalInstance = new bootstrap.Modal(modalEl, { backdrop: 'static', keyboard: true });
         }
         return _rkGlobalModalInstance;
     } else {
@@ -412,10 +482,8 @@ function rkConfirm(message, title = 'Confirm Action', isDestructive = false) {
         const iconBox = document.getElementById('rkGlobalModalIconBox');
         const icon = document.getElementById('rkGlobalModalIcon');
         const confirmBtn = document.getElementById('rkGlobalModalConfirm');
-        const cancelBtn = document.getElementById('rkGlobalModalCancel');
+        const closeBtn = document.getElementById('rkGlobalModalClose');
         
-        cancelBtn.style.display = 'inline-block';
-        cancelBtn.textContent = 'Cancel';
         confirmBtn.textContent = isDestructive ? 'Delete' : 'Confirm';
         
         if (isDestructive) {
@@ -435,14 +503,12 @@ function rkConfirm(message, title = 'Confirm Action', isDestructive = false) {
         const handleConfirm = () => { cleanup(); resolve(true); modal.hide(); };
         const handleCancel = () => { cleanup(); resolve(false); modal.hide(); };
         
-        // Remove existing listeners by cloning node if necessary, but we can just override onclick since we only have one global modal instance
         confirmBtn.onclick = handleConfirm;
-        cancelBtn.onclick = handleCancel;
+        closeBtn.onclick = handleCancel;
         
-        // Also handle the backdrop click / escape key closure (if using custom modal logic)
         const cleanup = () => {
             confirmBtn.onclick = null;
-            cancelBtn.onclick = null;
+            closeBtn.onclick = null;
         };
         modal.show();
     });
@@ -459,9 +525,8 @@ function rkAlert(message, title = 'Information', type = 'info') {
         const iconBox = document.getElementById('rkGlobalModalIconBox');
         const icon = document.getElementById('rkGlobalModalIcon');
         const confirmBtn = document.getElementById('rkGlobalModalConfirm');
-        const cancelBtn = document.getElementById('rkGlobalModalCancel');
+        const closeBtn = document.getElementById('rkGlobalModalClose');
         
-        cancelBtn.style.display = 'none';
         confirmBtn.textContent = 'OK';
         confirmBtn.style.background = 'var(--rk-accent-bg, #f9bb1a)';
         confirmBtn.style.color = '#FFF';
@@ -478,8 +543,14 @@ function rkAlert(message, title = 'Information', type = 'info') {
             icon.className = 'bi bi-info-circle-fill text-primary';
         }
 
-        const handleConfirm = () => { confirmBtn.onclick = null; resolve(true); modal.hide(); };
+        const handleConfirm = () => { cleanup(); resolve(true); modal.hide(); };
+        const handleClose = () => { cleanup(); resolve(false); modal.hide(); };
+        const cleanup = () => {
+            confirmBtn.onclick = null;
+            closeBtn.onclick = null;
+        };
         confirmBtn.onclick = handleConfirm;
+        closeBtn.onclick = handleClose;
 
         modal.show();
     });
@@ -487,3 +558,6 @@ function rkAlert(message, title = 'Information', type = 'info') {
 
 window.rkConfirm = rkConfirm;
 window.rkAlert = rkAlert;
+window.openProfileModal = openProfileModal;
+window.goToUsersFromProfile = goToUsersFromProfile;
+window.openTaskStatusModal = openTaskStatusModal;

@@ -6,7 +6,37 @@
 <div class="rk-fade-in" style="max-width: 1000px; margin: 0 auto;">
     <div class="mb-4">
         <h1 class="rk-page-title">Platform Guide</h1>
-        <p class="rk-page-sub">Understand Rakshak's definitions, label logic, and learn how to run tests effectively.</p>
+        <p class="rk-page-sub">Understand Rakshak's definitions, label logic, and the current scanning, reporting, and workflow model.</p>
+    </div>
+
+    <div class="rk-card mb-4">
+        <h3 class="rk-section-title mb-3"><i class="bi bi-stars me-2" style="color: var(--rk-blue);"></i>What Changed In This Build</h3>
+        <div class="row g-3">
+            <div class="col-md-6">
+                <div class="p-3 rounded h-100" style="background:var(--rk-bg);border:1px solid var(--rk-border)">
+                    <div class="fw-semibold mb-2" style="color:var(--rk-text)">Unified Scanning Workflow</div>
+                    <div class="fs-13 text-muted">The Home page now combines manual target scans and recursive domain discovery. Domain discovery runs breadth-first, includes the root domain automatically, streams live progress over WebSocket, and pauses every 1000 resolved results for operator confirmation.</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-3 rounded h-100" style="background:var(--rk-bg);border:1px solid var(--rk-border)">
+                    <div class="fw-semibold mb-2" style="color:var(--rk-text)">Domain-Centric Analysis</div>
+                    <div class="fs-13 text-muted">CBOM, Posture of PQC, Reporting, and Chat now work domain-wise. Filters and exports use grouped inventory-backed targets, latest CBOM snapshots, live/dead counts, and historical snapshots per target.</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-3 rounded h-100" style="background:var(--rk-bg);border:1px solid var(--rk-border)">
+                    <div class="fw-semibold mb-2" style="color:var(--rk-text)">Cleaner Navigation</div>
+                    <div class="fs-13 text-muted">Users and Logout now sit under the profile button in the top-right modal. A notification bell beside the theme toggle lights up whenever scans, reports, or subdomain discovery jobs are running.</div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="p-3 rounded h-100" style="background:var(--rk-bg);border:1px solid var(--rk-border)">
+                    <div class="fw-semibold mb-2" style="color:var(--rk-text)">Noise Reduction</div>
+                    <div class="fs-13 text-muted">Asset Inventory hides Unknown risk rows by default. CBOM hides Unknown snapshots and shows only the latest result per target, with a history button for older snapshots. Asset Discovery no longer shows the network topology graph.</div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- PQC Posture Labels -->
@@ -369,9 +399,11 @@
                 <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
                     <div class="accordion-body fs-14 text-muted">
                         <ul>
-                            <li class="mb-2"><strong>Selective Re-Scanning:</strong> Navigate to <b>Asset Inventory</b>, check the boxes next to multiple rows, and click <span class="badge bg-primary">▶️ Scan Selected</span> to trigger a bulk background scan.</li>
+                            <li class="mb-2"><strong>Unified Scan Workbench:</strong> Open <b>Home</b> and click <b>New Scan</b>. Use <b>Manual Targets</b> for direct scans, or switch to <b>Domain Discovery</b> for recursive breadth-first subdomain discovery with live progress updates.</li>
+                            <li class="mb-2"><strong>Checkpoint Control:</strong> During a large domain discovery run, Rakshak pauses every 1000 resolved results and asks <code>#### results found. Continue Scanning?</code>. You can stop early and send only the discovered live targets into a scan.</li>
+                            <li class="mb-2"><strong>Selective Re-Scanning:</strong> Navigate to <b>Asset Inventory</b>, check the boxes next to multiple rows, and click <span class="badge bg-primary">▶️ Scan Selected</span> to trigger a bulk background scan. For scans over 100 targets, Rakshak shows a warning instead of blocking the request.</li>
                             <li class="mb-2"><strong>URL Normalization:</strong> Add <code>https://pnbindia.in/</code> (with a slash) and <code>https://pnbindia.in</code> to demonstrate that Rakshak is smart enough to normalize them into a single asset.</li>
-                            <li><strong>Asset Discovery:</strong> Go to <b>Asset Discovery</b> and click "Trigger Discovery". Rakshak will recursively enumerate DNS, IPs, Subnets, and Server Software for all known assets and push them into the triage queues.</li>
+                            <li><strong>Asset Discovery:</strong> Go to <b>Asset Discovery</b> to review grouped discoveries by root domain, confirm or ignore findings, run ad-hoc subdomain discovery, and delete an asset cleanly across Inventory, Discovery, CBOM, and posture data.</li>
                         </ul>
                     </div>
                 </div>
@@ -384,8 +416,9 @@
                     <div class="accordion-body fs-14 text-muted">
                         <p>After scanning a target, navigate to the <b>CBOM</b> dashboard:</p>
                         <ul>
-                            <li class="mb-2">Click "View JSON" on any asset to reveal the deeply nested Cryptographic Bill of Materials.</li>
-                            <li>Point out how Rakshak successfully extracted the X.509 Certificate chain, the exact symmetric cipher block, and whether the underlying Object Identifiers (OIDs) belong to NIST PQC standards.</li>
+                            <li class="mb-2">Use the domain search bar at the top to scope the dashboard to one root domain. Rakshak hides Unknown snapshots by default and shows only the latest CBOM snapshot for each target.</li>
+                            <li class="mb-2">Use the history button beside a row to open older snapshots for the same target without cluttering the main table.</li>
+                            <li>Open any detail view to inspect the certificate chain, exact crypto primitives, and whether the extracted OIDs align with NIST-standardized PQC families.</li>
                         </ul>
                     </div>
                 </div>
@@ -398,7 +431,8 @@
                     <div class="accordion-body fs-14 text-muted">
                         <ul>
                             <li class="mb-2"><strong>Enterprise Rating:</strong> Go to <b>Cyber Rating</b> to show how the organizational risk score (1-1000) dynamically fluctuates based on the ratio of PQC-ready assets versus vulnerable legacy endpoints.</li>
-                            <li><strong>Actionable Remediation:</strong> Go to <b>Posture of PQC</b> or <b>Reporting</b> to show the Playbooks. For every 🔴 Not Quantum-Safe asset, Rakshak dynamically generates a step-by-step recommendation (e.g., "Upgrade encryption from AES-128 to AES-256-GCM").</li>
+                            <li class="mb-2"><strong>Actionable Remediation:</strong> Go to <b>Posture of PQC</b> to filter by domain and open the per-target migration playbooks. The recommendations panel was intentionally removed so the page stays focused on posture, coverage, and drill-down playbooks.</li>
+                            <li><strong>Domain-Wise Reporting:</strong> Go to <b>Reporting</b>, select one or more domains, and generate a PDF. The report now summarizes each selected domain separately, lists total/scanned/live/dead counts, includes the latest CBOM details for each target, and appends dead hosts for that domain.</li>
                         </ul>
                     </div>
                 </div>
@@ -410,6 +444,8 @@
                 <div id="collapseFive" class="accordion-collapse collapse" data-bs-parent="#guideAccordion">
                     <div class="accordion-body fs-14 text-muted">
                         <ul>
+                            <li class="mb-2"><strong>Profile Modal:</strong> Use the top-right profile button to open the account modal. From there, admins can jump to <b>Users</b> and everyone can log out.</li>
+                            <li class="mb-2"><strong>User Administration:</strong> Inside <b>Users</b>, admins can add or delete accounts directly. Deleting a user preserves report ownership safely by nulling ownership fields instead of breaking records.</li>
                             <li class="mb-2"><strong>Concurrent Sessions:</strong> Open Rakshak in an Incognito window and log in as <code>admin</code>. Your original session will instantly flag "Session expired or superseded" on its next action, proving concurrent logging is strictly prohibited.</li>
                             <li class="mb-2"><strong>Audit Logs:</strong> Go to <b>Users</b> and check the Audit Logs table. Point out the "Details" column which seamlessly captures the device Browser mapping and Geographic Location via reverse IP lookup.</li>
                             <li><strong>Hash Verification:</strong> Hover over any 16-character Audit Log Hash to see the full SHA-256 cryptographic proof. Click the hash to instantly copy it to your clipboard for forensic verification.</li>

@@ -5,6 +5,7 @@ from app.models.cbom import CBOMSnapshot
 from app.models.report import Report, ScheduledReport, ReportFormat, DeliveryChannel, ReportFrequency
 from app.models.audit import AuditLog
 from app.models.webhook import Webhook, CyberRatingHistory
+from app.models.chat import ChatSession, ChatMessage, ChatSessionStatus
 
 __all__ = [
     "User", "UserRole",
@@ -15,4 +16,5 @@ __all__ = [
     "Report", "ScheduledReport", "ReportFormat", "DeliveryChannel", "ReportFrequency",
     "AuditLog",
     "Webhook", "CyberRatingHistory",
+    "ChatSession", "ChatMessage", "ChatSessionStatus",
 ]

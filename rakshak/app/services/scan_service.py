@@ -19,6 +19,7 @@ from app.models.asset import Asset, PQCLabel, RiskLevel, AssetType
 from app.models.cbom import CBOMSnapshot
 from app.models.webhook import CyberRatingHistory
 from app.engine import tls_scanner, pqc_classifier, cbom_generator, rating_engine, playbook_generator
+from app.utils.domain_tools import extract_hostname, normalize_target
 
 logger = logging.getLogger(__name__)
 
@@ -370,6 +371,7 @@ async def _scan_single(target: str) -> dict:
 
 async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: dict):
     """Save scan result and CBOM snapshot to database."""
+    normalized_target = normalize_target(target) or target.rstrip("/")
     cert_chain = data.get("cert_chain", [])
     cert = cert_chain[0] if cert_chain else {}
 
@@ -385,50 +387,8 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
     except Exception:
         pass
 
-    scan_result = ScanResult(
-        scan_id=scan_id,
-        target_url=target,
-        status="success" if data.get("success") else "failed",
-        error_message=data.get("error"),
-        tls_version=data.get("tls_version"),
-        cipher_suites_json=json.dumps(data.get("cipher_suites", [])),
-        negotiated_cipher=data.get("negotiated_cipher"),
-        key_exchange=data.get("key_exchange"),
-        authentication=data.get("authentication"),
-        encryption=data.get("encryption"),
-        hashing=data.get("hashing"),
-        cert_chain_json=json.dumps(data.get("cert_chain", [])),
-        cert_subject=cert.get("subject_name"),
-        cert_issuer=cert.get("issuer_name"),
-        cert_not_before=cert_not_before,
-        cert_not_after=cert_not_after,
-        cert_sig_algorithm=cert.get("signature_algorithm_reference"),
-        cert_key_length=cert.get("key_length"),
-        cert_authority=cert.get("issuer_name"),
-        pqc_label=data.get("pqc_label"),
-        pqc_details_json=json.dumps(data.get("pqc_details", {})),
-        recommendations_json=json.dumps(data.get("recommendations", [])),
-        playbook_json=json.dumps(data.get("playbook", {})),
-    )
-    db.add(scan_result)
-    await db.flush()
-
-    # CBOM Snapshot
-    cbom_data = data.get("cbom", {})
-    cbom_snap = CBOMSnapshot(
-        scan_id=scan_id,
-        target_url=target,
-        algorithms_json=json.dumps(cbom_data.get("algorithms", [])),
-        keys_json=json.dumps(cbom_data.get("keys", [])),
-        protocols_json=json.dumps(cbom_data.get("protocols", [])),
-        certificates_json=json.dumps(cbom_data.get("certificates", [])),
-        pqc_label=data.get("pqc_label"),
-        snapshot_hash=cbom_generator.compute_cbom_hash(cbom_data),
-    )
-    db.add(cbom_snap)
-
     # Upsert Asset
-    existing = await db.execute(select(Asset).where(Asset.url == target))
+    existing = await db.execute(select(Asset).where(Asset.url == normalized_target))
     asset = existing.scalar_one_or_none()
     label_map = {
         "not_quantum_safe": PQCLabel.not_quantum_safe,
@@ -464,10 +424,10 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
         asset.ipv4 = data.get("ipv4")
         asset.cyber_score = cyber_score
     else:
-        hostname = target.replace("https://", "").replace("http://", "").split("/")[0]
+        hostname = extract_hostname(normalized_target)
         asset = Asset(
             name=hostname,
-            url=target,
+            url=normalized_target,
             tls_version=data.get("tls_version"),
             cipher_suite=data.get("negotiated_cipher"),
             key_length=cert.get("key_length"),
@@ -482,8 +442,51 @@ async def save_scan_result(db: AsyncSession, scan_id: int, target: str, data: di
 
     await db.flush()
 
+    scan_result = ScanResult(
+        scan_id=scan_id,
+        asset_id=asset.id,
+        target_url=normalized_target,
+        status="success" if data.get("success") else "failed",
+        error_message=data.get("error"),
+        tls_version=data.get("tls_version"),
+        cipher_suites_json=json.dumps(data.get("cipher_suites", [])),
+        negotiated_cipher=data.get("negotiated_cipher"),
+        key_exchange=data.get("key_exchange"),
+        authentication=data.get("authentication"),
+        encryption=data.get("encryption"),
+        hashing=data.get("hashing"),
+        cert_chain_json=json.dumps(data.get("cert_chain", [])),
+        cert_subject=cert.get("subject_name"),
+        cert_issuer=cert.get("issuer_name"),
+        cert_not_before=cert_not_before,
+        cert_not_after=cert_not_after,
+        cert_sig_algorithm=cert.get("signature_algorithm_reference"),
+        cert_key_length=cert.get("key_length"),
+        cert_authority=cert.get("issuer_name"),
+        pqc_label=data.get("pqc_label"),
+        pqc_details_json=json.dumps(data.get("pqc_details", {})),
+        recommendations_json=json.dumps(data.get("recommendations", [])),
+        playbook_json=json.dumps(data.get("playbook", {})),
+    )
+    db.add(scan_result)
+
+    # CBOM Snapshot
+    cbom_data = data.get("cbom", {})
+    cbom_snap = CBOMSnapshot(
+        scan_id=scan_id,
+        asset_id=asset.id,
+        target_url=normalized_target,
+        algorithms_json=json.dumps(cbom_data.get("algorithms", [])),
+        keys_json=json.dumps(cbom_data.get("keys", [])),
+        protocols_json=json.dumps(cbom_data.get("protocols", [])),
+        certificates_json=json.dumps(cbom_data.get("certificates", [])),
+        pqc_label=data.get("pqc_label"),
+        snapshot_hash=cbom_generator.compute_cbom_hash(cbom_data),
+    )
+    db.add(cbom_snap)
+
     # Create/Update NameserverRecord based on real DNS enumeration
-    hostname = target.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
+    hostname = extract_hostname(normalized_target)
     try:
         import socket
         from app.models.asset import NameserverRecord

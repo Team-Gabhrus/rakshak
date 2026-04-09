@@ -1,6 +1,6 @@
 """PQC Posture router — FR-41 through FR-46."""
 import json
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from app.database import get_db
@@ -10,18 +10,20 @@ from app.models.user import User
 from app.dependencies import require_any_role
 from app.engine.playbook_generator import generate_playbook, generate_risk_timeline
 from app.engine.rating_engine import COMPLIANCE_MATRIX
+from app.services.domain_service import get_assets_for_domains
+from app.utils.domain_tools import get_root_domain
 
 router = APIRouter(prefix="/api/pqc", tags=["pqc"])
 
 
 @router.get("/posture")
 async def get_pqc_posture(
+    domain: str = Query(None),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
     """FR-41: PQC compliance dashboard categorization."""
-    result = await db.execute(select(Asset))
-    assets = result.scalars().all()
+    assets = await get_assets_for_domains(db, [domain] if domain else None)
 
     categories = {
         "elite_pqc_ready": [],
@@ -47,36 +49,12 @@ async def get_pqc_posture(
         else:
             categories["critical"].append(asset_info)
 
-    # FR-43: Improvement recommendations summary
-    recommendations_summary = []
-    result2 = await db.execute(select(ScanResult).order_by(ScanResult.scanned_at.desc()).limit(100))
-    scan_results = result2.scalars().all()
-    rec_set = set()
-    for sr in scan_results:
-        if sr.recommendations_json:
-            recs = json.loads(sr.recommendations_json)
-            for rec in recs:
-                if isinstance(rec, dict):
-                    action = rec.get("action", "")
-                    component = rec.get("component", "")
-                    priority = rec.get("priority", "")
-                else:
-                    action = str(rec)
-                    component = "Network"
-                    priority = "Critical"
-
-                if action not in rec_set:
-                    rec_set.add(action)
-                    recommendations_summary.append({
-                        "component": component,
-                        "action": action,
-                        "priority": priority,
-                        "target": sr.target_url,
-                    })
-
     # FR-45 & FR-46 Dynamic Timeline
     has_vulnerable_kex = False
     has_vulnerable_auth = False
+    scan_target_urls = [asset.url for asset in assets]
+    result2 = await db.execute(select(ScanResult).order_by(ScanResult.scanned_at.desc()).limit(500))
+    scan_results = [row for row in result2.scalars().all() if not scan_target_urls or row.target_url in scan_target_urls]
     for sr in scan_results:
         kex = sr.key_exchange or ""
         auth = sr.authentication or ""
@@ -90,8 +68,8 @@ async def get_pqc_posture(
     return {
         "categories": categories,
         "counts": {k: len(v) for k, v in categories.items()},
-        "improvement_recommendations": recommendations_summary[:20],
         "risk_timeline": dynamic_timeline,
+        "selected_domain": get_root_domain(domain) if domain else None,
     }
 
 

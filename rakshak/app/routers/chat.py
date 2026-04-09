@@ -16,6 +16,11 @@ from app.models.asset import Asset, AssetDiscovery, DiscoveryCategory
 from app.models.cbom import CBOMSnapshot
 from app.dependencies import require_any_role
 from app.services.audit_service import log_event
+from app.services.domain_service import (
+    get_latest_cbom_by_target,
+    get_latest_scan_results_by_target,
+    list_domain_inventory,
+)
 import re
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
@@ -64,16 +69,7 @@ async def start_chat_session(
         raise HTTPException(status_code=400, detail="Please select an asset or a domain")
 
     asset = None
-    if req.domain and not req.asset_id:
-        # Domain-only session: find or create a placeholder asset for this domain
-        result = await db.execute(select(Asset).where(Asset.url == req.domain))
-        asset = result.scalar_one_or_none()
-        if not asset:
-            asset = Asset(name=f"Domain: {req.domain}", url=req.domain)
-            db.add(asset)
-            await db.commit()
-            await db.refresh(asset)
-    elif req.asset_id:
+    if req.asset_id:
         result = await db.execute(select(Asset).where(Asset.id == req.asset_id))
         asset = result.scalar_one_or_none()
         if not asset:
@@ -102,7 +98,7 @@ async def start_chat_session(
     try:
         session = ChatSession(
             user_id=current_user.id,
-            asset_id=asset.id,
+            asset_id=asset.id if asset else None,
             title=title,
             domain_context_json=domain_context_json,
         )
@@ -144,18 +140,17 @@ async def list_chat_sessions(
 
     sessions = []
     for session, asset in rows:
-        # Detect domain session from domain_context_json or title
-        is_domain = bool(session.domain_context_json) or (session.title and session.title.startswith("Chat about "))
-        if asset:
-            ctx_name = asset.name or asset.url
-        else:
-            ctx_name = "Unknown"
-        
         domain_val = None
         try:
             domain_val = session.domain
         except Exception:
             pass
+        if domain_val:
+            ctx_name = domain_val
+        elif asset:
+            ctx_name = asset.name or asset.url
+        else:
+            ctx_name = "Unknown"
         
         sessions.append({
             "id": session.id,
@@ -192,8 +187,6 @@ async def delete_chat_session(
     await db.commit()
 
     return {"status": "success", "message": "Session and all messages deleted"}
-
-    return {"message": "Session archived successfully"}
 
 
 @router.get("/sessions/{session_id}/messages")
@@ -444,13 +437,13 @@ def _build_domain_system_prompt(domain: str) -> str:
 
 ## Domain Context
 - **Root Domain:** {domain}
-- This session is focused on the domain "{domain}" and all its discovered subdomains.
+- This session is focused on the domain "{domain}" and all inventory-backed targets and discovered dead hosts under it.
 
 ## Your Role
-1. **Answer domain-specific questions:** Help users understand the attack surface, subdomain exposure, DNS health, and infrastructure layout of "{domain}".
-2. **Subdomain analysis:** Use the provided subdomain data (hostnames, DNS status, IPs) to answer questions about live/dead subdomains, common patterns, potential shadow IT, and exposed services.
-3. **Provide remediation guidance:** Help users understand how to reduce their attack surface, consolidate subdomains, and improve DNS hygiene.
-4. **PQC & TLS guidance:** When asked, advise on how to migrate the domain's infrastructure to post-quantum cryptography.
+1. **Answer domain-specific questions:** Help users understand the attack surface, target coverage, DNS health, scan coverage, and infrastructure layout of "{domain}".
+2. **Domain analysis:** Use the provided target inventory, scan results, CBOM summaries, recommendations, and playbook context to answer questions about live targets, dead hosts, PQC posture, and exposed services.
+3. **Provide remediation guidance:** Help users understand how to reduce their attack surface, consolidate subdomains, close dead entries, and improve DNS hygiene.
+4. **PQC & TLS guidance:** When asked, advise on how to migrate the domain's infrastructure to post-quantum cryptography based on the actual scanned targets in this domain.
 5. **Scope enforcement:** If a user asks about unrelated topics, politely redirect them by saying: "I can only answer queries about the domain '{domain}' and its subdomains in this session."
 
 ## Response Guidelines
@@ -490,85 +483,90 @@ def get_root_domain(hostname: str) -> str:
 
 
 async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
-    """Fetch subdomain data and CBOM details for a root domain."""
-    result = await db.execute(
-        select(AssetDiscovery).where(
-            AssetDiscovery.category == DiscoveryCategory.domain
-        )
-    )
-    discoveries = result.scalars().all()
+    """Fetch asset-backed domain context with latest CBOM and scan details."""
+    groups = await list_domain_inventory(db, [domain])
+    group = groups[0] if groups else {"domain": domain, "targets": [], "dead_hosts": [], "target_count": 0}
+    targets = group.get("targets", [])
+    target_urls = [target["url"] for target in targets]
+    latest_cbom = await get_latest_cbom_by_target(db, target_urls)
+    latest_scans = await get_latest_scan_results_by_target(db, target_urls)
 
-    subdomains = []
+    enriched_targets = []
+    scanned_count = 0
     live_count = 0
-    dead_count = 0
-    for d in discoveries:
-        meta = json.loads(d.metadata_json) if d.metadata_json else {}
-        # Match if it belongs to this root domain
-        if get_root_domain(d.value) == domain:
-            dns_status = meta.get("dns_status", "unknown")
-            subdomains.append({
-                "hostname": d.value,
-                "dns_status": dns_status,
-                "ips": meta.get("ips", []),
-                "status": d.status.value if d.status else "new",
-            })
-            if dns_status == "live":
-                live_count += 1
-            elif dns_status == "dead":
-                dead_count += 1
+    for target in targets:
+        scan_result = latest_scans.get(target["url"])
+        cbom_snapshot = latest_cbom.get(target["url"])
+        scanned = bool(scan_result)
+        is_live = bool(scan_result and scan_result.status == "success")
+        if scanned:
+            scanned_count += 1
+        if is_live:
+            live_count += 1
 
-    # Fetch CBOM data for all these hostnames
-    hostnames = [s["hostname"] for s in subdomains]
-    asset_result = await db.execute(
-        select(Asset, CBOMSnapshot)
-        .outerjoin(CBOMSnapshot, CBOMSnapshot.asset_id == Asset.id)
-        .where(Asset.url.in_(hostnames))
-    )
-    asset_data = asset_result.all()
-    cbom_map = {}
-    for a, c in asset_data:
-        if c:
-            cbom_map[a.url] = {
-                "pqc_label": c.pqc_label,
-                "cbom_timestamp": c.created_at.isoformat() if c.created_at else None,
-                # Include counts rather than raw JSON to preserve token window
-                "algorithms_count": len(json.loads(c.algorithms_json or "[]")),
-                "protocols_count": len(json.loads(c.protocols_json or "[]")),
-                "certificates_count": len(json.loads(c.certificates_json or "[]")),
-            }
-        else:
-            cbom_map[a.url] = {"pqc_label": "Unknown", "algorithms_count": 0, "protocols_count": 0, "certificates_count": 0}
-
-    # Attach CBOM data to subdomains
-    for s in subdomains:
-        s["cbom"] = cbom_map.get(s["hostname"])
+        enriched_targets.append({
+            "hostname": target["hostname"],
+            "url": target["url"],
+            "pqc_label": target["pqc_label"],
+            "risk_level": target["risk_level"],
+            "scanned": scanned,
+            "scan_status": scan_result.status if scan_result else "not_scanned",
+            "is_live": is_live,
+            "tls_version": scan_result.tls_version if scan_result else target["tls_version"],
+            "key_exchange": scan_result.key_exchange if scan_result else None,
+            "authentication": scan_result.authentication if scan_result else None,
+            "encryption": scan_result.encryption if scan_result else None,
+            "hashing": scan_result.hashing if scan_result else None,
+            "recommendations": json.loads(scan_result.recommendations_json or "[]")[:5] if scan_result and scan_result.recommendations_json else [],
+            "playbook": json.loads(scan_result.playbook_json or "{}") if scan_result and scan_result.playbook_json else {},
+            "cbom": {
+                "pqc_label": cbom_snapshot.pqc_label if cbom_snapshot else None,
+                "cbom_timestamp": cbom_snapshot.created_at.isoformat() if cbom_snapshot and cbom_snapshot.created_at else None,
+                "algorithms_count": len(json.loads(cbom_snapshot.algorithms_json or "[]")) if cbom_snapshot else 0,
+                "protocols_count": len(json.loads(cbom_snapshot.protocols_json or "[]")) if cbom_snapshot else 0,
+                "certificates_count": len(json.loads(cbom_snapshot.certificates_json or "[]")) if cbom_snapshot else 0,
+                "algorithms": json.loads(cbom_snapshot.algorithms_json or "[]")[:5] if cbom_snapshot else [],
+                "protocols": json.loads(cbom_snapshot.protocols_json or "[]")[:5] if cbom_snapshot else [],
+            },
+        })
 
     return {
-        "root_domain": domain,
-        "total_subdomains": len(subdomains),
+        "root_domain": group.get("domain", domain),
+        "total_targets": len(enriched_targets),
+        "scanned_targets": scanned_count,
         "live": live_count,
-        "dead": dead_count,
-        "subdomains": subdomains,
+        "dead": len(group.get("dead_hosts", [])),
+        "dead_hosts": group.get("dead_hosts", []),
+        "targets": enriched_targets,
     }
 
 
 def _format_domain_context(ctx: dict) -> str:
     """Format domain context for injection into the system prompt."""
-    if not ctx or not ctx.get("subdomains"):
+    if not ctx or not ctx.get("targets"):
         return ""
     lines = [f"\n\n## Domain Intelligence: {ctx['root_domain']}"]
-    lines.append(f"- **Total Subdomains:** {ctx['total_subdomains']}")
+    lines.append(f"- **Total Targets:** {ctx['total_targets']}")
+    lines.append(f"- **Scanned Targets:** {ctx['scanned_targets']}")
     lines.append(f"- **Live:** {ctx['live']}")
-    lines.append(f"- **Dead (cert ghosts):** {ctx['dead']}")
-    lines.append("\n### Subdomain Details and CBOM Context:")
-    for s in ctx["subdomains"][:30]:  # cap at 30
-        ips = ", ".join(s.get("ips", [])) if s.get("ips") else "no IPs"
-        cbom_info = ""
-        if s.get("cbom"):
-            c = s["cbom"]
-            cbom_info = f" | PQC: {c['pqc_label']} | Algos: {c['algorithms_count']} | Protos: {c['protocols_count']} | Certs: {c['certificates_count']}"
-        lines.append(f"- {s['hostname']} — {s['dns_status']} ({ips}) [{s['status']}]{cbom_info}")
-    lines.append("\nYou can use this subdomain data to answer questions about the domain's attack surface, exposure, and infrastructure.")
+    lines.append(f"- **Dead Hosts:** {ctx['dead']}")
+    if ctx.get("dead_hosts"):
+        lines.append(f"- **Dead Host List:** {', '.join(ctx['dead_hosts'][:20])}")
+    lines.append("\n### Target Details, Scan Results, and CBOM Context:")
+    for target in ctx["targets"][:40]:
+        cbom = target.get("cbom", {})
+        rec_count = len(target.get("recommendations") or [])
+        playbook_steps = len((target.get("playbook") or {}).get("steps", []))
+        lines.append(
+            "- "
+            f"{target['hostname']} — scanned={target['scanned']} live={target['is_live']} "
+            f"status={target['scan_status']} pqc={target.get('pqc_label') or 'unknown'} "
+            f"tls={target.get('tls_version') or 'unknown'} "
+            f"cbom_pqc={cbom.get('pqc_label') or 'unknown'} "
+            f"algos={cbom.get('algorithms_count', 0)} protos={cbom.get('protocols_count', 0)} "
+            f"certs={cbom.get('certificates_count', 0)} recs={rec_count} playbook_steps={playbook_steps}"
+        )
+    lines.append("\nUse this inventory-backed domain context to answer questions about live coverage, scanned assets, PQC posture, CBOM composition, and remediation state.")
     return "\n".join(lines)
 
 
@@ -587,34 +585,14 @@ async def list_available_domains(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    """List unique root domains from AssetDiscovery for the domain selector."""
-    result = await db.execute(
-        select(AssetDiscovery).where(
-            AssetDiscovery.category.in_([DiscoveryCategory.domain, DiscoveryCategory.ssl_cert])
-        )
-    )
-    discoveries = result.scalars().all()
-
-    roots: dict[str, list[str]] = {}
-    for d in discoveries:
-        meta = json.loads(d.metadata_json) if d.metadata_json else {}
-        # Calculate root domain robustly
-        root = meta.get("root_domain") or get_root_domain(d.value)
-        dns_status = meta.get("dns_status", "unknown")
-        
-        if root:
-            if root not in roots:
-                roots[root] = []
-            # Only add if it's live or if it's the root domain itself
-            if dns_status == "live" or d.value == root:
-                roots[root].append(d.value)
-
-    # Sort subdomains within each root, and then sort roots by name
-    result_list = []
-    for k in sorted(roots.keys()):
-        result_list.append({
-            "domain": k,
-            "subdomain_count": len(roots[k]),
-            "subdomains": sorted(list(set(roots[k])))
-        })
-    return result_list
+    """List root domains from Asset Inventory, enriched with scan/dead-host counts."""
+    groups = await list_domain_inventory(db)
+    return [{
+        "domain": group["domain"],
+        "target_count": group["target_count"],
+        "scanned_count": group["scanned_count"],
+        "live_count": group["live_count"],
+        "dead_count": group["dead_count"],
+        "targets": [target["hostname"] for target in group["targets"]],
+        "dead_hosts": group["dead_hosts"],
+    } for group in groups]

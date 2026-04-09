@@ -43,6 +43,9 @@
 /* These must stay green in both themes — --rk-green is repurposed as PNB gold in light mode */
 [data-theme="light"] .rk-icon-green   { background: rgba(46,204,113,0.12); color: #2ecc71; }
 [data-theme="light"] .badge-fully-qs  { color: #2ecc71; border-color: rgba(46,204,113,0.4); }
+[data-theme="light"] .btn-close-white { filter: none; opacity: 0.65; }
+[data-theme="light"] .btn-close-white:hover { opacity: 1; }
+[data-theme="dark"] .btn-close:not(.btn-close-white) { filter: invert(1) grayscale(100%) brightness(200%); }
 
 /* ── Base ─────────────────────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -181,7 +184,11 @@ body.rk-body {
     background: var(--rk-red); color: #fff; border-radius: 10px;
     font-size: 9px; padding: 1px 4px; min-width: 16px; text-align: center;
 }
-.rk-user-pill { display: flex; align-items: center; gap: 10px; cursor: pointer; }
+.rk-user-pill {
+    display: flex; align-items: center; gap: 10px; cursor: pointer;
+    padding: 0; color: inherit; transition: opacity var(--rk-transition);
+}
+.rk-user-pill:hover { opacity: 0.9; }
 .rk-avatar {
     width: 36px; height: 36px; border-radius: 50%;
     background: linear-gradient(135deg,var(--rk-accent),#5B6EF5);

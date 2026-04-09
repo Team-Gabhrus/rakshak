@@ -18,6 +18,8 @@
   <!-- Category table tabs -->
   <div class="rk-card mb-4">
     <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+      <input class="rk-form-control" id="pqcDomainSearch" list="pqcDomainOptions" placeholder="Filter by domain…" style="max-width:240px" oninput="applyPQCFilter(this.value)">
+      <datalist id="pqcDomainOptions"></datalist>
       <div class="rk-tabs" id="pqcTabs">
         <button class="rk-tab active" onclick="switchPQCTab('critical',this)">🔴 Critical</button>
         <button class="rk-tab" onclick="switchPQCTab('legacy',this)">🟡 Legacy</button>
@@ -40,12 +42,6 @@
         <button class="rk-btn rk-btn-sm rk-btn-outline" id="pqcNextBtn" onclick="nextPQCPage()">Next</button>
       </div>
     </div>
-  </div>
-
-  <!-- FR-43: Improvement Recommendations -->
-  <div class="rk-card mb-4">
-    <div class="rk-section-title"><i class="bi bi-lightbulb-fill me-2 text-yellow"></i>Improvement Recommendations</div>
-    <div id="improveRecs"></div>
   </div>
 
   <!-- FR-45: Quantum Risk Timeline -->
@@ -71,9 +67,12 @@ let pqcData = {};
 let currentPQCTab = 'critical';
 let pqcCurrentPage = 1;
 const pqcPageSize = 10;
+let pqcSelectedDomain = '';
 
 async function loadPQCPosture() {
-  const res = await API.get('/api/pqc/posture');
+  let url = '/api/pqc/posture';
+  if (pqcSelectedDomain) url += `?domain=${encodeURIComponent(pqcSelectedDomain)}`;
+  const res = await API.get(url);
   if (!res) return;
   pqcData = await res.json();
 
@@ -84,10 +83,22 @@ async function loadPQCPosture() {
   document.getElementById('catCrit').textContent   = counts.critical||0;
 
   renderPQCTable(currentPQCTab);
-  renderRecommendations(pqcData.improvement_recommendations || []);
   if (pqcData.risk_timeline) {
       renderRiskTimeline(pqcData.risk_timeline);
   }
+}
+
+async function loadPQCDomains() {
+  const res = await API.get('/api/assets/domains');
+  if (!res || !res.ok) return;
+  const domains = await res.json();
+  document.getElementById('pqcDomainOptions').innerHTML = domains.map(d => `<option value="${d.domain}"></option>`).join('');
+}
+
+function applyPQCFilter(value) {
+  pqcSelectedDomain = value.trim();
+  pqcCurrentPage = 1;
+  loadPQCPosture();
 }
 
 function switchPQCTab(tab, btn) {
@@ -151,32 +162,6 @@ function nextPQCPage() {
     pqcCurrentPage++;
     renderPQCTable(currentPQCTab);
   }
-}
-
-function renderRecommendations(recs) {
-  if (!recs.length) { document.getElementById('improveRecs').innerHTML = '<p class="text-muted fs-13">Run a scan to generate recommendations.</p>'; return; }
-  const priorityColor = {Critical:'#E74C3C',High:'#E67E22',Medium:'#F1C40F',Informational:'#7D8590'};
-  const iconMap = {'Key Exchange': 'bi-key', 'Authentication': 'bi-person-badge', 'Encryption': 'bi-shield-lock', 'Hashing': 'bi-hash', 'General': 'bi-info-circle'};
-
-  document.getElementById('improveRecs').innerHTML = `<div class="row g-3">` + recs.slice(0,10).map(r => `
-    <div class="col-md-6 col-lg-12">
-      <div class="rk-card p-3 h-100" style="border-left: 4px solid ${priorityColor[r.priority]||'#7D8590'}">
-        <div class="d-flex justify-content-between align-items-start mb-2">
-          <div class="d-flex align-items-center gap-2">
-            <div style="width: 32px; height: 32px; border-radius: 8px; background: ${priorityColor[r.priority]||'#7D8590'}15; color: ${priorityColor[r.priority]||'#7D8590'}; display: flex; align-items: center; justify-content: center;">
-              <i class="bi ${iconMap[r.component] || iconMap['General']} fs-5"></i>
-            </div>
-            <strong class="fs-14">${r.component||'General'}</strong>
-          </div>
-          <span class="badge" style="background:${priorityColor[r.priority]||'#7D8590'}22;color:${priorityColor[r.priority]||'#7D8590'}; border: 1px solid ${priorityColor[r.priority]||'#7D8590'}44;">${r.priority.toUpperCase()}</span>
-        </div>
-        <p class="fs-13 mb-3 lh-sm" style="color: var(--rk-text);">${r.action}</p>
-        <div class="mt-auto pt-2 fs-12 text-muted" style="border-top: 1px dashed var(--rk-border);">
-          <i class="bi bi-link-45deg me-1"></i> Affected Asset: <span class="text-truncate d-inline-block align-bottom" style="max-width: 250px;">${r.target||''}</span>
-        </div>
-      </div>
-    </div>
-  `).join('') + `</div>`;
 }
 
 function renderRiskTimeline(timelineData) {
@@ -258,11 +243,12 @@ function exportRecs() {
   const blob = new Blob([data], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'pqc_posture_export.json';
+  a.download = `pqc_posture_${pqcSelectedDomain || 'all'}.json`;
   a.click();
   showToast('PQC posture exported as JSON', 'success');
 }
 
+loadPQCDomains();
 loadPQCPosture();
 </script>
 {% endblock %}

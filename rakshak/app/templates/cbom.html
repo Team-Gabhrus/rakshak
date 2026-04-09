@@ -4,7 +4,11 @@
 <div class="rk-fade-in">
   <div class="d-flex align-items-center justify-content-between mb-4">
     <div><h1 class="rk-page-title">Cryptographic Bill of Materials</h1><p class="rk-page-sub">CERT-IN Annexure-A compliant CBOM inventory</p></div>
-    <button class="rk-btn rk-btn-outline" onclick="openCompare()"><i class="bi bi-arrows-collapse"></i> Compare Snapshots</button>
+    <div class="d-flex gap-2 align-items-center">
+      <input class="rk-form-control" id="cbomDomainSearch" list="cbomDomainOptions" placeholder="Filter by domain…" style="max-width:240px" oninput="applyCBOMDomainFilter(this.value)">
+      <datalist id="cbomDomainOptions"></datalist>
+      <button class="rk-btn rk-btn-outline" onclick="openCompare()"><i class="bi bi-arrows-collapse"></i> Compare Snapshots</button>
+    </div>
   </div>
 
   <!-- Summary metrics — FR-10 -->
@@ -61,6 +65,20 @@
     <div class="mt-4" id="certChainWrap">
       <div class="rk-section-title">Certificate Chain Visualization</div>
       <div id="certChainViz" style="padding:16px;background:var(--rk-bg);border-radius:10px;border:1px solid var(--rk-border)"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+      <div class="modal-header" style="border-color:var(--rk-border)">
+        <h5 class="modal-title" style="color:var(--rk-text)">Snapshot History</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body" id="historyModalBody">
+        <div class="text-muted">Loading…</div>
+      </div>
     </div>
   </div>
 </div>
@@ -140,9 +158,12 @@ let cbomSnapshots = [];
 let currentCBOM = null;
 let cbomCurrentPage = 1;
 const cbomPageSize = 10;
+let cbomSelectedDomain = '';
 
   async function loadCBOMMetrics() {
-    const res = await API.get('/api/cbom/metrics');
+    let url = '/api/cbom/metrics?include_unknown=false';
+    if (cbomSelectedDomain) url += `&domain=${encodeURIComponent(cbomSelectedDomain)}`;
+    const res = await API.get(url);
     if (!res) return;
     const d = await res.json();
     document.getElementById('mTotalApps').textContent = d.total_applications||0;
@@ -168,7 +189,9 @@ const cbomPageSize = 10;
   }
 
   async function loadCBOMList() {
-    const res = await API.get('/api/cbom');
+    let url = '/api/cbom?include_unknown=false';
+    if (cbomSelectedDomain) url += `&domain=${encodeURIComponent(cbomSelectedDomain)}`;
+    const res = await API.get(url);
     if (!res) return;
     cbomSnapshots = await res.json();
     
@@ -209,14 +232,36 @@ function renderCBOMPage() {
   const pageData = cbomSnapshots.slice(start, end);
 
   const tbody = document.getElementById('cbomBody');
-  tbody.innerHTML = pageData.map(s => `<tr>
-    <td><code>#${s.id}</code></td>
-    <td><div class="text-blue fs-12 cell-truncate" title="${s.target}">${s.target}</div></td>
-    <td>${pqcBadge(s.pqc_label)}</td>
-    <td class="text-muted fs-12">${fmtDateTime(s.created_at)}</td>
-    <td class="text-muted fs-12"><div class="cell-truncate" style="font-family:monospace; max-width: 150px;" title="${s.snapshot_hash||''}">${(s.snapshot_hash||'').substring(0,16)}…</div></td>
-    <td><button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadCBOMDetail(${s.id})">View Detail</button></td>
-  </tr>`).join('');
+  const grouped = {};
+  pageData.forEach(snapshot => {
+    if (!grouped[snapshot.domain]) grouped[snapshot.domain] = [];
+    grouped[snapshot.domain].push(snapshot);
+  });
+
+  tbody.innerHTML = Object.entries(grouped).map(([domain, items], index) => {
+    const safe = domain.replace(/[^a-zA-Z0-9]/g, '-');
+    const header = `
+      <tr style="background:var(--rk-surface)">
+        <td colspan="6">
+          <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.cbom-group-${safe}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
+            <i class="bi bi-chevron-right"></i>
+          </button>
+          <strong>${domain}</strong> <span class="badge bg-secondary ms-1">${items.length} targets</span>
+        </td>
+      </tr>`;
+    const rows = items.map(s => `<tr class="cbom-group-${safe}" style="display:none;background:rgba(255,255,255,0.01)">
+      <td><code>#${s.id}</code></td>
+      <td><div class="text-blue fs-12 cell-truncate" title="${s.target}">${s.target}</div></td>
+      <td>${pqcBadge(s.pqc_label)}</td>
+      <td class="text-muted fs-12">${fmtDateTime(s.created_at)}</td>
+      <td class="text-muted fs-12"><div class="cell-truncate" style="font-family:monospace; max-width: 150px;" title="${s.snapshot_hash||''}">${(s.snapshot_hash||'').substring(0,16)}…</div></td>
+      <td class="d-flex gap-2">
+        ${s.has_history ? `<button class="rk-btn rk-btn-outline rk-btn-sm" title="View History" onclick="openCBOMHistory('${encodeURIComponent(s.target)}')"><i class="bi bi-clock-history"></i></button>` : ''}
+        <button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadCBOMDetail(${s.id})">View Detail</button>
+      </td>
+    </tr>`).join('');
+    return header + rows;
+  }).join('');
 
   if (totalPages > 1) {
     document.getElementById('cbomPagination').classList.remove('d-none');
@@ -226,6 +271,50 @@ function renderCBOMPage() {
   } else {
     document.getElementById('cbomPagination').classList.add('d-none');
   }
+}
+
+async function loadCBOMDomains() {
+  const res = await API.get('/api/assets/domains');
+  if (!res || !res.ok) return;
+  const domains = await res.json();
+  document.getElementById('cbomDomainOptions').innerHTML = domains.map(d => `<option value="${d.domain}"></option>`).join('');
+}
+
+function applyCBOMDomainFilter(value) {
+  cbomSelectedDomain = value.trim();
+  cbomCurrentPage = 1;
+  loadCBOMMetrics();
+  loadCBOMList();
+}
+
+async function openCBOMHistory(target) {
+  const decodedTarget = decodeURIComponent(target);
+  const res = await API.get(`/api/cbom/history?target=${encodeURIComponent(decodedTarget)}`);
+  if (!res || !res.ok) return;
+  const history = await res.json();
+  const body = document.getElementById('historyModalBody');
+  if (!history.length) {
+    body.innerHTML = '<div class="text-muted">No older snapshots found.</div>';
+  } else {
+    body.innerHTML = `
+      <div class="rk-table-wrap">
+        <table class="rk-table">
+          <thead><tr><th>ID</th><th>Created</th><th>PQC Label</th><th>Hash</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${history.map(item => `
+              <tr>
+                <td><code>#${item.id}</code></td>
+                <td class="text-muted fs-12">${fmtDateTime(item.created_at)}</td>
+                <td>${pqcBadge(item.pqc_label)}</td>
+                <td class="text-muted fs-12">${(item.snapshot_hash || '').substring(0, 16)}…</td>
+                <td><button class="rk-btn rk-btn-outline rk-btn-sm" onclick="loadCBOMDetail(${item.id})">Open</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+  }
+  new bootstrap.Modal(document.getElementById('historyModal')).show();
 }
 
 function prevCBOMPage() {
@@ -474,6 +563,6 @@ async function runCompare() {
     </div>`;
 }
 
-loadCBOMMetrics(); loadCBOMList();
+loadCBOMDomains(); loadCBOMMetrics(); loadCBOMList();
 </script>
 {% endblock %}

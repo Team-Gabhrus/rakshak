@@ -22,6 +22,7 @@ class GenerateReportRequest(BaseModel):
     delivery_channel: str = "local"
     modules: list[str] = ["cbom", "pqc", "rating", "inventory", "discovery"]
     asset_ids: Optional[list[int]] = None
+    domains: Optional[list[str]] = None
     include_charts: bool = True
     password_protected: bool = False
     password: Optional[str] = None
@@ -36,6 +37,7 @@ class ScheduleReportRequest(BaseModel):
     delivery_channel: str = "email"
     modules: list[str] = ["cbom", "pqc", "rating"]
     asset_ids: Optional[list[int]] = None
+    domains: Optional[list[str]] = None
     include_charts: bool = True
     password_protected: bool = False
     delivery_target: Optional[str] = None
@@ -68,6 +70,7 @@ async def generate_report(
         delivery_channel=DeliveryChannel(req.delivery_channel),
         modules_json=json.dumps(req.modules),
         asset_ids_json=json.dumps(req.asset_ids) if req.asset_ids is not None else None,
+        domains_json=json.dumps(req.domains) if req.domains is not None else None,
         include_charts=req.include_charts,
         password_protected=req.password_protected,
         password=req.password,
@@ -82,11 +85,26 @@ async def generate_report(
 
     await log_event(db, "report_generated", f"Report '{req.title}' in {req.format} format", current_user.id, current_user.username)
     
-    background_tasks.add_task(_generate_report_background, report.id, req.modules, req.format, req.password if req.password_protected else None, req.asset_ids)
+    background_tasks.add_task(
+        _generate_report_background,
+        report.id,
+        req.modules,
+        req.format,
+        req.password if req.password_protected else None,
+        req.asset_ids,
+        req.domains,
+    )
 
     return {"report_id": report.id, "status": "generating", "message": "Report generation started"}
 
-async def _generate_report_background(report_id: int, modules: list, fmt: str, password: str = None, asset_ids: list = None):
+async def _generate_report_background(
+    report_id: int,
+    modules: list,
+    fmt: str,
+    password: str = None,
+    asset_ids: list = None,
+    domains: list = None,
+):
     """Background report generation task."""
     from app.services.export_service import generate_report_file
     from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -99,7 +117,7 @@ async def _generate_report_background(report_id: int, modules: list, fmt: str, p
         if not report:
             return
         try:
-            file_path = await generate_report_file(db, modules, fmt, report_id, password, asset_ids)
+            file_path = await generate_report_file(db, modules, fmt, report_id, password, asset_ids, domains)
             
             report.file_path = file_path
             
@@ -136,6 +154,7 @@ async def schedule_report(
         delivery_channel=DeliveryChannel(req.delivery_channel),
         modules_json=json.dumps(req.modules),
         asset_ids_json=json.dumps(req.asset_ids) if req.asset_ids is not None else None,
+        domains_json=json.dumps(req.domains) if req.domains is not None else None,
         include_charts=req.include_charts,
         password_protected=req.password_protected,
         delivery_target=req.delivery_target,

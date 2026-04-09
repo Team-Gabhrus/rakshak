@@ -18,7 +18,7 @@ async def get_db() -> AsyncSession:
 
 async def init_db():
     """Create all tables on startup."""
-    from app.models import user, asset, scan, cbom, report, audit, webhook  # noqa
+    from app.models import user, asset, scan, cbom, report, audit, webhook, chat  # noqa
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     
@@ -55,5 +55,42 @@ async def init_db():
     try:
         async with engine.begin() as conn:
             await conn.execute(text("ALTER TABLE scheduled_reports ADD COLUMN asset_ids_json TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE reports ADD COLUMN domains_json TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("ALTER TABLE scheduled_reports ADD COLUMN domains_json TEXT"))
+    except Exception:
+        pass
+
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text("""
+                UPDATE scan_results
+                SET asset_id = (
+                    SELECT assets.id
+                    FROM assets
+                    WHERE assets.url = scan_results.target_url
+                    LIMIT 1
+                )
+                WHERE asset_id IS NULL
+            """))
+            await conn.execute(text("""
+                UPDATE cbom_snapshots
+                SET asset_id = (
+                    SELECT assets.id
+                    FROM assets
+                    WHERE assets.url = cbom_snapshots.target_url
+                    LIMIT 1
+                )
+                WHERE asset_id IS NULL
+            """))
     except Exception:
         pass

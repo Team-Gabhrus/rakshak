@@ -10,6 +10,9 @@ from app.models.asset import Asset, AssetDiscovery, NameserverRecord, AssetType,
 from app.models.user import User
 from app.dependencies import require_admin, require_any_role
 from datetime import datetime
+from app.services.cleanup_service import delete_related_records_for_hosts
+from app.services.domain_service import list_domain_inventory
+from app.utils.domain_tools import extract_hostname
 
 router = APIRouter(prefix="/api/assets", tags=["assets"])
 
@@ -131,10 +134,9 @@ async def delete_asset(
     asset = result.scalar_one_or_none()
     if not asset:
         raise HTTPException(status_code=404, detail="Asset not found")
-    
-    await db.delete(asset)
-    await db.commit()
-    return {"message": "Asset deleted successfully", "id": asset_id}
+
+    deleted = await delete_related_records_for_hosts(db, {extract_hostname(asset.url)})
+    return {"message": "Asset deleted successfully", "id": asset_id, "deleted": deleted}
 
 
 class BulkDeleteRequest(BaseModel):
@@ -149,13 +151,13 @@ async def bulk_delete_assets(
     """Delete multiple assets at once."""
     if not req.asset_ids:
         return {"message": "No assets provided", "deleted": 0}
-        
-    from sqlalchemy import delete
-    from app.models.asset import Asset
-    result = await db.execute(delete(Asset).where(Asset.id.in_(req.asset_ids)))
-    await db.commit()
-    
-    return {"message": f"Successfully deleted {result.rowcount} assets", "deleted": result.rowcount}
+
+    result = await db.execute(select(Asset).where(Asset.id.in_(req.asset_ids)))
+    assets = result.scalars().all()
+    hosts = {extract_hostname(asset.url) for asset in assets}
+    deleted = await delete_related_records_for_hosts(db, hosts)
+
+    return {"message": f"Successfully deleted {len(hosts)} assets", "deleted": len(hosts), "details": deleted}
 
 
 @router.post("/discover")
@@ -326,56 +328,106 @@ async def asset_metrics(
 
 
 class SubdomainScanRequest(BaseModel):
-    domain: Optional[str] = None
-    auto_scan: bool = False
-    pending_targets: Optional[list[str]] = None
+    domain: str
+
+
+class SubdomainDecisionRequest(BaseModel):
+    continue_scanning: bool = True
+
 
 @router.post("/discover/subdomains")
-async def discover_subdomains_endpoint(
+async def create_subdomain_discovery(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+    req: SubdomainScanRequest = None,
+):
+    """
+    Create a stateful breadth-first subdomain discovery job.
+    """
+    from app.services.subdomain_service import create_subdomain_discovery_job
+    from app.config import settings
+    if not req or not req.domain:
+        raise HTTPException(status_code=400, detail="domain is required")
+    try:
+        return await create_subdomain_discovery_job(req.domain, settings.DATABASE_URL)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Subdomain discovery failed: {e}")
+
+
+@router.get("/discover/subdomains/{job_id}")
+async def get_subdomain_discovery_job(
+    job_id: str,
+    current_user: User = Depends(require_any_role),
+):
+    from app.services.subdomain_service import get_subdomain_job
+    job = get_subdomain_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Subdomain discovery job not found")
+    return job
+
+
+@router.post("/discover/subdomains/{job_id}/decision")
+async def decide_subdomain_discovery_job(
+    job_id: str,
+    req: SubdomainDecisionRequest,
+    current_user: User = Depends(require_admin),
+):
+    from app.services.subdomain_service import decide_subdomain_job
+    try:
+        return await decide_subdomain_job(job_id, req.continue_scanning)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
+@router.post("/discover/subdomains/{job_id}/scan")
+async def trigger_scan_from_subdomain_job(
+    job_id: str,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
-    domain: Optional[str] = Query(None, description="Root domain (query param fallback)"),
-    auto_scan: bool = Query(False, description="Auto-scan fallback"),
-    req: Optional[SubdomainScanRequest] = None,
 ):
-    """
-    Run passive subdomain OSINT for a specific root domain.
-    Discovered subdomains are DNS-verified and saved to AssetDiscovery.
-    Live subdomains are tagged 'new'; cert ghosts tagged 'false_positive'.
-    """
-    from app.services.subdomain_service import discover_subdomains
-    # Merge: prefer JSON body, fall back to query param
-    effective_domain = (req.domain if req and req.domain else domain) or ""
-    effective_auto_scan = (req.auto_scan if req else auto_scan)
-    effective_pending = (req.pending_targets if req else None)
-    if not effective_domain:
-        raise HTTPException(status_code=400, detail="domain is required (as query param or in JSON body)")
-    try:
-        result = await discover_subdomains(effective_domain, db, pending_targets=effective_pending)
-        
-        if effective_auto_scan and result.get("live_hosts"):
-            from app.services.scan_service import validate_targets, run_scan
-            from app.models.scan import Scan
-            from app.config import settings
-            import json
-            
-            valid_targets, _ = validate_targets(result["live_hosts"])
-            if valid_targets:
-                scan = Scan(
-                    targets_json=json.dumps(valid_targets),
-                    target_count=len(valid_targets),
-                    created_by=current_user.id,
-                )
-                db.add(scan)
-                await db.commit()
-                await db.refresh(scan)
-                background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
-                result["triggered_scan_id"] = scan.id
-                
-        return result
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Subdomain discovery failed: {e}")
+    from app.config import settings
+    from app.models.scan import Scan
+    from app.services.scan_service import run_scan, validate_targets
+    from app.services.subdomain_service import get_subdomain_job, get_subdomain_job_live_hosts
+    from app.utils.domain_tools import dedupe_preserve_order
+
+    job = get_subdomain_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Subdomain discovery job not found")
+
+    live_hosts = dedupe_preserve_order(get_subdomain_job_live_hosts(job_id))
+    valid_targets, errors = validate_targets(live_hosts)
+    if not valid_targets:
+        raise HTTPException(status_code=422, detail={"message": "No live subdomains available for scanning", "errors": errors})
+
+    scan = Scan(
+        targets_json=json.dumps(valid_targets),
+        target_count=len(valid_targets),
+        created_by=current_user.id,
+    )
+    db.add(scan)
+    await db.commit()
+    await db.refresh(scan)
+
+    background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
+    return {
+        "job_id": job_id,
+        "domain": job["domain"],
+        "scan_id": scan.id,
+        "target_count": len(valid_targets),
+        "validation_errors": errors,
+        "status": "queued",
+        "websocket_url": f"/ws/scan/{scan.id}",
+    }
+
+
+@router.get("/domains")
+async def asset_domains(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    return await list_domain_inventory(db)
 
 
 @router.get("/discovery")
@@ -426,9 +478,14 @@ async def delete_discovery(
     disc = result.scalar_one_or_none()
     if not disc:
         raise HTTPException(status_code=404, detail="Discovery not found")
-    await db.delete(disc)
-    await db.commit()
-    return {"message": "Discovery deleted", "id": disc_id}
+    host = extract_hostname(disc.value or disc.name)
+    if not host:
+        await db.delete(disc)
+        await db.commit()
+        return {"message": "Discovery deleted", "id": disc_id}
+
+    deleted = await delete_related_records_for_hosts(db, {host})
+    return {"message": "Discovery and related records deleted", "id": disc_id, "deleted": deleted}
 
 
 @router.get("/nameservers")

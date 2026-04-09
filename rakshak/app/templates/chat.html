@@ -99,9 +99,9 @@
         </div>
         <div id="assetSection" class="mb-3">
           <label class="rk-form-label">Select Asset *</label>
-          <select class="rk-form-control" id="assetSelectModal" onchange="updateAssetInfo()">
-            <option value="">Loading assets...</option>
-          </select>
+          <input type="text" class="rk-form-control" id="assetSearchInput" placeholder="Search assets..." autocomplete="off" onfocus="renderAssetOptions('')" oninput="renderAssetOptions(this.value)">
+          <input type="hidden" id="assetSelectModal" value="">
+          <div id="assetSearchDropdown" style="max-height:220px;overflow-y:auto;border:1px solid var(--rk-border);border-radius:6px;margin-top:0.5rem;background:var(--rk-bg);"></div>
           <small class="text-muted" id="assetDetails" style="display: block; margin-top: 0.5rem;"></small>
         </div>
         <div id="domainSection" class="mb-3" style="display: none;">
@@ -117,7 +117,6 @@
         </div>
       </div>
       <div class="modal-footer" style="border-color: var(--rk-border);">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="createNewSession()"><i class="bi bi-plus-lg"></i> Start Session</button>
       </div>
     </div>
@@ -146,10 +145,7 @@ async function loadAssets() {
   if (!res) return;
   const d = await res.json();
   allAssets = d.assets || [];
-  
-  const select = document.getElementById('assetSelectModal');
-  select.innerHTML = '<option value="">Choose an asset...</option>' + 
-    allAssets.map(a => `<option value="${a.id}" data-url="${a.url}" data-type="${a.asset_type}" data-risk="${a.risk_level}">${a.name || a.url}</option>`).join('');
+  renderAssetOptions('');
 }
 
 function updateAssetInfo() {
@@ -159,13 +155,46 @@ function updateAssetInfo() {
   if (asset) {
     const riskColor = getRiskColor(asset.risk_level);
     details.innerHTML = `<strong>${asset.url}</strong> • Type: ${asset.asset_type} • Risk: <span style="color:${riskColor};">${asset.risk_level}</span>`;
+  } else {
+    details.textContent = '';
   }
+}
+
+function renderAssetOptions(query) {
+  const q = (query || '').toLowerCase().trim();
+  const dropdown = document.getElementById('assetSearchDropdown');
+  const items = allAssets.filter(asset => {
+    if (!q) return true;
+    return (asset.name || '').toLowerCase().includes(q) || (asset.url || '').toLowerCase().includes(q);
+  });
+
+  dropdown.innerHTML = items.map(asset => `
+    <div style="padding:8px 10px;cursor:pointer;border-bottom:1px solid var(--rk-border)" onclick="selectAsset(${asset.id})">
+      <div style="font-weight:600;color:var(--rk-text)">${asset.name || asset.url}</div>
+      <div style="font-size:0.8rem;color:var(--rk-text-muted)">${asset.url}</div>
+    </div>
+  `).join('') || '<div style="padding:10px;color:#999">No assets found</div>';
+}
+
+function selectAsset(assetId) {
+  const asset = allAssets.find(item => item.id === assetId);
+  if (!asset) return;
+  document.getElementById('assetSelectModal').value = assetId;
+  document.getElementById('assetSearchInput').value = asset.name || asset.url;
+  updateAssetInfo();
 }
 
 function openNewSessionModal() {
   loadAssets();
   loadDomains();
   setChatMode('asset');
+  document.getElementById('assetSearchInput').value = '';
+  document.getElementById('assetSelectModal').value = '';
+  document.getElementById('assetDetails').textContent = '';
+  document.getElementById('domainSearchInput').value = '';
+  document.getElementById('domainSelectModal').value = '';
+  document.getElementById('domainDetails').innerHTML = 'Select a domain to load all inventory targets, latest CBOM snapshots, playbooks, live coverage, and dead-host context into the chat.';
+  document.getElementById('sessionTitle').value = '';
   new bootstrap.Modal(document.getElementById('newSessionModal')).show();
 }
 
@@ -220,7 +249,7 @@ async function loadSessions() {
         <strong style="font-size: 0.9rem; color: var(--rk-text); word-break: break-all;">${s.title}</strong>
         <span class="badge ${s.status === 'active' ? 'bg-success' : 'bg-secondary'}" style="font-size: 0.7rem; white-space: nowrap;">${s.status}</span>
       </div>
-      <p style="margin: 0; font-size: 0.8rem; color: #999; word-break: break-all;">${s.asset_name}</p>
+      <p style="margin: 0; font-size: 0.8rem; color: #999; word-break: break-all;">${s.domain ? `Domain: ${s.domain}` : s.asset_name}</p>
       <p style="margin: 0.5rem 0 0 0; font-size: 0.75rem; color: #666;">${s.message_count} messages</p>
     </div>
   `).join('');
@@ -236,6 +265,7 @@ async function selectSession(sessionId) {
     asset_id: d.asset_id,
     asset_name: d.asset_name,
     asset_url: d.asset_url,
+    domain: d.domain,
   };
 
   // Update header
@@ -249,8 +279,10 @@ async function selectSession(sessionId) {
   messagesArea.style.display = 'block';
   inputArea.style.display = 'block';
 
-  document.getElementById('chatTitle').textContent = `Chat with ${currentSession.asset_name}`;
-  document.getElementById('chatAssetInfo').textContent = `Asset ID: ${currentSession.asset_id} • ${currentSession.asset_url}`;
+  document.getElementById('chatTitle').textContent = currentSession.domain ? `Chat about ${currentSession.domain}` : `Chat with ${currentSession.asset_name}`;
+  document.getElementById('chatAssetInfo').textContent = currentSession.domain
+    ? `Domain session • ${currentSession.domain}`
+    : `Asset ID: ${currentSession.asset_id} • ${currentSession.asset_url}`;
 
   // Render messages
   renderMessages(d.messages);
@@ -261,7 +293,7 @@ function renderMessages(messages) {
   const list = document.getElementById('messagesList');
   
   if (!messages.length) {
-    list.innerHTML = `<div style="text-align: center; color: #999; padding: 2rem;"><p>Start the conversation by asking about this asset's security posture!</p></div>`;
+    list.innerHTML = `<div style="text-align: center; color: #999; padding: 2rem;"><p>${currentSession?.domain ? 'Ask about domain coverage, live hosts, CBOM posture, or remediation across this domain.' : 'Start the conversation by asking about this asset\\'s security posture!'}</p></div>`;
     return;
   }
 
@@ -478,7 +510,8 @@ function renderDomainTree(data) {
   data.forEach((group, idx) => {
     const safeId = group.domain.replace(/[^a-zA-Z0-9]/g, '-');
     const isSelected = document.getElementById('domainSelectModal').value === group.domain;
-    const subs = group.subdomains.filter(s => s !== group.domain);
+    const liveTargets = group.targets || [];
+    const deadHosts = group.dead_hosts || [];
     html += `
       <div class="domain-tree-group" data-root="${group.domain}" style="border-bottom: 1px solid var(--rk-border);">
         <div onclick="selectDomain('${group.domain}')" style="display:flex; align-items:center; padding: 8px 12px; cursor:pointer; gap:8px; background: ${isSelected ? 'rgba(46,204,113,0.15)' : 'transparent'}; transition: background 0.2s;" onmouseover="if(!this.classList.contains('selected'))this.style.background='var(--rk-surface)'" onmouseout="if(!this.classList.contains('selected'))this.style.background='${isSelected ? 'rgba(46,204,113,0.15)' : 'transparent'}'">
@@ -487,12 +520,17 @@ function renderDomainTree(data) {
           </button>
           <i class="bi bi-globe2" style="color: var(--rk-accent); font-size:0.9rem;"></i>
           <strong style="font-size: 0.9rem; color: var(--rk-text); flex:1;">${group.domain}</strong>
-          <span class="badge bg-secondary" style="font-size: 0.7rem;">${group.subdomain_count} live</span>
+          <span class="badge bg-secondary" style="font-size: 0.7rem;">${group.target_count} targets</span>
           ${isSelected ? '<i class="bi bi-check-circle-fill" style="color:#2ECC71;"></i>' : ''}
         </div>
         <div id="subs-${safeId}" style="display: none; padding-left: 42px; padding-bottom: 4px;">
-          ${subs.map(sub => `<div style="padding: 3px 0; font-size: 0.8rem; color: var(--rk-text); opacity: 0.8;">🟢 ${sub}</div>`).join('')}
-          ${subs.length === 0 ? '<div style="padding: 3px 0; font-size: 0.8rem; color: #999;">No subdomains</div>' : ''}
+          <div style="padding:4px 0;font-size:0.78rem;color:var(--rk-text-muted)">Scanned: ${group.scanned_count || 0} • Live: ${group.live_count || 0} • Dead: ${group.dead_count || 0}</div>
+          <div style="padding:4px 0 2px;font-size:0.74rem;font-weight:600;color:#2ECC71;text-transform:uppercase;letter-spacing:0.04em;">Inventory Targets</div>
+          ${liveTargets.map(sub => `<div style="padding: 3px 0; font-size: 0.8rem; color: var(--rk-text); opacity: 0.85;">• ${sub}</div>`).join('')}
+          ${liveTargets.length === 0 ? '<div style="padding: 3px 0; font-size: 0.8rem; color: #999;">No inventory targets</div>' : ''}
+          <div style="padding:8px 0 2px;font-size:0.74rem;font-weight:600;color:#E67E22;text-transform:uppercase;letter-spacing:0.04em;">Dead Hosts</div>
+          ${deadHosts.map(sub => `<div style="padding: 3px 0; font-size: 0.8rem; color: #E67E22; opacity: 0.9;">• ${sub}</div>`).join('')}
+          ${deadHosts.length === 0 ? '<div style="padding: 3px 0; font-size: 0.8rem; color: #999;">No dead hosts recorded</div>' : ''}
         </div>
       </div>`;
   });
@@ -511,8 +549,9 @@ function toggleDomainGroup(safeId) {
 }
 
 function selectDomain(domainValue) {
+  const group = _allDomainData.find(item => item.domain === domainValue);
   document.getElementById('domainSelectModal').value = domainValue;
-  document.getElementById('domainDetails').innerHTML = `<strong style="color:#2ECC71;">✓ Selected:</strong> ${domainValue} — all live subdomains will be loaded into AI context.`;
+  document.getElementById('domainDetails').innerHTML = `<strong style="color:#2ECC71;">✓ Selected:</strong> ${domainValue} — ${group?.target_count || 0} targets, ${group?.scanned_count || 0} scanned, ${group?.live_count || 0} live, ${group?.dead_count || 0} dead hosts.`;
   // Re-render to update highlight
   renderDomainTree(_allDomainData);
 }
@@ -525,10 +564,11 @@ function filterDomainTree(query) {
   }
   const filtered = _allDomainData.filter(group => {
     if (group.domain.toLowerCase().includes(q)) return true;
-    return group.subdomains.some(s => s.toLowerCase().includes(q));
+    return (group.targets || []).some(s => s.toLowerCase().includes(q)) || (group.dead_hosts || []).some(s => s.toLowerCase().includes(q));
   }).map(group => ({
     ...group,
-    subdomains: group.subdomains.filter(s => s.toLowerCase().includes(q) || group.domain.toLowerCase().includes(q))
+    targets: (group.targets || []).filter(s => s.toLowerCase().includes(q) || group.domain.toLowerCase().includes(q)),
+    dead_hosts: (group.dead_hosts || []).filter(s => s.toLowerCase().includes(q) || group.domain.toLowerCase().includes(q))
   }));
   renderDomainTree(filtered);
 }

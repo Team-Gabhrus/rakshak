@@ -12,8 +12,8 @@
     <div class="rk-section-title">System Users</div>
     <div class="rk-table-wrap">
       <table class="rk-table mb-3">
-        <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th></tr></thead>
-        <tbody id="userBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr></tbody>
+        <thead><tr><th>ID</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead>
+        <tbody id="userBody"><tr><td colspan="7" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
       <div id="usersPagination" class="d-flex justify-content-end"></div>
     </div>
@@ -52,7 +52,6 @@
         </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="addUser()"><i class="bi bi-person-plus-fill"></i> Add User</button>
       </div>
     </div>
@@ -73,7 +72,7 @@ async function loadUsers(page = 1) {
   const users = data.items || data;
   
   if (users.length === 0) {
-    document.getElementById('userBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No users found.</td></tr>';
+    document.getElementById('userBody').innerHTML = '<tr><td colspan="7" class="text-center text-muted py-4">No users found.</td></tr>';
   } else {
     document.getElementById('userBody').innerHTML = users.map(u => `<tr>
       <td><code>#${u.id}</code></td>
@@ -82,6 +81,9 @@ async function loadUsers(page = 1) {
       <td><span class="badge ${u.role==='admin'?'bg-danger':'bg-info text-dark'}">${u.role}</span></td>
       <td><span class="badge ${u.is_active?'bg-success':'bg-secondary'}">${u.is_active?'Active':'Inactive'}</span></td>
       <td class="text-muted fs-12">${fmtDateTime(u.last_login)||'Never'}</td>
+      <td>
+        <button class="btn btn-sm text-danger px-1" title="Delete User" onclick="deleteUser(${u.id}, '${u.username.replace(/'/g, "\\'")}')"><i class="bi bi-trash"></i></button>
+      </td>
     </tr>`).join('');
   }
   
@@ -129,6 +131,19 @@ async function addUser() {
   });
   if (res?.ok) { showToast('User created!','success'); bootstrap.Modal.getInstance(document.getElementById('addUserModal')).hide(); loadUsers(usersPage); }
   else { const d = await res?.json(); showToast(d?.detail||'Error creating user','danger'); }
+}
+
+async function deleteUser(id, username) {
+  const confirmed = await rkConfirm(`Delete user <strong>${username}</strong>?`, 'Delete User', true);
+  if (!confirmed) return;
+  const res = await API.delete(`/api/users/${id}`);
+  const data = await res?.json().catch(() => ({}));
+  if (res?.ok) {
+    showToast(data.message || 'User deleted', 'success');
+    loadUsers(usersPage);
+  } else {
+    showToast(data.detail || 'Failed to delete user', 'danger');
+  }
 }
 
 loadUsers(); loadAuditLogs();

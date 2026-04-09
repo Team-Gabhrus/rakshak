@@ -8,30 +8,61 @@ from app.models.cbom import CBOMSnapshot
 from app.models.user import User
 from app.dependencies import require_any_role
 from app.engine.cbom_generator import diff_cbom_snapshots
+from app.services.domain_service import get_cbom_history_by_target
+from app.utils.domain_tools import get_root_domain
 
 router = APIRouter(prefix="/api/cbom", tags=["cbom"])
 
 
 @router.get("")
 async def list_cbom(
+    domain: str = Query(None),
+    include_unknown: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
-    result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()))
-    snaps = result.scalars().all()
-    return [{"id": s.id, "target": s.target_url, "pqc_label": s.pqc_label,
-             "created_at": s.created_at, "snapshot_hash": s.snapshot_hash} for s in snaps]
+    history = await get_cbom_history_by_target(db)
+    items = []
+    for target, snapshots in history.items():
+        latest = snapshots[0]
+        root_domain = get_root_domain(target)
+        if domain and root_domain != get_root_domain(domain):
+            continue
+        if not include_unknown and (latest.pqc_label or "unknown") == "unknown":
+            continue
+        items.append({
+            "id": latest.id,
+            "target": latest.target_url,
+            "hostname": latest.target_url.split("://")[-1].split("/")[0],
+            "domain": root_domain,
+            "pqc_label": latest.pqc_label,
+            "created_at": latest.created_at,
+            "snapshot_hash": latest.snapshot_hash,
+            "history_count": len(snapshots),
+            "has_history": len(snapshots) > 1,
+        })
+    return sorted(items, key=lambda item: (item["domain"], item["target"], item["created_at"]), reverse=True)
 
 
 @router.get("/metrics")
 async def cbom_metrics(
+    domain: str = Query(None),
+    include_unknown: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_any_role),
 ):
     """CBOM module summary metrics."""
-    result = await db.execute(select(CBOMSnapshot))
-    snaps = result.scalars().all()
-    total_apps = len(set(s.target_url for s in snaps))
+    history = await get_cbom_history_by_target(db)
+    snaps = []
+    for target, target_history in history.items():
+        latest = target_history[0]
+        if domain and get_root_domain(target) != get_root_domain(domain):
+            continue
+        if not include_unknown and (latest.pqc_label or "unknown") == "unknown":
+            continue
+        snaps.append(latest)
+
+    total_apps = len(snaps)
     active_certs = 0
     weak_crypto = 0
     cert_issues = 0
@@ -89,6 +120,23 @@ async def cbom_metrics(
         "key_length_dist": key_length_dist,
         "protocol_dist": protocol_dist,
     }
+
+
+@router.get("/history")
+async def cbom_history(
+    target: str = Query(...),
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    history = await get_cbom_history_by_target(db, [target])
+    snapshots = history.get(target, [])
+    return [{
+        "id": snapshot.id,
+        "target": snapshot.target_url,
+        "pqc_label": snapshot.pqc_label,
+        "created_at": snapshot.created_at,
+        "snapshot_hash": snapshot.snapshot_hash,
+    } for snapshot in snapshots]
 
 
 @router.get("/compare")

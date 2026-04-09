@@ -47,12 +47,12 @@
     </div>
   </div>
 
-  <!-- Asset Selection — FR-33 style -->
+  <!-- Domain Selection -->
   <div class="rk-card mb-4" id="reportAssetSelection">
     <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap">
-      <div class="rk-section-title mb-0">Included Assets</div>
+      <div class="rk-section-title mb-0">Included Domains</div>
       <div class="d-flex gap-2">
-        <input type="text" class="rk-form-control rk-form-control-sm" id="reportAssetSearch" placeholder="Search assets…" style="max-width:200px" oninput="searchReportAssets()">
+        <input type="text" class="rk-form-control rk-form-control-sm" id="reportAssetSearch" placeholder="Search domains…" style="max-width:200px" oninput="searchReportAssets()">
       </div>
     </div>
     <div class="rk-table-wrap" style="max-height: 300px; overflow-y: auto;">
@@ -60,14 +60,15 @@
         <thead style="position: sticky; top: 0; background: var(--rk-surface); z-index: 1;">
           <tr>
             <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAllReportAssets" checked onclick="toggleAllReportAssets(this.checked)"></th>
-            <th>Asset Name</th>
-            <th>URL</th>
-            <th>Type</th>
-            <th>PQC Label</th>
+            <th>Domain</th>
+            <th>Targets</th>
+            <th>Scanned</th>
+            <th>Live</th>
+            <th>Dead</th>
           </tr>
         </thead>
         <tbody id="reportAssetBody">
-          <tr><td colspan="5" class="text-center text-muted py-4">Loading assets…</td></tr>
+          <tr><td colspan="6" class="text-center text-muted py-4">Loading domains…</td></tr>
         </tbody>
       </table>
     </div>
@@ -156,7 +157,6 @@
         </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="generateReport()"><i class="bi bi-file-earmark-arrow-down-fill"></i> Generate</button>
       </div>
     </div>
@@ -186,7 +186,6 @@
         <div class="mb-3"><label class="rk-form-label">Delivery Target</label><input class="rk-form-control" id="schedTarget" placeholder="security@pnb.in"></div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="scheduleReport()"><i class="bi bi-calendar-check"></i> Schedule</button>
       </div>
     </div>
@@ -201,11 +200,10 @@ let reportAssets = [];
 let filteredReportAssets = [];
 
 async function loadReportAssets() {
-  const res = await API.get('/api/assets?page_size=10000');
+  const res = await API.get('/api/assets/domains');
   if (!res) return;
   const d = await res.json();
-  // By default all are checked
-  reportAssets = (d.assets || []).map(a => ({ ...a, checked: true }));
+  reportAssets = (d || []).map(domain => ({ ...domain, checked: true }));
   filteredReportAssets = [...reportAssets];
   renderReportAssets();
   updateSelectedCount();
@@ -214,21 +212,22 @@ async function loadReportAssets() {
 function renderReportAssets() {
   const tbody = document.getElementById('reportAssetBody');
   if (!filteredReportAssets.length) {
-    tbody.innerHTML = '<tr><td colspan="5" class="text-center text-muted py-3">No assets found</td></tr>';
+    tbody.innerHTML = '<tr><td colspan="6" class="text-center text-muted py-3">No domains found</td></tr>';
     return;
   }
   
   tbody.innerHTML = filteredReportAssets.map((a, i) => `
     <tr>
-      <td><input type="checkbox" class="form-check-input report-asset-cb" value="${a.id}" ${a.checked ? 'checked' : ''} onchange="updateReportAssetStatus(${a.id}, this.checked)"></td>
-      <td><strong>${a.name || '—'}</strong></td>
-      <td><span class="text-blue fs-12">${a.url}</span></td>
-      <td><span class="badge bg-secondary">${a.asset_type || '—'}</span></td>
-      <td>${pqcBadge(a.pqc_label)}</td>
+      <td><input type="checkbox" class="form-check-input report-asset-cb" value="${a.domain}" ${a.checked ? 'checked' : ''} onchange="updateReportAssetStatus('${a.domain}', this.checked)"></td>
+      <td><strong>${a.domain || '—'}</strong></td>
+      <td>${a.target_count || 0}</td>
+      <td>${a.scanned_count || 0}</td>
+      <td>${a.live_count || 0}</td>
+      <td>${a.dead_count || 0}</td>
     </tr>
   `).join('');
   
-  document.getElementById('reportAssetCount').textContent = `Showing ${filteredReportAssets.length} of ${reportAssets.length} assets`;
+  document.getElementById('reportAssetCount').textContent = `Showing ${filteredReportAssets.length} of ${reportAssets.length} domains`;
   checkSelectAllState();
 }
 
@@ -238,8 +237,7 @@ function searchReportAssets() {
     filteredReportAssets = [...reportAssets];
   } else {
     filteredReportAssets = reportAssets.filter(a => 
-      (a.name || '').toLowerCase().includes(q) || 
-      (a.url || '').toLowerCase().includes(q)
+      (a.domain || '').toLowerCase().includes(q)
     );
   }
   renderReportAssets();
@@ -250,18 +248,18 @@ function toggleAllReportAssets(checked) {
   filteredReportAssets.forEach(a => {
     a.checked = checked;
     // update in main array too
-    const mainAsset = reportAssets.find(ma => ma.id === a.id);
+    const mainAsset = reportAssets.find(ma => ma.domain === a.domain);
     if (mainAsset) mainAsset.checked = checked;
   });
   renderReportAssets();
   updateSelectedCount();
 }
 
-function updateReportAssetStatus(id, checked) {
-  const mainAsset = reportAssets.find(a => a.id === id);
+function updateReportAssetStatus(domain, checked) {
+  const mainAsset = reportAssets.find(a => a.domain === domain);
   if (mainAsset) mainAsset.checked = checked;
   
-  const filteredAsset = filteredReportAssets.find(a => a.id === id);
+  const filteredAsset = filteredReportAssets.find(a => a.domain === domain);
   if (filteredAsset) filteredAsset.checked = checked;
   
   checkSelectAllState();
@@ -294,7 +292,11 @@ function openSchedule()       { new bootstrap.Modal(document.getElementById('sch
 
 async function generateReport() {
   const fmt = document.querySelector('input[name="repFmt"]:checked').value;
-  const selectedAssetIds = reportAssets.filter(a => a.checked).map(a => a.id);
+  const selectedDomains = reportAssets.filter(a => a.checked).map(a => a.domain);
+  if (!selectedDomains.length) {
+    showToast('Select at least one domain to generate a report', 'warning');
+    return;
+  }
 
   const res = await API.post('/api/reports/generate', {
     title: document.getElementById('repTitle').value,
@@ -303,7 +305,7 @@ async function generateReport() {
     delivery_target: document.getElementById('repTarget').value || null,
     expires_in: document.getElementById('repExpires').value,
     modules: selectedModules,
-    asset_ids: selectedAssetIds,
+    domains: selectedDomains,
     include_charts: true,
     password_protected: document.getElementById('repPwd').checked,
     password: document.getElementById('repPwdVal').value || null,
@@ -317,7 +319,11 @@ async function generateReport() {
 }
 
 async function scheduleReport() {
-  const selectedAssetIds = reportAssets.filter(a => a.checked).map(a => a.id);
+  const selectedDomains = reportAssets.filter(a => a.checked).map(a => a.domain);
+  if (!selectedDomains.length) {
+    showToast('Select at least one domain to schedule a report', 'warning');
+    return;
+  }
 
   const res = await API.post('/api/reports/schedule', {
     title: document.getElementById('schedTitle').value,
@@ -326,7 +332,7 @@ async function scheduleReport() {
     delivery_channel: document.getElementById('schedDelivery').value,
     delivery_target: document.getElementById('schedTarget').value || null,
     modules: selectedModules,
-    asset_ids: selectedAssetIds,
+    domains: selectedDomains,
   });
   if (res?.ok) {
     showToast('Report scheduled!', 'success');

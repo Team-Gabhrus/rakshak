@@ -109,7 +109,6 @@
         </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="addAsset()"><i class="bi bi-plus-lg"></i> Add Asset</button>
       </div>
     </div>
@@ -129,7 +128,6 @@
         <textarea class="rk-form-control" id="bulkData" rows="8" placeholder="https://example1.com&#10;https://example2.com"></textarea>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" onclick="bulkImport()"><i class="bi bi-upload"></i> Import & Scan</button>
       </div>
     </div>
@@ -210,6 +208,7 @@ async function loadAssets(page=1) {
   const res = await API.get(url);
   if (!res) return;
   const d = await res.json();
+  d.assets = (d.assets || []).filter(a => (a.risk_level || 'unknown') !== 'unknown');
   const tbody = document.getElementById('assetBody');
   if (!d.assets?.length) { 
       tbody.innerHTML = '<tr><td colspan="12" class="text-center text-muted py-4">No assets found</td></tr>';
@@ -348,6 +347,12 @@ async function addAsset() {
 
 async function bulkImport() {
   const raw = document.getElementById('bulkData').value;
+  const estimatedCount = raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean).length;
+  if (!estimatedCount) {
+    showToast('Please enter at least one target to import', 'warning');
+    return;
+  }
+  if (!await confirmLargeScan(estimatedCount)) return;
   const res = await fetch('/api/scan/bulk-import', {
     method:'POST', headers:{'Content-Type':'text/plain','Authorization':'Bearer '+API.token}, body: raw
   });
@@ -358,11 +363,12 @@ async function bulkImport() {
 }
 
 async function scanAll() {
-  const res = await API.get('/api/assets?page_size=100');
+  const res = await API.get('/api/assets?page_size=100000');
   if (!res) return;
   const d = await res.json();
-  const targets = d.assets.map(a=>a.url);
+  const targets = (d.assets || []).map(a=>a.url);
   if (!targets.length) { showToast('No assets to scan','warning'); return; }
+  if (!await confirmLargeScan(targets.length)) return;
   const scanRes = await API.post('/api/scan', {targets});
   if (!scanRes) return;
   const scanData = await scanRes.json();
@@ -436,6 +442,7 @@ function updateSelectAll() {
     return;
   }
   const targets = Array.from(selectedAssetUrls);
+  if (!await confirmLargeScan(targets.length)) return;
   const scanRes = await API.post('/api/scan', {targets});
   if (!scanRes) return;
   const scanData = await scanRes.json();

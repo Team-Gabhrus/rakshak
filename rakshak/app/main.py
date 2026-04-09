@@ -9,10 +9,10 @@ from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 from app.dependencies import require_admin, require_any_role
 from app.models.user import User
 from fastapi import HTTPException
-from fastapi.responses import JSONResponse
 
 from app.config import settings
 from app.database import init_db, get_db
@@ -29,27 +29,11 @@ async def lifespan(app: FastAPI):
     """Initialize database and seed default admin user on startup."""
     await init_db()
     await recover_interrupted_scans()
-    await recover_interrupted_scans()
     await seed_default_users()
     logger.info("Rakshak started successfully")
     yield
     logger.info("Rakshak shutting down")
 
-
-
-async def recover_interrupted_scans():
-    from app.database import AsyncSessionLocal
-    from sqlalchemy import select
-    from app.models.scan import Scan, ScanStatus
-    try:
-        async with AsyncSessionLocal() as db:
-            result = await db.execute(select(Scan).where(Scan.status == ScanStatus.running))
-            interrupted = result.scalars().all()
-            for scan in interrupted:
-                scan.status = ScanStatus.failed
-            await db.commit()
-    except Exception as e:
-        logger.error(f"Error recovering interrupted scans: {e}")
 
 
 async def recover_interrupted_scans():
@@ -222,6 +206,54 @@ async def register_endpoint(
     return await register_user_endpoint(req_model, db)
 
 
+@app.delete("/api/users/{user_id}")
+async def delete_user(
+    user_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    from sqlalchemy import func, delete, update
+    from app.models.chat import ChatMessage, ChatSession
+    from app.models.report import Report, ScheduledReport
+    from app.services.audit_service import log_event
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    if user.id == current_user.id:
+        raise HTTPException(status_code=400, detail="You cannot delete your own account")
+
+    if user.role == UserRole.admin:
+        admin_count_result = await db.execute(select(func.count(User.id)).where(User.role == UserRole.admin))
+        admin_count = admin_count_result.scalar() or 0
+        if admin_count <= 1:
+            raise HTTPException(status_code=400, detail="At least one admin account must remain")
+
+    session_result = await db.execute(select(ChatSession.id).where(ChatSession.user_id == user_id))
+    session_ids = session_result.scalars().all()
+    if session_ids:
+        await db.execute(delete(ChatMessage).where(ChatMessage.session_id.in_(session_ids)))
+        await db.execute(delete(ChatSession).where(ChatSession.id.in_(session_ids)))
+
+    await db.execute(update(Report).where(Report.created_by == user_id).values(created_by=None))
+    await db.execute(update(ScheduledReport).where(ScheduledReport.created_by == user_id).values(created_by=None))
+
+    await db.delete(user)
+    await db.commit()
+
+    await log_event(
+        db,
+        "user_deleted",
+        f"User {user.username} deleted by {current_user.username}",
+        current_user.id,
+        current_user.username,
+        request.client.host if request.client else None,
+    )
+    return {"message": "User deleted successfully", "id": user_id}
+
+
 
 @app.get("/api/audit-logs")
 async def list_audit_logs(
@@ -244,6 +276,39 @@ async def list_audit_logs(
         "total": total,
         "page": page,
         "page_size": page_size
+    }
+
+
+@app.get("/api/tasks/status")
+async def task_status(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    from sqlalchemy import func
+    from app.models.scan import Scan, ScanStatus
+    from app.models.report import Report
+    from app.services.subdomain_service import get_active_subdomain_task_count
+
+    running_scan_result = await db.execute(
+        select(func.count(Scan.id)).where(Scan.status.in_([ScanStatus.queued, ScanStatus.running]))
+    )
+    report_result = await db.execute(
+        select(func.count(Report.id)).where(Report.status.in_(["pending", "generating"]))
+    )
+
+    running_scans = running_scan_result.scalar() or 0
+    generating_reports = report_result.scalar() or 0
+    discovery_jobs = get_active_subdomain_task_count()
+    total_running = running_scans + generating_reports + discovery_jobs
+
+    return {
+        "has_running_tasks": total_running > 0,
+        "counts": {
+            "scans": running_scans,
+            "reports": generating_reports,
+            "discovery_jobs": discovery_jobs,
+            "total": total_running,
+        },
     }
 
 

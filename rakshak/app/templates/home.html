@@ -8,9 +8,8 @@
       <p class="rk-page-sub">Cryptographic posture at a glance — Punjab National Bank</p>
     </div>
     <div class="d-flex gap-2">
-        <button class="rk-btn rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button>
-        <button class="rk-btn rk-btn-primary admin-only" onclick="triggerScan()">
-          <i class="bi bi-play-circle-fill"></i> Trigger Scan
+        <button class="rk-btn rk-btn-primary admin-only" onclick="openScanWorkbench('manual')">
+          <i class="bi bi-play-circle-fill"></i> New Scan
         </button>
     </div>
   </div>
@@ -118,14 +117,22 @@
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
       </div>
       <div class="modal-body">
-        <label class="rk-form-label">Targets <span class="text-muted fs-12">(one per line — URL, IP, or CIDR)</span></label>
-        <textarea class="rk-form-control" id="scanTargets" rows="6" placeholder="https://example.com&#10;192.168.1.1&#10;10.0.0.0/24"></textarea>
-        <div class="form-check mt-3">
-          <input class="form-check-input" type="checkbox" id="scanIncludeSubdomains">
-          <label class="form-check-label fs-13 text-muted" for="scanIncludeSubdomains">
-            Discover and include live subdomains automatically
-          </label>
+        <div class="rk-tabs mb-3">
+          <button class="rk-tab active" id="scanModeManualBtn" onclick="setScanMode('manual', this)">Manual Targets</button>
+          <button class="rk-tab" id="scanModeDomainBtn" onclick="setScanMode('domain', this)">Domain Discovery</button>
         </div>
+
+        <div id="manualScanSection">
+          <label class="rk-form-label">Targets <span class="text-muted fs-12">(one per line — URL, IP, or CIDR)</span></label>
+          <textarea class="rk-form-control" id="scanTargets" rows="6" placeholder="https://example.com&#10;192.168.1.1&#10;10.0.0.0/24"></textarea>
+        </div>
+
+        <div id="domainDiscoverySection" class="d-none">
+          <label class="rk-form-label">Root Domain</label>
+          <input class="rk-form-control" id="domainDiscoveryInput" placeholder="example.com">
+          <p class="text-muted fs-12 mt-2 mb-0">Breadth-first recursive discovery is enabled. Rakshak includes the root domain automatically, pauses every 1000 resolved results, and lets you send the live set straight to scan.</p>
+        </div>
+
         <div id="scanProgress" class="mt-3 d-none">
           <div class="d-flex justify-content-between fs-12 text-muted mb-1">
             <span id="scanMsg">Initializing…</span>
@@ -142,10 +149,14 @@
           </style>
           <div id="scanSubPhase" class="mt-1 fs-12" style="color:var(--rk-accent);font-weight:500;min-height:18px"></div>
           <div id="scanLog" class="mt-2 p-2 rounded fs-12" style="background:var(--rk-bg);max-height:150px;overflow-y:auto;font-family:monospace;line-height:1.7"></div>
+          <div class="mt-3 d-flex justify-content-end gap-2" id="discoveryActions" style="display:none !important">
+            <button class="rk-btn rk-btn-primary d-none" id="scanDiscoveredBtn" onclick="scanDiscoveredTargets()">
+              <i class="bi bi-play-fill"></i> Scan Live Targets
+            </button>
+          </div>
         </div>
       </div>
       <div class="modal-footer" style="border-color:var(--rk-border)">
-        <button class="rk-btn rk-btn-outline" data-bs-dismiss="modal">Cancel</button>
         <button class="rk-btn rk-btn-primary" id="startScanBtn" onclick="startScan()">
           <i class="bi bi-play-fill"></i> Start Scan
         </button>
@@ -153,27 +164,13 @@
     </div>
   </div>
 </div>
-
-<!-- Subdomain Scan Modal -->
-<div id="subdomainModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="rk-card" style="width:420px;max-width:90vw;padding:24px">
-    <div class="rk-section-title mb-3"><i class="bi bi-globe me-2 text-blue"></i>Subdomain Scan</div>
-    <p class="fs-13 text-muted mb-3">Enter a root domain to passively discover subdomains via crt.sh, AlienVault, and Wayback Machine. Results are DNS-verified before saving.</p>
-    <div class="mb-3">
-      <label class="fs-12 text-muted mb-1 d-block">Root Domain</label>
-      <input id="subdomainInput" type="text" class="rk-input" placeholder="e.g. manipurrural.bank.in" style="width:100%" />
-    </div>
-    <div class="d-flex gap-2 justify-content-end">
-      <button class="rk-btn rk-btn-outline rk-btn-sm" onclick="closeSubdomainModal()">Cancel</button>
-      <button class="rk-btn rk-btn-sm rk-btn-primary" id="subdomainScanBtn" onclick="runSubdomainScan()"><i class="bi bi-search me-1"></i>Scan</button>
-    </div>
-    <div id="subdomainResult" class="mt-3 fs-12" style="display:none"></div>
-  </div>
-</div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
+let scanWorkbenchMode = 'manual';
+let activeDiscoveryJobId = null;
+
 async function loadPageData() {
   let url = '/api/home/summary';
   if (window._timeFilter) {
@@ -328,12 +325,46 @@ async function toggleScanDetails(scanId, btn) {
   }
 }
 
-function triggerScan() { new bootstrap.Modal(document.getElementById('scanModal')).show(); }
+function openScanWorkbench(mode = 'manual') {
+  setScanMode(mode, document.getElementById(mode === 'domain' ? 'scanModeDomainBtn' : 'scanModeManualBtn'));
+  resetScanWorkbench();
+  new bootstrap.Modal(document.getElementById('scanModal')).show();
+}
+
+function setScanMode(mode, btn) {
+  scanWorkbenchMode = mode;
+  document.querySelectorAll('#scanModal .rk-tab').forEach(tab => tab.classList.remove('active'));
+  btn?.classList.add('active');
+  document.getElementById('manualScanSection').classList.toggle('d-none', mode !== 'manual');
+  document.getElementById('domainDiscoverySection').classList.toggle('d-none', mode !== 'domain');
+  document.getElementById('startScanBtn').innerHTML = mode === 'manual'
+    ? '<i class="bi bi-play-fill"></i> Start Scan'
+    : '<i class="bi bi-search"></i> Discover Subdomains';
+}
+
+function resetScanWorkbench() {
+  activeDiscoveryJobId = null;
+  document.getElementById('scanProgress').classList.add('d-none');
+  document.getElementById('startScanBtn').disabled = false;
+  document.getElementById('scanLog').innerHTML = '';
+  document.getElementById('scanMsg').textContent = 'Initializing…';
+  document.getElementById('scanPct').textContent = '0%';
+  document.getElementById('scanBar').style.width = '0%';
+  document.getElementById('scanSubPhase').textContent = '';
+  document.getElementById('scanDiscoveredBtn').classList.add('d-none');
+  document.querySelector('.rk-progress').classList.remove('scanning');
+  document.getElementById('scanShimmer').style.animation = 'shimmer 1.8s infinite';
+}
 
 async function startScan() {
+  if (scanWorkbenchMode === 'domain') {
+    return startDomainDiscovery();
+  }
+
   const rawTargets = document.getElementById('scanTargets').value;
   const targets = rawTargets.split('\n').map(t=>t.trim()).filter(Boolean);
   if (!targets.length) { showToast('Please enter at least one target', 'danger'); return; }
+  if (!await confirmLargeScan(targets.length)) return;
 
   document.getElementById('startScanBtn').disabled = true;
   const progressEl = document.getElementById('scanProgress');
@@ -341,15 +372,18 @@ async function startScan() {
   document.querySelector('.rk-progress').classList.add('scanning');
 
   const payload = { targets };
-  if (document.getElementById('scanIncludeSubdomains').checked) {
-      payload.discover_subdomains = true;
-      document.getElementById('scanMsg').textContent = 'Discovering subdomains...';
-  }
 
   const res = await API.post('/api/scan', payload);
-  if (!res) return;
+  if (!res) {
+    document.getElementById('startScanBtn').disabled = false;
+    return;
+  }
   const data = await res.json();
-  if (!res.ok) { showToast(data.detail?.message || 'Scan failed', 'danger'); return; }
+  if (!res.ok) {
+    document.getElementById('startScanBtn').disabled = false;
+    showToast(data.detail?.message || 'Scan failed', 'danger');
+    return;
+  }
 
   const scanId = data.scan_id;
   showToast(`Scan #${scanId} started — ${data.target_count} targets`, 'success');
@@ -392,6 +426,96 @@ async function startScan() {
   };
 }
 
+async function startDomainDiscovery() {
+  const domain = document.getElementById('domainDiscoveryInput').value.trim();
+  if (!domain) { showToast('Please enter a root domain', 'danger'); return; }
+
+  const progressEl = document.getElementById('scanProgress');
+  progressEl.classList.remove('d-none');
+  document.getElementById('startScanBtn').disabled = true;
+  document.getElementById('scanMsg').textContent = `Creating discovery job for ${domain}`;
+  document.getElementById('scanLog').innerHTML = '';
+  document.getElementById('scanDiscoveredBtn').classList.add('d-none');
+
+  const res = await API.post('/api/assets/discover/subdomains', { domain });
+  if (!res) {
+    document.getElementById('startScanBtn').disabled = false;
+    return;
+  }
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.detail || 'Failed to start subdomain discovery', 'danger');
+    document.getElementById('startScanBtn').disabled = false;
+    return;
+  }
+
+  activeDiscoveryJobId = data.job_id;
+  document.getElementById('scanSubPhase').textContent = 'Live progress streaming over WebSocket';
+  showToast(`Subdomain discovery started for ${data.domain}`, 'success');
+
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${protocol}//${location.host}${data.websocket_url}`);
+  const log = document.getElementById('scanLog');
+
+  ws.onmessage = async (event) => {
+    const msg = JSON.parse(event.data);
+    const processed = msg.processed_count || 0;
+    const live = msg.live_count || 0;
+    const dead = msg.dead_count || 0;
+    document.getElementById('scanMsg').textContent = `${processed} results processed`;
+    document.getElementById('scanPct').textContent = `${live} live / ${dead} dead`;
+    document.getElementById('scanBar').style.width = `${Math.min(100, processed % 1000 === 0 ? 100 : (processed % 1000) / 10)}%`;
+    document.getElementById('scanSubPhase').textContent = msg.message || '';
+    log.innerHTML += `<div style="padding:1px 0;color:${msg.phase === 'continue_prompt' ? '#F1C40F' : 'var(--rk-text-muted)'}">${msg.message}</div>`;
+    log.scrollTop = log.scrollHeight;
+
+    if (msg.phase === 'continue_prompt' && activeDiscoveryJobId) {
+      const shouldContinue = await rkConfirm(`${msg.processed_count} results found. Continue Scanning?`, 'Discovery Checkpoint');
+      await API.post(`/api/assets/discover/subdomains/${activeDiscoveryJobId}/decision`, { continue_scanning: shouldContinue });
+      if (!shouldContinue) {
+        document.getElementById('startScanBtn').disabled = false;
+      }
+    }
+
+    if (msg.phase === 'completed') {
+      document.getElementById('startScanBtn').disabled = false;
+      document.getElementById('scanBar').style.width = '100%';
+      document.getElementById('scanPct').textContent = `${msg.live_count || 0} live / ${msg.dead_count || 0} dead`;
+      document.getElementById('scanDiscoveredBtn').classList.toggle('d-none', !(msg.live_count > 0));
+      showToast(`Discovery finished: ${msg.live_count || 0} live targets found`, 'success');
+      loadScans();
+    }
+
+    if (msg.phase === 'failed') {
+      document.getElementById('startScanBtn').disabled = false;
+      showToast(msg.message || 'Subdomain discovery failed', 'danger');
+    }
+  };
+}
+
+async function scanDiscoveredTargets() {
+  if (!activeDiscoveryJobId) return;
+  const stateRes = await API.get(`/api/assets/discover/subdomains/${activeDiscoveryJobId}`);
+  if (!stateRes || !stateRes.ok) return;
+  const state = await stateRes.json();
+  const liveCount = state.live_count || 0;
+  if (!liveCount) {
+    showToast('No live targets available to scan', 'warning');
+    return;
+  }
+  if (!await confirmLargeScan(liveCount)) return;
+
+  const res = await API.post(`/api/assets/discover/subdomains/${activeDiscoveryJobId}/scan`, {});
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
+    return;
+  }
+  showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+  loadScans();
+}
+
 function toggleAllScans(checked) {
   document.querySelectorAll('.scan-checkbox').forEach(cb => cb.checked = checked);
 }
@@ -429,49 +553,6 @@ async function deleteSelectedScans() {
   }
   
   loadScans();
-}
-
-function openSubdomainModal() {
-  document.getElementById('subdomainModal').style.display = 'flex';
-  document.getElementById('subdomainResult').style.display = 'none';
-  document.getElementById('subdomainInput').value = '';
-}
-
-function closeSubdomainModal() {
-  document.getElementById('subdomainModal').style.display = 'none';
-}
-
-async function runSubdomainScan() {
-  const domain = document.getElementById('subdomainInput').value.trim();
-  if (!domain) { showToast('Please enter a domain','error'); return; }
-  const btn = document.getElementById('subdomainScanBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
-  const resultEl = document.getElementById('subdomainResult');
-  resultEl.style.display = 'none';
-  try {
-    const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
-    if (res?.ok) {
-      const data = await res.json();
-      let hostsHtml = '';
-      if (data.live_hosts && data.live_hosts.length > 0) {
-        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
-          data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
-          '</div>';
-      }
-      resultEl.innerHTML = `<div class="text-success">✅ Done — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead (cert ghosts), <strong>${data.new_records}</strong> new records saved.</div>${hostsHtml}`;
-      resultEl.style.display = 'block';
-      showToast(`Subdomain scan done: ${data.live} live hosts found`, 'success');
-    } else {
-      const err = await res?.json().catch(()=>({}));
-      resultEl.innerHTML = `<div class="text-danger">❌ Error: ${err?.detail || 'Subdomain scan failed'}</div>`;
-      resultEl.style.display = 'block';
-    }
-  } catch(e) {
-    resultEl.innerHTML = `<div class="text-danger">❌ ${e.message}</div>`;
-    resultEl.style.display = 'block';
-  } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan';
-  }
 }
 
 loadPageData();

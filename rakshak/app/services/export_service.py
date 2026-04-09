@@ -15,9 +15,17 @@ REPORTS_DIR = Path("reports")
 REPORTS_DIR.mkdir(exist_ok=True)
 
 
-async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report_id: int, password: str = None, asset_ids: list = None) -> str:
+async def generate_report_file(
+    db: AsyncSession,
+    modules: list,
+    fmt: str,
+    report_id: int,
+    password: str = None,
+    asset_ids: list = None,
+    domains: list = None,
+) -> str:
     """Generate a report file in the specified format and return path."""
-    data = await collect_report_data(db, modules, asset_ids)
+    data = await collect_report_data(db, modules, asset_ids, domains)
     filename = f"rakshak_report_{report_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}.{fmt}"
     filepath = str(REPORTS_DIR / filename)
 
@@ -33,55 +41,51 @@ async def generate_report_file(db: AsyncSession, modules: list, fmt: str, report
     return filepath
 
 
-async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list = None) -> dict:
+async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list = None, domains: list = None) -> dict:
     """Collect data from requested modules."""
     from app.models.asset import Asset, PQCLabel
-    from app.models.cbom import CBOMSnapshot
-    from app.models.scan import ScanResult
     from app.engine.rating_engine import compute_enterprise_score
+    from app.services.domain_service import (
+        get_assets_for_domains,
+        get_latest_cbom_by_target,
+        get_latest_scan_results_by_target,
+        list_domain_inventory,
+    )
+    from app.utils.domain_tools import get_root_domain
 
-    data = {"generated_at": datetime.utcnow().isoformat(), "modules": modules}
+    data = {"generated_at": datetime.utcnow().isoformat(), "modules": modules, "selected_domains": domains or []}
+
+    if domains:
+        assets = await get_assets_for_domains(db, domains)
+    elif asset_ids:
+        result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
+        assets = result.scalars().all()
+    else:
+        result = await db.execute(select(Asset))
+        assets = result.scalars().all()
+
+    target_urls = [asset.url for asset in assets]
+    latest_cbom = await get_latest_cbom_by_target(db, target_urls)
+    latest_scan_results = await get_latest_scan_results_by_target(db, target_urls)
+    domain_inventory = await list_domain_inventory(db, domains if domains else None)
 
     if "inventory" in modules:
-        if asset_ids:
-            result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
-        else:
-            result = await db.execute(select(Asset))
-        assets = result.scalars().all()
         data["inventory"] = [{"name": a.name, "url": a.url, "pqc_label": a.pqc_label.value if a.pqc_label else None,
                                "risk": a.risk_level.value if a.risk_level else None,
                                "tls_version": a.tls_version, "last_scan": str(a.last_scan)} for a in assets]
 
     if "cbom" in modules:
-        # Fetch the latest snapshot for each target (using a simple distinct by target logic or fetching all for now)
-        if asset_ids:
-            from app.models.asset import Asset
-            res_assets = await db.execute(select(Asset.url).where(Asset.id.in_(asset_ids)))
-            target_urls = [a for a in res_assets.scalars().all()]
-            result = await db.execute(select(CBOMSnapshot).where(CBOMSnapshot.target_url.in_(target_urls)).order_by(CBOMSnapshot.created_at.desc()))
-        else:
-            result = await db.execute(select(CBOMSnapshot).order_by(CBOMSnapshot.created_at.desc()))
-        snaps = result.scalars().all()
-        seen_targets = set()
-        unique_snaps = []
-        for s in snaps:
-            if s.target_url not in seen_targets:
-                seen_targets.add(s.target_url)
-                unique_snaps.append(s)
-        
-        data["cbom"] = [{"target": s.target_url, "pqc_label": s.pqc_label,
-                          "created_at": str(s.created_at),
-                          "algorithms": json.loads(s.algorithms_json or "[]"),
-                          "protocols": json.loads(s.protocols_json or "[]"),
-                          "certificates": json.loads(s.certificates_json or "[]"),
-                          "keys": json.loads(s.keys_json or "[]")} for s in unique_snaps]
+        data["cbom"] = [{
+            "target": snap.target_url,
+            "pqc_label": snap.pqc_label,
+            "created_at": str(snap.created_at),
+            "algorithms": json.loads(snap.algorithms_json or "[]"),
+            "protocols": json.loads(snap.protocols_json or "[]"),
+            "certificates": json.loads(snap.certificates_json or "[]"),
+            "keys": json.loads(snap.keys_json or "[]"),
+        } for snap in latest_cbom.values()]
 
     if "rating" in modules:
-        if asset_ids:
-            result = await db.execute(select(Asset).where(Asset.id.in_(asset_ids)))
-        else:
-            result = await db.execute(select(Asset))
-        assets = result.scalars().all()
         counts = {
             "fully_quantum_safe": sum(1 for a in assets if a.pqc_label == PQCLabel.fully_quantum_safe),
             "pqc_ready": sum(1 for a in assets if a.pqc_label == PQCLabel.pqc_ready),
@@ -91,51 +95,54 @@ async def collect_report_data(db: AsyncSession, modules: list, asset_ids: list =
         }
         data["cyber_rating"] = compute_enterprise_score(counts)
 
-    if "discovery" in modules:
-        try:
-            from app.models.asset import AssetDiscovery, DiscoveryCategory
-            result = await db.execute(
-                select(AssetDiscovery).where(AssetDiscovery.category == DiscoveryCategory.domain)
-            )
-            discoveries = result.scalars().all()
-            # Group by root_domain from metadata
-            domain_groups: dict[str, dict] = {}
-            for d in discoveries:
-                meta = json.loads(d.metadata_json) if d.metadata_json else {}
-                root = meta.get("root_domain", d.value)
-                if root not in domain_groups:
-                    domain_groups[root] = {"root_domain": root, "subdomains": [], "live": 0, "dead": 0}
-                domain_groups[root]["subdomains"].append({
-                    "name": d.value,
-                    "dns_status": meta.get("dns_status", "unknown"),
-                    "ips": meta.get("ips", []),
-                    "status": d.status.value if d.status else "new",
+    if "discovery" in modules or domains:
+        data["discovery"] = [{
+            "root_domain": group["domain"],
+            "subdomains": [
+                {"name": target["hostname"], "dns_status": "live", "ips": [], "status": "confirmed"}
+                for target in group["targets"]
+            ] + [
+                {"name": host, "dns_status": "dead", "ips": [], "status": "false_positive"}
+                for host in group["dead_hosts"]
+            ],
+            "live": group["live_count"],
+            "dead": group["dead_count"],
+        } for group in domain_inventory]
+
+    if domains:
+        domain_sections = []
+        for group in domain_inventory:
+            targets = []
+            for target in group["targets"]:
+                scan_result = latest_scan_results.get(target["url"])
+                cbom_snapshot = latest_cbom.get(target["url"])
+                targets.append({
+                    **target,
+                    "scanned": bool(scan_result),
+                    "scan_status": scan_result.status if scan_result else "not_scanned",
+                    "is_live": bool(scan_result and scan_result.status == "success"),
+                    "latest_cbom": {
+                        "created_at": str(cbom_snapshot.created_at) if cbom_snapshot else None,
+                        "pqc_label": cbom_snapshot.pqc_label if cbom_snapshot else None,
+                        "algorithms": json.loads(cbom_snapshot.algorithms_json or "[]") if cbom_snapshot else [],
+                        "protocols": json.loads(cbom_snapshot.protocols_json or "[]") if cbom_snapshot else [],
+                        "certificates": json.loads(cbom_snapshot.certificates_json or "[]") if cbom_snapshot else [],
+                        "keys": json.loads(cbom_snapshot.keys_json or "[]") if cbom_snapshot else [],
+                    },
                 })
-                if meta.get("dns_status") == "live":
-                    domain_groups[root]["live"] += 1
-                elif meta.get("dns_status") == "dead":
-                    domain_groups[root]["dead"] += 1
-            # If asset_ids provided, filter to matching root domains
-            if asset_ids:
-                from app.models.asset import Asset as AssetModel
-                res_a = await db.execute(select(AssetModel.url).where(AssetModel.id.in_(asset_ids)))
-                selected_urls = [u for u in res_a.scalars().all()]
-                selected_roots = set()
-                for u in selected_urls:
-                    hostname = u.replace("https://", "").replace("http://", "").split("/")[0].split(":")[0]
-                    parts = hostname.split(".")
-                    if len(parts) >= 3:
-                        import re as _re
-                        if _re.match(r'^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$', ".".join(parts[-2:])):
-                            selected_roots.add(".".join(parts[-3:]))
-                        else:
-                            selected_roots.add(".".join(parts[-2:]))
-                    elif len(parts) == 2:
-                        selected_roots.add(hostname)
-                domain_groups = {k: v for k, v in domain_groups.items() if k in selected_roots}
-            data["discovery"] = list(domain_groups.values())
-        except Exception:
-            data["discovery"] = []
+
+            scanned_count = sum(1 for target in targets if target["scanned"])
+            live_count = sum(1 for target in targets if target["is_live"])
+            domain_sections.append({
+                "domain": group["domain"],
+                "target_count": len(targets),
+                "scanned_count": scanned_count,
+                "live_count": live_count,
+                "dead_hosts": group["dead_hosts"],
+                "targets": targets,
+            })
+
+        data["domains"] = domain_sections
 
     return data
 
@@ -289,6 +296,70 @@ def _export_pdf(data: dict, filepath: str, password: str = None):
             """
             story.append(Paragraph(summary_html, normal_style))
             story.append(Spacer(1, 20))
+
+        if data.get("domains"):
+            story.append(Paragraph("Domain-Wise Summary", heading_style))
+            for domain_section in data["domains"]:
+                story.append(Paragraph(f"Domain: {domain_section['domain']}", subheading_style))
+                summary_html = (
+                    f"<b>Total Targets:</b> {domain_section.get('target_count', 0)}<br/>"
+                    f"<b>Scanned Targets:</b> {domain_section.get('scanned_count', 0)}<br/>"
+                    f"<b>Live Targets:</b> {domain_section.get('live_count', 0)}<br/>"
+                    f"<b>Dead Hosts:</b> {len(domain_section.get('dead_hosts', []))}"
+                )
+                story.append(Paragraph(summary_html, normal_style))
+                story.append(Spacer(1, 8))
+
+                target_rows = [[
+                    "Target",
+                    "Scan Status",
+                    "Live",
+                    "PQC Label",
+                    "Protocols",
+                    "Algorithms",
+                ]]
+                for target in domain_section.get("targets", []):
+                    cbom = target.get("latest_cbom", {})
+                    protocols = ", ".join(
+                        protocol.get("version", protocol.get("name", ""))
+                        for protocol in cbom.get("protocols", [])[:3]
+                    ) or "—"
+                    algorithms = ", ".join(
+                        algorithm.get("name", algorithm.get("primitive", ""))
+                        for algorithm in cbom.get("algorithms", [])[:3]
+                    ) or "—"
+                    label = target.get("latest_cbom", {}).get("pqc_label") or target.get("pqc_label") or "unknown"
+                    label_color = _get_pqc_label_color(label)
+                    target_rows.append([
+                        Paragraph(str(target.get("hostname") or target.get("url") or ""), cell_style),
+                        str(target.get("scan_status", "not_scanned")),
+                        "Yes" if target.get("is_live") else "No",
+                        Paragraph(f'<font color="{label_color}">{_format_pqc_label(label)}</font>', cell_style),
+                        Paragraph(protocols, cell_style),
+                        Paragraph(algorithms, cell_style),
+                    ])
+
+                if len(target_rows) > 1:
+                    domain_table = Table(target_rows, colWidths=[180, 70, 45, 90, 160, 160], hAlign="LEFT")
+                    domain_table.setStyle(TableStyle([
+                        ("BACKGROUND", (0, 0), (-1, 0), HexColor("#1A0509")),
+                        ("TEXTCOLOR", (0, 0), (-1, 0), white),
+                        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                        ("FONTSIZE", (0, 0), (-1, -1), 8),
+                        ("GRID", (0, 0), (-1, -1), 0.5, lightgrey),
+                        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [HexColor("#F8F9FA"), white]),
+                        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ]))
+                    story.append(domain_table)
+                    story.append(Spacer(1, 8))
+
+                dead_hosts = domain_section.get("dead_hosts", [])
+                if dead_hosts:
+                    dead_html = "<b>Dead Hosts:</b><br/>" + "<br/>".join(dead_hosts[:50])
+                    story.append(Paragraph(dead_html, normal_style))
+                    story.append(Spacer(1, 10))
+
+            story.append(PageBreak())
 
         # Asset Inventory Dashboard
         if "inventory" in data and data["inventory"]:

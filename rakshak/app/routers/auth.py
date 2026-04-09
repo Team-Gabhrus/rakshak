@@ -129,30 +129,30 @@ async def verify_otp(req: OTPVerifyRequest, response: Response, request: Request
 @router.post("/forgot-password")
 async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
     user = await auth_service.get_user_by_email(db, req.email)
-    if user:
-        token = auth_service.generate_reset_token(req.email)
-        user.password_reset_token = token
-        await db.commit()
-        # Dispatch recovery email (FR-23)
-        from app.services.email_service import send_report_email
-        reset_link = f"http://localhost:8000/reset-password?token={token}"
-        email_body = f"Hello,\n\nA password reset was requested for your account.\nPlease use the following token to reset your password:\n\n{token}\n\nLink: {reset_link}\n\nIf you did not request this, please ignore this email.\n\n— Rakshak Admin"
-        
-        import asyncio
-        import logging
-        try:
-            # We don't block the API response, so we create a task (or could await if we wanted strict delivery confirm)
-            asyncio.create_task(send_report_email(
-                to_email=req.email,
-                subject="Rakshak Password Recovery",
-                body=email_body
-            ))
-            logging.getLogger(__name__).info(f"Password reset email dispatched to {req.email}")
-        except Exception as e:
-            logging.getLogger(__name__).error(f"Failed dispatching email to {req.email}: {e}")
-            
-    # Always return success to prevent email enumeration
-    return {"message": "If that email exists, a reset link has been sent."}
+    if not user:
+        raise HTTPException(status_code=404, detail="User does not exist.")
+
+    token = auth_service.generate_reset_token(req.email)
+    user.password_reset_token = token
+    await db.commit()
+    # Dispatch recovery email (FR-23)
+    from app.services.email_service import send_report_email
+    reset_link = f"http://localhost:8000/reset-password?token={token}"
+    email_body = f"Hello,\n\nA password reset was requested for your account.\nPlease use the following token to reset your password:\n\n{token}\n\nLink: {reset_link}\n\nIf you did not request this, please ignore this email.\n\n— Rakshak Admin"
+    
+    import asyncio
+    import logging
+    try:
+        asyncio.create_task(send_report_email(
+            to_email=req.email,
+            subject="Rakshak Password Recovery",
+            body=email_body
+        ))
+        logging.getLogger(__name__).info(f"Password reset email dispatched to {req.email}")
+    except Exception as e:
+        logging.getLogger(__name__).error(f"Failed dispatching email to {req.email}: {e}")
+
+    return {"message": "Password reset link sent."}
 @router.post("/reset-password")
 async def reset_password(token: str, new_password: str, db: AsyncSession = Depends(get_db)):
     from sqlalchemy import select

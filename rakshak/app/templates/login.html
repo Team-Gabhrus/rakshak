@@ -302,16 +302,24 @@ function showLogin() {
 }
 async function submitForgot() {
     const email = document.getElementById('forgotEmail').value;
-    await fetch('/api/auth/forgot-password', {
+    const res = await fetch('/api/auth/forgot-password', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({email})
     });
-    
-    document.getElementById('loginError').textContent = 'If that email exists, a reset link has been sent.';
-    document.getElementById('loginError').className = 'alert alert-success py-2 fs-12';
+    const data = await res.json().catch(() => ({}));
+
+    if (res.ok) {
+        document.getElementById('loginError').textContent = data.message || 'Password reset link sent.';
+        document.getElementById('loginError').className = 'alert alert-success py-2 fs-12';
+        document.getElementById('loginError').classList.remove('d-none');
+        showLogin();
+        return;
+    }
+
+    document.getElementById('loginError').textContent = data.detail || 'User does not exist.';
+    document.getElementById('loginError').className = 'alert alert-danger py-2 fs-12';
     document.getElementById('loginError').classList.remove('d-none');
-    showLogin();
 }
 </script>
 </body>

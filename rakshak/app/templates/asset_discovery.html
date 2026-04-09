@@ -66,47 +66,27 @@
       </div>
     </div>
   </div>
-
-  <!-- Network Topology Graph — FR-40 -->
-  <div class="rk-card">
-    <div class="rk-section-title"><i class="bi bi-diagram-3-fill me-2 text-blue"></i>Network Topology Graph</div>
-    <div id="topologyGraph" style="height:420px;background:var(--rk-bg);border-radius:10px;position:relative;overflow:hidden;border:1px solid var(--rk-border)">
-      <div id="topoLoading" class="d-flex align-items-center justify-content-center h-100 text-muted flex-column gap-3">
-        <i class="bi bi-diagram-3" style="font-size:48px;opacity:0.3"></i>
-        <p class="fs-13">Loading network topology…</p>
-      </div>
-      <canvas id="topoCanvas" style="width:100%;height:100%"></canvas>
-    </div>
-    <!-- Legend overlay moved below the graph -->
-    <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;pointer-events:none">
-      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3498DB;margin-right:4px"></span>Domain</span>
-      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2ECC71;margin-right:4px"></span>SSL Cert</span>
-      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F1C40F;margin-right:4px"></span>IP / Subnet</span>
-      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E67E22;margin-right:4px"></span>Software</span>
-      <span style="font-size:11px;color:var(--rk-text-muted);margin-left:8px">Dot: <span style="color:#3498DB">●</span> New &nbsp;<span style="color:#2ECC71">●</span> Confirmed &nbsp;<span style="color:#7D8590">●</span> Ignored</span>
-    </div>
-    <p class="fs-12 text-muted mt-2"><i class="bi bi-info-circle me-1"></i>Nodes represent discovered domains, IPs, SSL certificates, and software. Hover over a node to see details. Edges connect nodes to their domain hub. Up to 40 nodes shown.</p>
-  </div>
 </div>
 
 <!-- Subdomain Scan Modal -->
 <div id="subdomainModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="rk-card" style="width:420px;max-width:90vw;padding:24px">
+  <div class="rk-card" style="width:560px;max-width:92vw;padding:24px;position:relative">
+    <button type="button" class="btn-close btn-close-white" onclick="closeSubdomainModal()" style="position:absolute;top:16px;right:16px"></button>
     <div class="rk-section-title mb-3"><i class="bi bi-globe me-2 text-blue"></i>Subdomain Scan</div>
-    <p class="fs-13 text-muted mb-3">Enter a root domain to passively discover subdomains via crt.sh, AlienVault, and Wayback Machine. Results are DNS-verified before saving.</p>
+    <p class="fs-13 text-muted mb-3">Breadth-first recursive discovery is enabled. Rakshak pauses every 1000 resolved results and can send the live set directly to scan.</p>
     <div class="mb-3">
       <label class="fs-12 text-muted mb-1 d-block">Root Domain</label>
       <input id="subdomainInput" type="text" class="rk-input" placeholder="e.g. manipurrural.bank.in" style="width:100%" />
-      <div class="form-check mt-2">
-        <input class="form-check-input" type="checkbox" id="subdomainAutoScan">
-        <label class="form-check-label fs-13 text-muted">Automatically run vulnerability scan on live results</label>
-      </div>
     </div>
     <div class="d-flex gap-2 justify-content-end">
-      <button class="rk-btn rk-btn-outline rk-btn-sm" onclick="closeSubdomainModal()">Cancel</button>
-      <button class="rk-btn rk-btn-sm rk-btn-primary" id="subdomainScanBtn" onclick="runSubdomainScan()"><i class="bi bi-search me-1"></i>Scan</button>
+      <button class="rk-btn rk-btn-sm rk-btn-primary" id="subdomainScanBtn" onclick="runSubdomainScan()"><i class="bi bi-search me-1"></i>Discover</button>
     </div>
-    <div id="subdomainResult" class="mt-3 fs-12" style="display:none"></div>
+    <div id="subdomainResult" class="mt-3 fs-12" style="display:none;background:var(--rk-bg);border-radius:8px;padding:12px;max-height:240px;overflow-y:auto"></div>
+    <div class="mt-3 d-flex justify-content-end">
+      <button class="rk-btn rk-btn-primary d-none" id="scanDiscoveredDiscoveryBtn" onclick="scanDiscoveredSubdomainTargets()">
+        <i class="bi bi-play-fill"></i> Scan Live Targets
+      </button>
+    </div>
   </div>
 </div>
 {% endblock %}
@@ -120,6 +100,7 @@ let discCurrentPage = 1;
 const discPageSize = 100;
 let selectedDiscIds = new Set();
 let selectedDiscUrls = new Set();
+let activeSubdomainJobId = null;
 
 const HEADERS = {
   domain:     ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
@@ -214,7 +195,6 @@ function filterDiscTable() {
   
   discCurrentPage = 1;
   renderDiscPage();
-  renderTopology(allDiscData);
 }
 
 function toggleGroupCheck(root, checked) {
@@ -422,6 +402,7 @@ async function scanSelectedDiscoveries() {
     showToast('No valid targets selected.', 'warning');
     return;
   }
+  if (!await confirmLargeScan(targets.length)) return;
   const confirmed = await rkConfirm(`Submit ${targets.length} target(s) to the vulnerability scanner?`);
   if (!confirmed) return;
   try {
@@ -444,8 +425,13 @@ async function scanSelectedDiscoveries() {
 
 function openSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'flex';
-  document.getElementById('subdomainResult').style.display = 'none';
   document.getElementById('subdomainInput').value = '';
+  document.getElementById('subdomainResult').innerHTML = '';
+  document.getElementById('subdomainResult').style.display = 'none';
+  document.getElementById('scanDiscoveredDiscoveryBtn').classList.add('d-none');
+  const btn = document.getElementById('subdomainScanBtn');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
 }
 
 function closeSubdomainModal() {
@@ -454,65 +440,77 @@ function closeSubdomainModal() {
 
 async function runSubdomainScan(pendingTargets = null) {
   const domain = document.getElementById('subdomainInput').value.trim();
-  const autoScan = document.getElementById('subdomainAutoScan').checked;
   if (!domain) { showToast('Please enter a domain','error'); return; }
   const btn = document.getElementById('subdomainScanBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
+  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Discovering…';
   const resultEl = document.getElementById('subdomainResult');
-  if (!pendingTargets) {
-    resultEl.style.display = 'none';
-  } else {
-    resultEl.innerHTML = `<div class="text-info"><span class="rk-spinner" style="width:14px;height:14px"></span> Processing next batch of targets...</div>`;
-    resultEl.style.display = 'block';
-  }
-  
+  resultEl.style.display = 'block';
+  resultEl.innerHTML = '<div class="text-info">Creating discovery job…</div>';
+
   try {
-    const res = await API.post(`/api/assets/discover/subdomains`, {
-        domain: domain,
-        auto_scan: autoScan,
-        pending_targets: pendingTargets
-    });
-    if (res?.ok) {
-      const data = await res.json();
-      let hostsHtml = '';
-      if (data.live_hosts && data.live_hosts.length > 0) {
-        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
-          data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
-          '</div>';
+    const res = await API.post(`/api/assets/discover/subdomains`, { domain });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Subdomain scan failed');
+
+    activeSubdomainJobId = data.job_id;
+    resultEl.innerHTML = `<div class="text-info">Discovery started for <strong>${data.domain}</strong>.</div>`;
+
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}${data.websocket_url}`);
+    ws.onmessage = async (event) => {
+      const msg = JSON.parse(event.data);
+      const processed = msg.processed_count || 0;
+      const live = msg.live_count || 0;
+      const dead = msg.dead_count || 0;
+      resultEl.innerHTML += `<div style="padding:3px 0;color:${msg.phase === 'continue_prompt' ? '#F1C40F' : 'var(--rk-text)'}">${msg.message}</div>`;
+      resultEl.scrollTop = resultEl.scrollHeight;
+
+      if (msg.phase === 'continue_prompt' && activeSubdomainJobId) {
+        const shouldContinue = await rkConfirm(`${msg.processed_count} results found. Continue Scanning?`, 'Discovery Checkpoint');
+        await API.post(`/api/assets/discover/subdomains/${activeSubdomainJobId}/decision`, { continue_scanning: shouldContinue });
       }
-      
-      let statusHtml = `<div class="text-success">✅ Batch Complete — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead, <strong>${data.new_records}</strong> new records saved.</div>`;
-      if (data.has_more) {
-        statusHtml += `<div class="text-warning mt-1 fs-12">⚠️ <strong>${data.pending.length}</strong> targets remaining to process!</div>`;
+
+      if (msg.phase === 'completed') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
+        document.getElementById('scanDiscoveredDiscoveryBtn').classList.toggle('d-none', !(live > 0));
+        showToast(`Discovery finished: ${live} live / ${dead} dead`, 'success');
+        loadDiscoveries();
       }
-      
-      resultEl.innerHTML = statusHtml + hostsHtml;
-      resultEl.style.display = 'block';
-      showToast(`Batch done: ${data.live} live hosts found`, 'success');
-      setTimeout(loadDiscoveries, 600);
-      
-      // Pause check
-      if (data.has_more && data.pending && data.pending.length > 0) {
-          btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan Next Batch';
-          const confirmed = await rkConfirm(`Processed a batch of 1000 targets (${data.live} live). There are ${data.pending.length} targets remaining to be processed in background DNS resolution.\n\nContinue processing the next batch?`);
-          if (confirmed) {
-              return runSubdomainScan(data.pending);
-          }
+
+      if (msg.phase === 'failed') {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
+        showToast(msg.message || 'Subdomain scan failed', 'danger');
       }
-      
-    } else {
-      const err = await res?.json().catch(()=>({}));
-      let errStr = err?.detail || 'Subdomain scan failed';
-      if (typeof errStr === 'object') errStr = JSON.stringify(errStr);
-      resultEl.innerHTML = `<div class="text-danger">❌ Error: ${errStr}</div>`;
-      resultEl.style.display = 'block';
-    }
+    };
   } catch(e) {
     resultEl.innerHTML = `<div class="text-danger">❌ ${e.message}</div>`;
     resultEl.style.display = 'block';
-  } finally {
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan';
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
   }
+}
+
+async function scanDiscoveredSubdomainTargets() {
+  if (!activeSubdomainJobId) return;
+  const stateRes = await API.get(`/api/assets/discover/subdomains/${activeSubdomainJobId}`);
+  if (!stateRes || !stateRes.ok) return;
+  const state = await stateRes.json();
+  const liveCount = state.live_count || 0;
+  if (!liveCount) {
+    showToast('No live targets available to scan', 'warning');
+    return;
+  }
+  if (!await confirmLargeScan(liveCount)) return;
+
+  const res = await API.post(`/api/assets/discover/subdomains/${activeSubdomainJobId}/scan`, {});
+  if (!res) return;
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
+    return;
+  }
+  showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
 }
 
 function renderTopology(items) {
