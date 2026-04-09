@@ -187,12 +187,27 @@ async def get_scan_details(
     completed_targets = {r.target_url for r in rows if r.status == "success"}
     intranet_only_targets = {r.target_url for r in rows if (r.pqc_label or "") == "intranet_only"}
     dns_failed_targets = {r.target_url for r in rows if (r.pqc_label or "") == "dns_failed"}
-    failed_targets = {
+    invalid_targets = {
         r.target_url for r in rows
-        if r.status in ["failed", "timeout"] and (r.pqc_label or "") not in {"intranet_only", "dns_failed"}
+        if r.status in ["failed", "timeout"] and (
+            (r.error_message or "").lower().startswith("invalid target")
+            or (r.pqc_label or "") == "invalid_target"
+        )
     }
+    issue_targets = [
+        {
+            "target": r.target_url,
+            "message": r.error_message or "Scan issue",
+            "label": r.pqc_label or "unknown",
+        }
+        for r in rows
+        if r.status in ["failed", "timeout"]
+        and r.target_url not in intranet_only_targets
+        and r.target_url not in dns_failed_targets
+        and r.target_url not in invalid_targets
+    ]
 
-    classified = completed_targets | intranet_only_targets | dns_failed_targets | failed_targets
+    classified = completed_targets | intranet_only_targets | dns_failed_targets | invalid_targets | {item["target"] for item in issue_targets}
     running_targets = [t for t in targets if t not in classified]
     
     return {
@@ -202,7 +217,8 @@ async def get_scan_details(
         "succeeded": sorted(list(completed_targets)),
         "intranet_only": sorted(list(intranet_only_targets)),
         "dns_failed": sorted(list(dns_failed_targets)),
-        "failed": sorted(list(failed_targets)),
+        "failed": sorted(list(invalid_targets)),
+        "issues": issue_targets,
         "running": sorted(running_targets)
     }
 
@@ -264,6 +280,13 @@ async def list_scans(
 
     result = await db.execute(query)
     scans = result.scalars().all()
-    return [{"id": s.id, "status": s.status.value, "target_count": s.target_count,
+
+    def display_status(scan: Scan) -> str:
+        cancel_event = scan_cancel_events.get(scan.id)
+        if scan.status == ScanStatus.running and cancel_event and cancel_event.is_set():
+            return "cancelling"
+        return scan.status.value
+
+    return [{"id": s.id, "status": s.status.value, "display_status": display_status(s), "target_count": s.target_count,
              "completed_count": s.completed_count, "progress_pct": s.progress_pct,
              "started_at": s.started_at, "completed_at": s.completed_at} for s in scans]

@@ -195,13 +195,21 @@ function renderTaskSection(title, inner) {
 
 function renderTaskCard(type, task) {
     if (type === 'scan') {
+        const status = task.display_status || task.status;
+        const statusBadge = status === 'cancelling'
+            ? '<span class="badge bg-warning text-dark">cancelling</span>'
+            : status === 'cancelled'
+                ? '<span class="badge bg-danger">cancelled</span>'
+                : status === 'running'
+                    ? '<span class="badge bg-warning text-dark">running</span>'
+                    : '<span class="badge bg-secondary">' + status + '</span>';
         return `
         <div class="p-3 rounded" style="border:1px solid var(--rk-border);background:var(--rk-bg)">
           <div class="d-flex justify-content-between align-items-start gap-3">
             <div>
-              <div class="fw-semibold">Scan #${task.id}</div>
+              <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">Scan #${task.id} ${statusBadge}</div>
               <div class="fs-12 text-muted mt-1">${task.last_message || 'Quantum vulnerability scan is running.'}</div>
-              <div class="fs-12 text-muted mt-2">Progress: ${task.completed_count || 0}/${task.target_count || 0} completed, ${task.failed_count || 0} failed</div>
+              <div class="fs-12 text-muted mt-2">Progress: ${task.completed_count || 0}/${task.target_count || 0} completed, ${task.failed_count || 0} issues</div>
             </div>
             ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('scan', ${task.id})"><i class="bi bi-stop-circle"></i> Terminate</button>` : ''}
           </div>

@@ -319,7 +319,7 @@ async def task_inventory(
 ):
     from app.models.report import Report
     from app.models.scan import Scan, ScanStatus
-    from app.services.scan_service import scan_progress
+    from app.services.scan_service import scan_progress, scan_cancel_events
     from app.services.subdomain_service import list_active_subdomain_jobs
 
     scan_result = await db.execute(
@@ -333,6 +333,12 @@ async def task_inventory(
     reports = report_result.scalars().all()
     discovery_jobs = list_active_subdomain_jobs()
 
+    def display_scan_status(scan: Scan) -> str:
+        cancel_event = scan_cancel_events.get(scan.id)
+        if scan.status == ScanStatus.running and cancel_event and cancel_event.is_set():
+            return "cancelling"
+        return scan.status.value
+
     return {
         "counts": {
             "scans": len(scans),
@@ -344,6 +350,7 @@ async def task_inventory(
             {
                 "id": scan.id,
                 "status": scan.status.value,
+                "display_status": display_scan_status(scan),
                 "target_count": scan.target_count,
                 "completed_count": scan.completed_count,
                 "failed_count": scan.failed_count,
@@ -351,7 +358,7 @@ async def task_inventory(
                 "started_at": scan.started_at,
                 "created_at": scan.created_at,
                 "last_message": (scan_progress.get(scan.id, [])[-1].get("message") if scan_progress.get(scan.id) else None),
-                "can_terminate": scan.status in {ScanStatus.queued, ScanStatus.running},
+                "can_terminate": display_scan_status(scan) in {"queued", "running"},
             }
             for scan in scans
         ],

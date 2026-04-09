@@ -215,6 +215,7 @@ function handleScanProgressMessage(msg) {
   let logColor = 'var(--rk-text-muted)';
   if (msg.phase === 'completed_target') logColor = '#2ECC71';
   else if (msg.phase === 'failed_target') logColor = '#E74C3C';
+  else if (msg.phase === 'issue_target') logColor = '#E67E22';
   else if (msg.sub_phase === 'oqs') logColor = '#3498DB';
 
   if (msg.message) {
@@ -227,9 +228,9 @@ function handleScanProgressMessage(msg) {
     document.getElementById('scanShimmer').style.animation = 'none';
     const doneStatus = msg.status || 'completed';
     subPhaseEl.innerHTML = doneStatus === 'cancelled'
-      ? '<span style="color:#F1C40F">🛑 Scan terminated. Completed targets were saved.</span>'
+      ? '<span style="color:#E74C3C">🛑 Scan cancelled. Completed targets were saved.</span>'
       : '<span style="color:#2ECC71">✅ Scan complete!</span>';
-    showToast(doneStatus === 'cancelled' ? 'Scan terminated. Completed results were preserved.' : 'Scan complete!', doneStatus === 'cancelled' ? 'warning' : 'success');
+    showToast(doneStatus === 'cancelled' ? 'Scan cancelled. Completed results were preserved.' : 'Scan complete!', doneStatus === 'cancelled' ? 'danger' : 'success');
     loadPageData();
     loadScans();
     if (typeof loadTaskStatus === 'function') loadTaskStatus();
@@ -374,7 +375,7 @@ async function loadScans() {
         </button>
       </td>
       <td><code>#${s.id}</code></td>
-      <td><span class="badge ${s.status==='completed'?'bg-success':s.status==='running'?'bg-warning text-dark':s.status==='failed'?'bg-danger':s.status==='cancelled'?'bg-dark text-warning':'bg-secondary'}">${s.status}</span></td>
+      <td><span class="badge ${((s.display_status || s.status)==='completed')?'bg-success':((s.display_status || s.status)==='running')?'bg-warning text-dark':((s.display_status || s.status)==='cancelling')?'bg-warning text-dark':((s.display_status || s.status)==='failed')?'bg-danger':((s.display_status || s.status)==='cancelled')?'bg-danger':'bg-secondary'}">${s.display_status || s.status}</span></td>
       <td>${s.target_count}</td>
       <td>${s.completed_count}</td>
       <td><div class="rk-progress" style="width:80px"><div class="rk-progress-bar" style="width:${s.progress_pct||0}%"></div></div></td>
@@ -420,8 +421,12 @@ async function toggleScanDetails(scanId, btn) {
         html += `<div class="col-12 text-muted mb-2"><i class="bi bi-activity text-warning me-1"></i> Scan is currently running for ${data.total_targets} total targets...</div>`;
       }
       
+      if (data.issues && data.issues.length > 0) {
+        html += `<div class="col-md-6 mb-2"><div class="fw-bold mb-1" style="color:#E67E22"><i class="bi bi-exclamation-triangle me-1"></i> Issues (${data.issues.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.issues.map(item => `<li class="text-break"><strong>${item.target}</strong><div class="fs-12">${item.message || 'Scan issue'}</div></li>`).join('')}</ul></div></div>`;
+      }
       if (data.failed && data.failed.length > 0) {
-        html += `<div class="col-md-6 mb-2"><div class="text-danger fw-bold mb-1"><i class="bi bi-x-circle me-1"></i> Failed (${data.failed.length})</div>
+        html += `<div class="col-md-6 mb-2"><div class="text-danger fw-bold mb-1"><i class="bi bi-x-circle me-1"></i> Invalid Targets (${data.failed.length})</div>
                  <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.failed.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
       }
       if (data.intranet_only && data.intranet_only.length > 0) {

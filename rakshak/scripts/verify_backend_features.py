@@ -284,6 +284,17 @@ async def seed_fixture_data(marker: str) -> dict:
                 keys_json=json.dumps([{"name": "leaf", "size": "3072 bits"}]),
                 snapshot_hash=f"{marker}-cbom-cleanup",
             ),
+            CBOMSnapshot(
+                scan_id=completed_scan.id,
+                asset_id=assets[2].id,
+                target_url=dead_url,
+                pqc_label="unknown",
+                algorithms_json=json.dumps([]),
+                protocols_json=json.dumps([]),
+                certificates_json=json.dumps([]),
+                keys_json=json.dumps([]),
+                snapshot_hash=f"{marker}-cbom-dead-unknown",
+            ),
         ])
 
         db.add_all([
@@ -385,6 +396,36 @@ async def verify_script() -> None:
             async with AsyncSessionLocal() as db:
                 cancelled_scan = (await db.execute(select(Scan).where(Scan.id == fixture["queued_scan_id"]))).scalar_one()
                 expect("Queued scan marked cancelled", cancelled_scan.status == ScanStatus.cancelled)
+
+            async with AsyncSessionLocal() as db:
+                admin = (await db.execute(select(User).where(User.username == "admin"))).scalar_one()
+                cancelling_scan = Scan(
+                    status=ScanStatus.running,
+                    targets_json=json.dumps([fixture["root_url"]]),
+                    target_count=1,
+                    completed_count=0,
+                    failed_count=0,
+                    progress_pct=20.0,
+                    created_by=admin.id,
+                    started_at=datetime.now(timezone.utc).replace(tzinfo=None),
+                )
+                db.add(cancelling_scan)
+                await db.commit()
+                await db.refresh(cancelling_scan)
+                scan_service.scan_cancel_events[cancelling_scan.id] = asyncio.Event()
+                scan_service.scan_cancel_events[cancelling_scan.id].set()
+                cancelling_scan_id = cancelling_scan.id
+
+            scan_list_res = await client.get("/api/scan", headers=headers)
+            expect("Scan list endpoint", scan_list_res.status_code == 200)
+            cancelling_entry = next((row for row in scan_list_res.json() if row["id"] == cancelling_scan_id), None)
+            expect("Scan list shows cancelling state", cancelling_entry is not None and cancelling_entry["display_status"] == "cancelling")
+
+            task_inventory_res = await client.get("/api/tasks", headers=headers)
+            expect("Task inventory refresh endpoint", task_inventory_res.status_code == 200)
+            cancelling_task = next((row for row in task_inventory_res.json()["scans"] if row["id"] == cancelling_scan_id), None)
+            expect("Task inventory shows cancelling state", cancelling_task is not None and cancelling_task["display_status"] == "cancelling")
+            scan_service.scan_cancel_events.pop(cancelling_scan_id, None)
 
             original_router_run_scan = scan_router.run_scan
             original_service_run_scan = scan_service.run_scan
@@ -500,6 +541,14 @@ async def verify_script() -> None:
             expect("CBOM domain filter endpoint", cbom_res.status_code == 200)
             cbom_items = cbom_res.json()
             expect("CBOM returns latest snapshots only", len(cbom_items) == 3)
+            expect(
+                "CBOM hide unknown filter excludes unknown-like labels",
+                all(item["pqc_label"] in {"fully_quantum_safe", "pqc_ready", "partially_quantum_safe", "not_quantum_safe"} for item in cbom_items),
+            )
+
+            cbom_res_all = await client.get(f"/api/cbom?domain={fixture['root_domain']}&include_unknown=true", headers=headers)
+            expect("CBOM include unknown endpoint", cbom_res_all.status_code == 200)
+            expect("CBOM include unknown returns hidden snapshot", len(cbom_res_all.json()) == 4)
 
             detail_scan_id = None
             intranet_target = f"https://intranet.{marker}.example"

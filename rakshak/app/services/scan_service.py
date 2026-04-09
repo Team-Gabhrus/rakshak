@@ -234,9 +234,9 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                     await db.commit()
 
                     await push_progress(scan_id, {
-                        "phase": "failed_target",
+                        "phase": "issue_target",
                         "target": target,
-                        "message": f"Failed: {target} — {str(result_or_err)}",
+                        "message": f"Issue: {target} — {str(result_or_err)}",
                     })
 
                 try:
@@ -280,9 +280,9 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 "failed": failed,
                 "status": "cancelled" if cancel_event.is_set() else "completed",
                 "message": (
-                    f"Scan cancelled: {completed} completed targets kept, {failed} failed."
+                    f"Scan cancelled: {completed} completed targets kept, {failed} issues recorded."
                     if cancel_event.is_set()
-                    else f"Scan complete: {completed} succeeded, {failed} failed."
+                    else f"Scan complete: {completed} succeeded, {failed} issues recorded."
                 ),
             })
         except Exception as e:

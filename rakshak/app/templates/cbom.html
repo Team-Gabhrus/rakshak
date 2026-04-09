@@ -155,9 +155,16 @@
 let cbomSnapshots = [];
 let currentCBOM = null;
 let cbomSelectedDomain = '';
+const cbomKnownLabels = new Set(['fully_quantum_safe', 'pqc_ready', 'partially_quantum_safe', 'not_quantum_safe']);
 
 function cbomIncludeUnknown() {
   return !document.getElementById('cbomHideUnknown')?.checked;
+}
+
+function cbomVisibleSnapshot(snapshot) {
+  if (cbomIncludeUnknown()) return true;
+  const label = (snapshot?.pqc_label || 'unknown').toLowerCase();
+  return cbomKnownLabels.has(label);
 }
 
 function reloadCBOMView() {
@@ -198,7 +205,7 @@ function reloadCBOMView() {
     if (cbomSelectedDomain) url += `&domain=${encodeURIComponent(cbomSelectedDomain)}`;
     const res = await API.get(url);
     if (!res) return;
-    cbomSnapshots = await res.json();
+    cbomSnapshots = (await res.json()).filter(cbomVisibleSnapshot);
     
     if (!cbomSnapshots.length) { 
       document.getElementById('cbomBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No CBOM snapshots yet. Run a scan first.</td></tr>';

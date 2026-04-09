@@ -305,7 +305,7 @@ function renderMessages(messages) {
   const list = document.getElementById('messagesList');
   
   if (!messages.length) {
-    list.innerHTML = `<div style="text-align: center; color: #999; padding: 2rem;"><p>${currentSession?.domain ? 'Ask about domain coverage, live hosts, CBOM posture, or remediation across this domain.' : 'Start the conversation by asking about this asset\\'s security posture!'}</p></div>`;
+    list.innerHTML = `<div style="text-align: center; color: #999; padding: 2rem;"><p>${currentSession?.domain ? 'Ask about domain coverage, live hosts, CBOM posture, or remediation across this domain.' : 'Start the conversation by asking about this asset security posture.'}</p></div>`;
     return;
   }
 

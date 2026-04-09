@@ -13,6 +13,18 @@ from app.utils.domain_tools import get_root_domain
 
 router = APIRouter(prefix="/api/cbom", tags=["cbom"])
 
+VISIBLE_CBOM_LABELS = {
+    "fully_quantum_safe",
+    "pqc_ready",
+    "partially_quantum_safe",
+    "not_quantum_safe",
+}
+
+
+def _is_hidden_unknown_label(label: str | None) -> bool:
+    normalized = (label or "unknown").strip().lower()
+    return normalized not in VISIBLE_CBOM_LABELS
+
 
 @router.get("")
 async def list_cbom(
@@ -28,7 +40,7 @@ async def list_cbom(
         root_domain = get_root_domain(target)
         if domain and root_domain != get_root_domain(domain):
             continue
-        if not include_unknown and (latest.pqc_label or "unknown") == "unknown":
+        if not include_unknown and _is_hidden_unknown_label(latest.pqc_label):
             continue
         items.append({
             "id": latest.id,
@@ -67,7 +79,7 @@ async def cbom_metrics(
         latest = target_history[0]
         if domain and get_root_domain(target) != get_root_domain(domain):
             continue
-        if not include_unknown and (latest.pqc_label or "unknown") == "unknown":
+        if not include_unknown and _is_hidden_unknown_label(latest.pqc_label):
             continue
         snaps.append(latest)
 
