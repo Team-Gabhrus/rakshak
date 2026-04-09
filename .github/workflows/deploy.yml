@@ -39,5 +39,6 @@ jobs:
             -e GEMINI_API_KEY="${{ secrets.GEMINI_API_KEY }}" \
             -e ALGORITHM="${{ secrets.ALGORITHM }}" \
             -e ACCESS_TOKEN_EXPIRE_MINUTES="${{ secrets.ACCESS_TOKEN_EXPIRE_MINUTES }}" \
+            -e APP_BASE_URL="${{ secrets.APP_BASE_URL }}" \
             -e DATABASE_URL="sqlite+aiosqlite:////data/rakshak.db" \
             rakshak-app

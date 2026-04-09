@@ -137,7 +137,7 @@ async def forgot_password(req: ForgotPasswordRequest, db: AsyncSession = Depends
     await db.commit()
     # Dispatch recovery email (FR-23)
     from app.services.email_service import send_report_email
-    reset_link = f"http://localhost:8000/reset-password?token={token}"
+    reset_link = f"{settings.APP_BASE_URL}/reset-password?token={token}"
     email_body = f"Hello,\n\nA password reset was requested for your account.\nPlease use the following token to reset your password:\n\n{token}\n\nLink: {reset_link}\n\nIf you did not request this, please ignore this email.\n\n— Rakshak Admin"
     
     import asyncio
