@@ -41,7 +41,16 @@ async def list_cbom(
             "history_count": len(snapshots),
             "has_history": len(snapshots) > 1,
         })
-    return sorted(items, key=lambda item: (item["domain"], item["target"], item["created_at"]), reverse=True)
+    domain_latest = {}
+    for item in items:
+        current = domain_latest.get(item["domain"])
+        if current is None or item["created_at"] > current:
+            domain_latest[item["domain"]] = item["created_at"]
+    return sorted(
+        items,
+        key=lambda item: (domain_latest.get(item["domain"]), item["created_at"], item["target"]),
+        reverse=True,
+    )
 
 
 @router.get("/metrics")

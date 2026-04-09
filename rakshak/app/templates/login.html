@@ -8,6 +8,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/css/style.css" rel="stylesheet">
+    <script>
+        const theme = localStorage.getItem('rk-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', theme);
+        if (!localStorage.getItem('rk-theme')) {
+            localStorage.setItem('rk-theme', theme);
+        }
+    </script>
     <style>
     /* Reset base dark mode login background to deep maroon/black gradient */
     .rk-login-bg {
@@ -215,6 +222,7 @@ document.getElementById('loginForm').addEventListener('submit', async (e) => {
                 localStorage.setItem('token', data.access_token);
                 localStorage.setItem('username', data.username);
                 localStorage.setItem('role', data.role);
+                localStorage.setItem('rk-theme', localStorage.getItem('rk-theme') || 'dark');
                 document.cookie = `access_token=${data.access_token}; path=/; max-age=1800`;
                 window.location.href = '/home';
             }
@@ -261,6 +269,7 @@ async function submitOtp() {
             localStorage.setItem('token', data.access_token);
             localStorage.setItem('username', data.username);
             localStorage.setItem('role', data.role);
+            localStorage.setItem('rk-theme', localStorage.getItem('rk-theme') || 'dark');
             document.cookie = `access_token=${data.access_token}; path=/; max-age=1800`;
             window.location.href = '/home';
         } else {

@@ -142,7 +142,7 @@ function setChatMode(mode) {
 
 async function loadAssets() {
   const res = await API.get('/api/assets?page_size=10000');
-  if (!res) return;
+  if (!res || !res.ok) throw new Error('Unable to load assets');
   const d = await res.json();
   allAssets = d.assets || [];
   renderAssetOptions('');
@@ -185,17 +185,28 @@ function selectAsset(assetId) {
 }
 
 function openNewSessionModal() {
-  loadAssets();
-  loadDomains();
-  setChatMode('asset');
-  document.getElementById('assetSearchInput').value = '';
-  document.getElementById('assetSelectModal').value = '';
-  document.getElementById('assetDetails').textContent = '';
-  document.getElementById('domainSearchInput').value = '';
-  document.getElementById('domainSelectModal').value = '';
-  document.getElementById('domainDetails').innerHTML = 'Select a domain to load all inventory targets, latest CBOM snapshots, playbooks, live coverage, and dead-host context into the chat.';
-  document.getElementById('sessionTitle').value = '';
-  new bootstrap.Modal(document.getElementById('newSessionModal')).show();
+  try {
+    setChatMode('asset');
+    document.getElementById('assetSearchInput').value = '';
+    document.getElementById('assetSelectModal').value = '';
+    document.getElementById('assetDetails').textContent = '';
+    document.getElementById('domainSearchInput').value = '';
+    document.getElementById('domainSelectModal').value = '';
+    document.getElementById('domainDetails').innerHTML = 'Select a domain to load all inventory targets, latest CBOM snapshots, playbooks, live coverage, and dead-host context into the chat.';
+    document.getElementById('sessionTitle').value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('newSessionModal')).show();
+    loadAssets().catch(err => {
+      console.error(err);
+      showToast('Unable to load assets for chat. You can retry in a moment.', 'warning');
+    });
+    loadDomains().catch(err => {
+      console.error(err);
+      showToast('Unable to load domain context right now.', 'warning');
+    });
+  } catch (err) {
+    console.error('Failed to open new session modal', err);
+    rkAlert('The New Session dialog could not be opened. Please refresh the page and try again.', 'Chat Error', 'error');
+  }
 }
 
 async function createNewSession() {
@@ -223,11 +234,12 @@ async function createNewSession() {
   if (res?.ok) {
     const d = await res.json();
     showToast('Chat session started!', 'success');
-    bootstrap.Modal.getInstance(document.getElementById('newSessionModal')).hide();
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('newSessionModal')).hide();
     loadSessions();
     selectSession(d.session_id);
   } else {
-    showToast('Failed to create session', 'danger');
+    const error = await res?.json().catch(() => ({}));
+    showToast(error.detail || 'Failed to create session', 'danger');
   }
 }
 

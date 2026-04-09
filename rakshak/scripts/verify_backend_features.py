@@ -330,6 +330,7 @@ async def seed_fixture_data(marker: str) -> dict:
         "discovered_dead_host": discovered_dead_host,
         "cleanup_host": cleanup_host,
         "cleanup_url": cleanup_url,
+        "queued_scan_id": queued_scan.id,
     }
 
 
@@ -373,6 +374,18 @@ async def verify_script() -> None:
             expect("Task status includes generating reports", task_data["counts"]["reports"] >= 1)
             expect("Task status includes discovery jobs", task_data["counts"]["discovery_jobs"] >= 1)
 
+            task_inventory_res = await client.get("/api/tasks", headers=headers)
+            expect("Task inventory endpoint", task_inventory_res.status_code == 200)
+            task_inventory = task_inventory_res.json()
+            expect("Task inventory returns scan details", len(task_inventory["scans"]) >= 1)
+            expect("Task inventory returns discovery details", len(task_inventory["discovery_jobs"]) >= 1)
+
+            cancel_scan_res = await client.delete(f"/api/scan/{fixture['queued_scan_id']}", headers=headers)
+            expect("Queued scan termination endpoint", cancel_scan_res.status_code == 200)
+            async with AsyncSessionLocal() as db:
+                cancelled_scan = (await db.execute(select(Scan).where(Scan.id == fixture["queued_scan_id"]))).scalar_one()
+                expect("Queued scan marked cancelled", cancelled_scan.status == ScanStatus.cancelled)
+
             original_router_run_scan = scan_router.run_scan
             original_service_run_scan = scan_service.run_scan
 
@@ -409,10 +422,30 @@ async def verify_script() -> None:
                 async with AsyncSessionLocal() as db:
                     discovered_scan = (await db.execute(select(Scan).where(Scan.id == discovered_scan_id))).scalar_one_or_none()
                     expect("Discovered-target scan creates scan row", discovered_scan is not None and discovered_scan.target_count == 2)
+
+                terminating_job_id = f"{marker}-terminating-job"
+                subdomain_scan_states[terminating_job_id] = SubdomainScanState(
+                    job_id=terminating_job_id,
+                    domain=fixture["root_domain"],
+                    status="running",
+                    live_hosts={fixture["root_domain"], f"app.{fixture['root_domain']}"},
+                    dead_hosts={fixture["discovered_dead_host"]},
+                    live_count=2,
+                    dead_count=1,
+                    processed_count=3,
+                )
+                terminate_discovery_res = await client.post(
+                    f"/api/assets/discover/subdomains/{terminating_job_id}/terminate",
+                    headers=headers,
+                )
+                expect("Discovery termination endpoint", terminate_discovery_res.status_code == 200)
+                terminate_discovery_data = terminate_discovery_res.json()
+                expect("Discovery termination auto-queues scan", terminate_discovery_data["scan_started"] is True and terminate_discovery_data["target_count"] == 2)
             finally:
                 scan_router.run_scan = original_router_run_scan
                 scan_service.run_scan = original_service_run_scan
                 subdomain_scan_states.pop(f"{marker}-queued-scan-job", None)
+                subdomain_scan_states.pop(f"{marker}-terminating-job", None)
 
             decision_summary = await decide_subdomain_job(checkpoint_job_id, False)
             expect("Subdomain checkpoint decision stops scanning", checkpoint_state.stop_requested is True and checkpoint_state.continue_scan is False)
@@ -467,6 +500,43 @@ async def verify_script() -> None:
             expect("CBOM domain filter endpoint", cbom_res.status_code == 200)
             cbom_items = cbom_res.json()
             expect("CBOM returns latest snapshots only", len(cbom_items) == 3)
+
+            detail_scan_id = None
+            intranet_target = f"https://intranet.{marker}.example"
+            async with AsyncSessionLocal() as db:
+                detail_scan = Scan(
+                    status=ScanStatus.completed,
+                    targets_json=json.dumps([fixture["root_url"], intranet_target]),
+                    target_count=2,
+                    completed_count=2,
+                    failed_count=0,
+                    progress_pct=100.0,
+                )
+                db.add(detail_scan)
+                await db.flush()
+                detail_scan_id = detail_scan.id
+                db.add_all([
+                    ScanResult(
+                        scan_id=detail_scan.id,
+                        target_url=fixture["root_url"],
+                        status="success",
+                        pqc_label="fully_quantum_safe",
+                    ),
+                    ScanResult(
+                        scan_id=detail_scan.id,
+                        target_url=intranet_target,
+                        status="failed",
+                        pqc_label="intranet_only",
+                        error_message="intranet_only",
+                    ),
+                ])
+                await db.commit()
+
+            detail_res = await client.get(f"/api/scan/{detail_scan_id}/details", headers=headers)
+            expect("Scan details endpoint", detail_res.status_code == 200)
+            detail_data = detail_res.json()
+            expect("Scan details isolate intranet-only results", intranet_target in detail_data["intranet_only"])
+            expect("Scan details exclude intranet-only from failed", intranet_target not in detail_data["failed"])
 
             create_user_res = await client.post(
                 "/api/auth/register",

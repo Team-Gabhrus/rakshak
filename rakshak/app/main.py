@@ -312,6 +312,79 @@ async def task_status(
     }
 
 
+@app.get("/api/tasks")
+async def task_inventory(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_any_role),
+):
+    from app.models.report import Report
+    from app.models.scan import Scan, ScanStatus
+    from app.services.scan_service import scan_progress
+    from app.services.subdomain_service import list_active_subdomain_jobs
+
+    scan_result = await db.execute(
+        select(Scan).where(Scan.status.in_([ScanStatus.queued, ScanStatus.running])).order_by(Scan.created_at.desc())
+    )
+    scans = scan_result.scalars().all()
+
+    report_result = await db.execute(
+        select(Report).where(Report.status.in_(["pending", "generating"])).order_by(Report.created_at.desc())
+    )
+    reports = report_result.scalars().all()
+    discovery_jobs = list_active_subdomain_jobs()
+
+    return {
+        "counts": {
+            "scans": len(scans),
+            "reports": len(reports),
+            "discovery_jobs": len(discovery_jobs),
+            "total": len(scans) + len(reports) + len(discovery_jobs),
+        },
+        "scans": [
+            {
+                "id": scan.id,
+                "status": scan.status.value,
+                "target_count": scan.target_count,
+                "completed_count": scan.completed_count,
+                "failed_count": scan.failed_count,
+                "progress_pct": scan.progress_pct,
+                "started_at": scan.started_at,
+                "created_at": scan.created_at,
+                "last_message": (scan_progress.get(scan.id, [])[-1].get("message") if scan_progress.get(scan.id) else None),
+                "can_terminate": scan.status in {ScanStatus.queued, ScanStatus.running},
+            }
+            for scan in scans
+        ],
+        "reports": [
+            {
+                "id": report.id,
+                "title": report.title,
+                "status": report.status,
+                "format": report.format.value if hasattr(report.format, "value") else str(report.format),
+                "created_at": report.created_at,
+                "can_terminate": False,
+            }
+            for report in reports
+        ],
+        "discovery_jobs": [
+            {
+                "job_id": job["job_id"],
+                "domain": job["domain"],
+                "status": job["status"],
+                "processed_count": job["processed_count"],
+                "live_count": job["live_count"],
+                "dead_count": job["dead_count"],
+                "breadth_level": job["breadth_level"],
+                "created_at": job["created_at"],
+                "last_message": job.get("last_message") or job.get("final_message"),
+                "queued_scan_id": job.get("queued_scan_id"),
+                "can_terminate": job["status"] in {"queued", "running", "waiting_confirmation", "stopping"} and not job.get("queued_scan_id"),
+            }
+            for job in discovery_jobs
+        ],
+    }
+
+
 @app.get("/api/home/summary")
 async def home_summary(start: str = None, end: str = None, db: AsyncSession = Depends(get_db)):
     """Home overview dashboard data — FR-28."""

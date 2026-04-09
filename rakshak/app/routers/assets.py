@@ -389,12 +389,23 @@ async def trigger_scan_from_subdomain_job(
     from app.config import settings
     from app.models.scan import Scan
     from app.services.scan_service import run_scan, validate_targets
-    from app.services.subdomain_service import get_subdomain_job, get_subdomain_job_live_hosts
+    from app.services.subdomain_service import get_subdomain_job, get_subdomain_job_live_hosts, set_subdomain_job_scan_id
     from app.utils.domain_tools import dedupe_preserve_order
 
     job = get_subdomain_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Subdomain discovery job not found")
+
+    if job.get("queued_scan_id"):
+        return {
+            "job_id": job_id,
+            "domain": job["domain"],
+            "scan_id": job["queued_scan_id"],
+            "target_count": len(get_subdomain_job_live_hosts(job_id)),
+            "validation_errors": [],
+            "status": "queued",
+            "websocket_url": f"/ws/scan/{job['queued_scan_id']}",
+        }
 
     live_hosts = dedupe_preserve_order(get_subdomain_job_live_hosts(job_id))
     valid_targets, errors = validate_targets(live_hosts)
@@ -409,6 +420,7 @@ async def trigger_scan_from_subdomain_job(
     db.add(scan)
     await db.commit()
     await db.refresh(scan)
+    set_subdomain_job_scan_id(job_id, scan.id)
 
     background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
     return {
@@ -419,6 +431,88 @@ async def trigger_scan_from_subdomain_job(
         "validation_errors": errors,
         "status": "queued",
         "websocket_url": f"/ws/scan/{scan.id}",
+    }
+
+
+@router.post("/discover/subdomains/{job_id}/terminate")
+async def terminate_subdomain_discovery_job(
+    job_id: str,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    from app.config import settings
+    from app.models.scan import Scan
+    from app.services.scan_service import run_scan, validate_targets
+    from app.services.subdomain_service import (
+        get_subdomain_job,
+        get_subdomain_job_live_hosts,
+        set_subdomain_job_scan_id,
+        stop_subdomain_job,
+    )
+    from app.utils.domain_tools import dedupe_preserve_order
+
+    job = get_subdomain_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Subdomain discovery job not found")
+
+    await stop_subdomain_job(job_id)
+    job = get_subdomain_job(job_id) or job
+
+    existing_scan_id = job.get("queued_scan_id")
+    if existing_scan_id:
+        return {
+            "job_id": job_id,
+            "domain": job["domain"],
+            "status": job.get("status"),
+            "processed_count": job.get("processed_count", 0),
+            "live_count": job.get("live_count", 0),
+            "dead_count": job.get("dead_count", 0),
+            "scan_id": existing_scan_id,
+            "target_count": len(get_subdomain_job_live_hosts(job_id)),
+            "scan_started": True,
+            "message": "Discovery termination requested. Existing live-target scan is already queued.",
+        }
+
+    live_hosts = dedupe_preserve_order(get_subdomain_job_live_hosts(job_id))
+    valid_targets, errors = validate_targets(live_hosts)
+    if not valid_targets:
+        return {
+            "job_id": job_id,
+            "domain": job["domain"],
+            "status": job.get("status"),
+            "processed_count": job.get("processed_count", 0),
+            "live_count": job.get("live_count", 0),
+            "dead_count": job.get("dead_count", 0),
+            "scan_started": False,
+            "validation_errors": errors,
+            "message": "Discovery termination requested. No live targets were available to start a scan.",
+        }
+
+    scan = Scan(
+        targets_json=json.dumps(valid_targets),
+        target_count=len(valid_targets),
+        created_by=current_user.id,
+    )
+    db.add(scan)
+    await db.commit()
+    await db.refresh(scan)
+    set_subdomain_job_scan_id(job_id, scan.id)
+
+    background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
+    return {
+        "job_id": job_id,
+        "domain": job["domain"],
+        "status": job.get("status"),
+        "processed_count": job.get("processed_count", 0),
+        "live_count": job.get("live_count", 0),
+        "dead_count": job.get("dead_count", 0),
+        "scan_id": scan.id,
+        "target_count": len(valid_targets),
+        "scan_started": True,
+        "validation_errors": errors,
+        "websocket_url": f"/ws/scan/{scan.id}",
+        "message": "Discovery termination requested. Live targets found so far were queued for scanning.",
     }
 
 

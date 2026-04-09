@@ -223,6 +223,18 @@ async function loadAssetScores(page=1) {
   });
 
   allScoreGroups = Object.entries(groups).map(([root, assets]) => ({ root, assets }));
+  allScoreGroups.sort((a, b) => {
+    const latestA = a.assets.reduce((latest, asset) => {
+      const candidate = asset.last_scan || asset.created_at || '';
+      return candidate > latest ? candidate : latest;
+    }, '');
+    const latestB = b.assets.reduce((latest, asset) => {
+      const candidate = asset.last_scan || asset.created_at || '';
+      return candidate > latest ? candidate : latest;
+    }, '');
+    if (latestA === latestB) return a.root.localeCompare(b.root);
+    return latestB.localeCompare(latestA);
+  });
   renderScorePage(currentScorePage);
 }
 

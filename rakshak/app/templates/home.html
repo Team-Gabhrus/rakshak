@@ -225,8 +225,11 @@ function handleScanProgressMessage(msg) {
     startBtn.disabled = false;
     document.querySelector('.rk-progress').classList.remove('scanning');
     document.getElementById('scanShimmer').style.animation = 'none';
-    subPhaseEl.innerHTML = '<span style="color:#2ECC71">✅ Scan complete!</span>';
-    showToast('Scan complete!', 'success');
+    const doneStatus = msg.status || 'completed';
+    subPhaseEl.innerHTML = doneStatus === 'cancelled'
+      ? '<span style="color:#F1C40F">🛑 Scan terminated. Completed targets were saved.</span>'
+      : '<span style="color:#2ECC71">✅ Scan complete!</span>';
+    showToast(doneStatus === 'cancelled' ? 'Scan terminated. Completed results were preserved.' : 'Scan complete!', doneStatus === 'cancelled' ? 'warning' : 'success');
     loadPageData();
     loadScans();
     if (typeof loadTaskStatus === 'function') loadTaskStatus();
@@ -371,7 +374,7 @@ async function loadScans() {
         </button>
       </td>
       <td><code>#${s.id}</code></td>
-      <td><span class="badge ${s.status==='completed'?'bg-success':s.status==='running'?'bg-warning text-dark':s.status==='failed'?'bg-danger':'bg-secondary'}">${s.status}</span></td>
+      <td><span class="badge ${s.status==='completed'?'bg-success':s.status==='running'?'bg-warning text-dark':s.status==='failed'?'bg-danger':s.status==='cancelled'?'bg-dark text-warning':'bg-secondary'}">${s.status}</span></td>
       <td>${s.target_count}</td>
       <td>${s.completed_count}</td>
       <td><div class="rk-progress" style="width:80px"><div class="rk-progress-bar" style="width:${s.progress_pct||0}%"></div></div></td>
@@ -420,6 +423,14 @@ async function toggleScanDetails(scanId, btn) {
       if (data.failed && data.failed.length > 0) {
         html += `<div class="col-md-6 mb-2"><div class="text-danger fw-bold mb-1"><i class="bi bi-x-circle me-1"></i> Failed (${data.failed.length})</div>
                  <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.failed.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
+      }
+      if (data.intranet_only && data.intranet_only.length > 0) {
+        html += `<div class="col-md-6 mb-2"><div class="fw-bold mb-1" style="color:#F1C40F"><i class="bi bi-lock-fill me-1"></i> Intranet Only (${data.intranet_only.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.intranet_only.map(t => `<li class="text-break">🔒 ${t}</li>`).join('')}</ul></div></div>`;
+      }
+      if (data.dns_failed && data.dns_failed.length > 0) {
+        html += `<div class="col-md-6 mb-2"><div class="fw-bold mb-1" style="color:#E67E22"><i class="bi bi-globe2 me-1"></i> DNS Failed (${data.dns_failed.length})</div>
+                 <div style="max-height:120px;overflow-y:auto;" class="text-muted"><ul class="list-unstyled mb-0">${data.dns_failed.map(t => `<li class="text-break">${t}</li>`).join('')}</ul></div></div>`;
       }
       if (data.succeeded && data.succeeded.length > 0) {
         html += `<div class="col-md-6 mb-2"><div class="text-success fw-bold mb-1"><i class="bi bi-check-circle me-1"></i> Succeeded (${data.succeeded.length})</div>
@@ -642,5 +653,6 @@ async function deleteSelectedScans() {
 loadPageData();
 loadScans();
 setInterval(loadScans, 15000);
+window.watchQueuedScan = watchQueuedScan;
 </script>
 {% endblock %}

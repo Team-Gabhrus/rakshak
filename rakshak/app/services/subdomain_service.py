@@ -60,6 +60,8 @@ class SubdomainScanState:
     decision_event: Optional[asyncio.Event] = None
     continue_scan: bool = True
     stop_requested: bool = False
+    queued_scan_id: Optional[int] = None
+    last_message: str = ""
 
     def summary(self) -> dict:
         return {
@@ -74,6 +76,9 @@ class SubdomainScanState:
             "new_records": self.new_records,
             "breadth_level": self.breadth_level,
             "final_message": self.final_message,
+            "last_message": self.last_message,
+            "stop_requested": self.stop_requested,
+            "queued_scan_id": self.queued_scan_id,
             "live_hosts": sorted(self.live_hosts),
             "dead_hosts": sorted(self.dead_hosts),
         }
@@ -259,6 +264,9 @@ def verify_dns(subdomains: set[str], max_workers: int = 40) -> tuple[dict[str, l
 
 
 async def _push_progress(job_id: str, payload: dict):
+    state = subdomain_scan_states.get(job_id)
+    if state and payload.get("message"):
+        state.last_message = payload["message"]
     subdomain_scan_progress.setdefault(job_id, []).append(payload)
 
 
@@ -275,8 +283,14 @@ def get_subdomain_job_live_hosts(job_id: str) -> list[str]:
 
 
 def get_active_subdomain_task_count() -> int:
-    active_states = {"queued", "running", "waiting_confirmation"}
+    active_states = {"queued", "running", "waiting_confirmation", "stopping"}
     return sum(1 for state in subdomain_scan_states.values() if state.status in active_states)
+
+
+def list_active_subdomain_jobs() -> list[dict]:
+    active_states = {"queued", "running", "waiting_confirmation", "stopping"}
+    jobs = [state.summary() for state in subdomain_scan_states.values() if state.status in active_states]
+    return sorted(jobs, key=lambda item: item.get("created_at", ""), reverse=True)
 
 
 async def decide_subdomain_job(job_id: str, continue_scanning: bool) -> dict:
@@ -291,6 +305,39 @@ async def decide_subdomain_job(job_id: str, continue_scanning: bool) -> dict:
         state.stop_requested = True
     state.decision_event.set()
     return state.summary()
+
+
+async def stop_subdomain_job(job_id: str) -> dict:
+    state = subdomain_scan_states.get(job_id)
+    if not state:
+        raise ValueError("Subdomain discovery job not found")
+
+    state.stop_requested = True
+    state.continue_scan = False
+    if state.status in {"queued", "running", "waiting_confirmation"}:
+        state.status = "stopping"
+
+    await _push_progress(job_id, {
+        "phase": "termination_requested",
+        "domain": state.domain,
+        "processed_count": state.processed_count,
+        "live_count": state.live_count,
+        "dead_count": state.dead_count,
+        "message": (
+            f"Termination requested. Preserving {state.live_count} live and "
+            f"{state.dead_count} dead results discovered so far."
+        ),
+    })
+
+    if state.decision_event:
+        state.decision_event.set()
+    return state.summary()
+
+
+def set_subdomain_job_scan_id(job_id: str, scan_id: int) -> None:
+    state = subdomain_scan_states.get(job_id)
+    if state:
+        state.queued_scan_id = scan_id
 
 
 def _chunked(values: list[str], size: int) -> list[list[str]]:
@@ -518,7 +565,10 @@ async def _execute_discovery(
 
     state.status = "completed"
     state.final_message = (
-        f"Discovery complete. Found {state.processed_count} results, "
+        f"Discovery stopped. Found {state.processed_count} results, "
+        f"{state.live_count} live and {state.dead_count} dead."
+        if state.stop_requested
+        else f"Discovery complete. Found {state.processed_count} results, "
         f"{state.live_count} live and {state.dead_count} dead."
     )
     return {

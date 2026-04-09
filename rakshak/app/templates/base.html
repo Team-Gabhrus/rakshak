@@ -17,7 +17,7 @@
     
 
     <script>
-        const theme = localStorage.getItem('rk-theme') || 'light';
+        const theme = localStorage.getItem('rk-theme') || 'dark';
         document.documentElement.setAttribute('data-theme', theme);
     </script>
 </head>
@@ -115,7 +115,7 @@
             <div class="rk-topbar-right">
                 <button class="rk-icon-btn" title="Running Tasks" onclick="openTaskStatusModal()">
                     <i class="bi bi-bell-fill"></i>
-                    <span class="rk-badge" id="taskBellBadge" style="display:none;width:10px;height:10px;min-width:10px;padding:0;border-radius:50%"></span>
+                    <span class="rk-badge" id="taskBellBadge" style="display:none;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:10px;line-height:18px;text-align:center"></span>
                 </button>
                 <button class="rk-icon-btn" title="Toggle Theme" onclick="toggleTheme()">
                     <i class="bi bi-moon-stars-fill" id="themeIcon"></i>
@@ -186,13 +186,13 @@
 
     // ── Sync icon once DOM ready ────────────────────────────────────────────
     document.addEventListener('DOMContentLoaded', () => {
-        syncThemeIcon(localStorage.getItem('rk-theme') || 'light');
+        syncThemeIcon(localStorage.getItem('rk-theme') || 'dark');
     });
 
     // ── Toggle ───────────────────────────────────────────────────────────────
     window.toggleTheme = function () {
         const doc   = document.documentElement;
-        const cur   = doc.getAttribute('data-theme') || 'light';
+        const cur   = doc.getAttribute('data-theme') || 'dark';
         const next  = cur === 'dark' ? 'light' : 'dark';
 
         // Spin the button icon

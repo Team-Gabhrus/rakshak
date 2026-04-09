@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.scan import Scan, ScanResult, ScanStatus
 from app.models.user import User
 from app.dependencies import require_admin, require_any_role
-from app.services.scan_service import validate_targets, run_scan, scan_progress
+from app.services.scan_service import validate_targets, run_scan, scan_progress, scan_cancel_events, push_progress
 from app.services.audit_service import log_event
 from app.config import settings
 import csv
@@ -185,15 +185,23 @@ async def get_scan_details(
     rows = res_query.scalars().all()
     
     completed_targets = {r.target_url for r in rows if r.status == "success"}
-    failed_targets = {r.target_url for r in rows if r.status in ["failed", "timeout"]}
-    
-    running_targets = [t for t in targets if t not in completed_targets and t not in failed_targets]
+    intranet_only_targets = {r.target_url for r in rows if (r.pqc_label or "") == "intranet_only"}
+    dns_failed_targets = {r.target_url for r in rows if (r.pqc_label or "") == "dns_failed"}
+    failed_targets = {
+        r.target_url for r in rows
+        if r.status in ["failed", "timeout"] and (r.pqc_label or "") not in {"intranet_only", "dns_failed"}
+    }
+
+    classified = completed_targets | intranet_only_targets | dns_failed_targets | failed_targets
+    running_targets = [t for t in targets if t not in classified]
     
     return {
         "scan_id": scan_id,
         "status": scan.status.value,
         "total_targets": len(targets),
         "succeeded": sorted(list(completed_targets)),
+        "intranet_only": sorted(list(intranet_only_targets)),
+        "dns_failed": sorted(list(dns_failed_targets)),
         "failed": sorted(list(failed_targets)),
         "running": sorted(running_targets)
     }
@@ -209,9 +217,34 @@ async def cancel_scan(
     scan = result.scalar_one_or_none()
     if not scan:
         raise HTTPException(status_code=404, detail="Scan not found")
+    if scan.status == ScanStatus.completed:
+        return {"message": f"Scan {scan_id} is already completed", "status": scan.status.value}
+    if scan.status == ScanStatus.failed:
+        return {"message": f"Scan {scan_id} has already failed", "status": scan.status.value}
+
+    if scan.status == ScanStatus.queued:
+        scan.status = ScanStatus.cancelled
+        scan.completed_at = scan.completed_at or scan.created_at
+        await db.commit()
+        await push_progress(scan_id, {
+            "phase": "done",
+            "status": "cancelled",
+            "total": scan.target_count,
+            "completed": scan.completed_count,
+            "failed": scan.failed_count,
+            "message": "Scan cancelled before execution started.",
+        })
+        return {"message": f"Scan {scan_id} cancelled", "status": scan.status.value}
+
+    cancel_event = scan_cancel_events.get(scan_id)
+    if cancel_event:
+        cancel_event.set()
+        await db.commit()
+        return {"message": f"Scan {scan_id} cancellation requested", "status": "cancellation_requested"}
+
     scan.status = ScanStatus.cancelled
     await db.commit()
-    return {"message": f"Scan {scan_id} cancelled"}
+    return {"message": f"Scan {scan_id} cancelled", "status": scan.status.value}
 
 
 @router.get("")

@@ -106,15 +106,23 @@ async def list_domain_inventory(db: AsyncSession, domains: Optional[list[str]] =
     groups: list[dict] = []
     all_domains = set(grouped_assets.keys()) | set(dead_hosts_by_domain.keys()) | requested_domains
     for domain in sorted(all_domains):
-        domain_assets = sorted(grouped_assets[domain], key=lambda asset: asset.url)
+        domain_assets = sorted(
+            grouped_assets[domain],
+            key=lambda asset: (asset.last_scan or asset.created_at or asset.url, asset.url),
+            reverse=True,
+        )
         summaries = [asset_summary(asset) for asset in domain_assets]
         scanned_count = 0
         live_count = 0
         inventory_dead_hosts: set[str] = set()
+        latest_scan_at = None
 
         for asset in domain_assets:
             latest_scan = latest_scans.get(asset.url)
             asset_host = extract_hostname(asset.url)
+            candidate_scan_time = getattr(latest_scan, "scanned_at", None) or asset.last_scan or asset.created_at
+            if candidate_scan_time and (latest_scan_at is None or candidate_scan_time > latest_scan_at):
+                latest_scan_at = candidate_scan_time
 
             if latest_scan:
                 scanned_count += 1
@@ -140,8 +148,13 @@ async def list_domain_inventory(db: AsyncSession, domains: Optional[list[str]] =
             "scanned_count": scanned_count,
             "live_count": live_count,
             "dead_count": len(dead_hosts),
+            "latest_scan_at": latest_scan_at,
             "targets": summaries,
             "dead_hosts": dead_hosts,
         })
 
-    return sorted(groups, key=lambda group: group["domain"])
+    return sorted(
+        groups,
+        key=lambda group: (group["latest_scan_at"] is not None, group["latest_scan_at"] or group["domain"], group["domain"]),
+        reverse=True,
+    )

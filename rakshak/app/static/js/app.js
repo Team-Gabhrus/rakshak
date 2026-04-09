@@ -22,7 +22,9 @@ const API = {
 };
 
 function logout() {
+    const theme = localStorage.getItem('rk-theme') || 'dark';
     localStorage.clear();
+    localStorage.setItem('rk-theme', theme);
     document.cookie = 'access_token=; path=/; max-age=0';
     window.location.href = '/login';
 }
@@ -113,33 +115,147 @@ async function loadTaskStatus() {
         const data = await res.json();
         badge.style.display = data.has_running_tasks ? 'block' : 'none';
         badge.dataset.counts = JSON.stringify(data.counts || {});
+        badge.textContent = (data.counts?.total || 0).toString();
     } catch (err) {
         console.warn('Failed to load task status', err);
     }
 }
 
 async function openTaskStatusModal() {
-    const badge = document.getElementById('taskBellBadge');
-    let counts = {};
-    try {
-        counts = JSON.parse(badge?.dataset.counts || '{}');
-    } catch (err) {
-        counts = {};
-    }
+    const modal = _initTaskStatusModal();
+    const body = document.getElementById('rkTaskStatusBody');
+    body.innerHTML = '<div class="text-muted text-center py-4">Loading running tasks…</div>';
+    modal.show();
 
-    const total = counts.total || 0;
+    try {
+        const res = await API.get('/api/tasks');
+        if (!res || !res.ok) throw new Error('Unable to load tasks');
+        const data = await res.json();
+        renderTaskStatusContent(data);
+    } catch (err) {
+        body.innerHTML = '<div class="text-danger">Failed to load task details.</div>';
+    }
+}
+
+function _initTaskStatusModal() {
+    let modalEl = document.getElementById('rkTaskStatusModal');
+    if (!modalEl) {
+        document.body.insertAdjacentHTML('beforeend', `
+        <div class="modal fade" id="rkTaskStatusModal" tabindex="-1" aria-hidden="true">
+          <div class="modal-dialog modal-dialog-centered modal-lg">
+            <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border);color:var(--rk-text)">
+              <div class="modal-header" style="border-color:var(--rk-border)">
+                <h5 class="modal-title">Running Tasks</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+              </div>
+              <div class="modal-body" id="rkTaskStatusBody"></div>
+            </div>
+          </div>
+        </div>`);
+        modalEl = document.getElementById('rkTaskStatusModal');
+    }
+    return bootstrap.Modal.getOrCreateInstance(modalEl);
+}
+
+function renderTaskStatusContent(data) {
+    const body = document.getElementById('rkTaskStatusBody');
+    if (!body) return;
+    const scans = data.scans || [];
+    const reports = data.reports || [];
+    const discoveryJobs = data.discovery_jobs || [];
+    const total = data.counts?.total || 0;
+
     if (!total) {
-        await rkAlert('No running tasks right now.', 'Task Status', 'info');
+        body.innerHTML = '<div class="text-muted text-center py-4">No running tasks right now.</div>';
         return;
     }
 
-    const body = `
-        <div><strong>${total}</strong> running task(s)</div>
-        <div class="mt-2">Scans: <strong>${counts.scans || 0}</strong></div>
-        <div>Reports: <strong>${counts.reports || 0}</strong></div>
-        <div>Subdomain Discovery: <strong>${counts.discovery_jobs || 0}</strong></div>
+    body.innerHTML = `
+      <div class="d-flex flex-wrap gap-2 mb-3">
+        <span class="badge bg-danger">${total} active</span>
+        <span class="badge bg-warning text-dark">${scans.length} scans</span>
+        <span class="badge bg-info text-dark">${reports.length} reports</span>
+        <span class="badge bg-primary">${discoveryJobs.length} discoveries</span>
+      </div>
+      ${renderTaskSection('Scan Tasks', scans.map(task => renderTaskCard('scan', task)).join(''))}
+      ${renderTaskSection('Subdomain Discovery', discoveryJobs.map(task => renderTaskCard('discovery', task)).join(''))}
+      ${renderTaskSection('Reports', reports.map(task => renderTaskCard('report', task)).join(''))}
     `;
-    await rkAlert(body, 'Task Status', 'info');
+}
+
+function renderTaskSection(title, inner) {
+    if (!inner) return '';
+    return `
+      <div class="mb-4">
+        <div class="fw-semibold mb-2">${title}</div>
+        <div class="d-grid gap-2">${inner}</div>
+      </div>
+    `;
+}
+
+function renderTaskCard(type, task) {
+    if (type === 'scan') {
+        return `
+        <div class="p-3 rounded" style="border:1px solid var(--rk-border);background:var(--rk-bg)">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">Scan #${task.id}</div>
+              <div class="fs-12 text-muted mt-1">${task.last_message || 'Quantum vulnerability scan is running.'}</div>
+              <div class="fs-12 text-muted mt-2">Progress: ${task.completed_count || 0}/${task.target_count || 0} completed, ${task.failed_count || 0} failed</div>
+            </div>
+            ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('scan', ${task.id})"><i class="bi bi-stop-circle"></i> Terminate</button>` : ''}
+          </div>
+        </div>`;
+    }
+
+    if (type === 'discovery') {
+        return `
+        <div class="p-3 rounded" style="border:1px solid var(--rk-border);background:var(--rk-bg)">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+              <div class="fw-semibold">${task.domain}</div>
+              <div class="fs-12 text-muted mt-1">${task.last_message || 'Breadth-first recursive subdomain discovery is running.'}</div>
+              <div class="fs-12 text-muted mt-2">${task.processed_count || 0} processed • ${task.live_count || 0} live • ${task.dead_count || 0} dead</div>
+            </div>
+            ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('discovery', '${task.job_id}')"><i class="bi bi-stop-circle"></i> Terminate</button>` : task.queued_scan_id ? `<span class="badge bg-success">Scan #${task.queued_scan_id} queued</span>` : ''}
+          </div>
+        </div>`;
+    }
+
+    return `
+    <div class="p-3 rounded" style="border:1px solid var(--rk-border);background:var(--rk-bg)">
+      <div class="fw-semibold">${task.title}</div>
+      <div class="fs-12 text-muted mt-1">${task.status} • ${String(task.format || 'report').toUpperCase()} report</div>
+    </div>`;
+}
+
+async function terminateTask(type, id) {
+    if (type === 'scan') {
+        const confirmed = await rkConfirm('Terminate this scan and keep only completed target results?', 'Terminate Scan');
+        if (!confirmed) return;
+        const res = await API.delete(`/api/scan/${id}`);
+        if (!res || !res.ok) {
+            showToast('Failed to terminate the scan', 'danger');
+            return;
+        }
+        showToast(`Scan #${id} termination requested`, 'warning');
+    } else if (type === 'discovery') {
+        const confirmed = await rkConfirm('Terminate this discovery, save the results found so far, and queue a scan for the live targets?', 'Terminate Discovery');
+        if (!confirmed) return;
+        const res = await API.post(`/api/assets/discover/subdomains/${id}/terminate`, {});
+        if (!res || !res.ok) {
+            showToast('Failed to terminate subdomain discovery', 'danger');
+            return;
+        }
+        const data = await res.json();
+        showToast(data.message || 'Discovery termination requested', data.scan_started ? 'warning' : 'info');
+        if (data.scan_started && typeof window.watchQueuedScan === 'function') {
+            window.watchQueuedScan(data.scan_id, data.target_count || data.live_count || 0);
+        }
+    }
+
+    await loadTaskStatus();
+    await openTaskStatusModal();
 }
 
 async function confirmLargeScan(count) {
@@ -439,6 +555,7 @@ function _initRkModal() {
               <div class="modal-body fs-14" id="rkGlobalModalBody" style="padding: 1rem 1.5rem 1.5rem; color: var(--rk-text-muted, #8b949e); line-height: 1.5;">
               </div>
               <div class="modal-footer border-0" style="padding: 0 1.5rem 1.5rem; justify-content: flex-end; gap: 8px;">
+                <button type="button" class="rk-btn rk-btn-outline" id="rkGlobalModalDecline" style="padding: 8px 20px; font-weight: 600;">Decline</button>
                 <button type="button" class="rk-btn" id="rkGlobalModalConfirm" style="padding: 8px 20px; font-weight: 600; box-shadow: 0 4px 12px rgba(0,0,0,0.15);">Confirm</button>
               </div>
             </div>
@@ -482,9 +599,12 @@ function rkConfirm(message, title = 'Confirm Action', isDestructive = false) {
         const iconBox = document.getElementById('rkGlobalModalIconBox');
         const icon = document.getElementById('rkGlobalModalIcon');
         const confirmBtn = document.getElementById('rkGlobalModalConfirm');
+        const declineBtn = document.getElementById('rkGlobalModalDecline');
         const closeBtn = document.getElementById('rkGlobalModalClose');
         
         confirmBtn.textContent = isDestructive ? 'Delete' : 'Confirm';
+        declineBtn.textContent = isDestructive ? 'Cancel' : 'Decline';
+        declineBtn.style.display = 'inline-flex';
         
         if (isDestructive) {
             iconBox.style.background = 'rgba(220, 38, 38, 0.15)'; // red light
@@ -492,22 +612,30 @@ function rkConfirm(message, title = 'Confirm Action', isDestructive = false) {
             confirmBtn.style.background = '#DC2626';
             confirmBtn.style.color = '#FFF';
             confirmBtn.style.border = '1px solid #DC2626';
+            declineBtn.style.background = 'transparent';
+            declineBtn.style.color = 'var(--rk-text)';
+            declineBtn.style.border = '1px solid var(--rk-border)';
         } else {
             iconBox.style.background = 'rgba(249, 187, 26, 0.15)'; // yellow/accent
             icon.className = 'bi bi-question-circle-fill text-warning';
             confirmBtn.style.background = 'var(--rk-accent, #A3112E)';
             confirmBtn.style.color = '#FFF';
             confirmBtn.style.border = 'none';
+            declineBtn.style.background = 'transparent';
+            declineBtn.style.color = 'var(--rk-text)';
+            declineBtn.style.border = '1px solid var(--rk-border)';
         }
 
         const handleConfirm = () => { cleanup(); resolve(true); modal.hide(); };
         const handleCancel = () => { cleanup(); resolve(false); modal.hide(); };
         
         confirmBtn.onclick = handleConfirm;
+        declineBtn.onclick = handleCancel;
         closeBtn.onclick = handleCancel;
         
         const cleanup = () => {
             confirmBtn.onclick = null;
+            declineBtn.onclick = null;
             closeBtn.onclick = null;
         };
         modal.show();
@@ -525,12 +653,14 @@ function rkAlert(message, title = 'Information', type = 'info') {
         const iconBox = document.getElementById('rkGlobalModalIconBox');
         const icon = document.getElementById('rkGlobalModalIcon');
         const confirmBtn = document.getElementById('rkGlobalModalConfirm');
+        const declineBtn = document.getElementById('rkGlobalModalDecline');
         const closeBtn = document.getElementById('rkGlobalModalClose');
         
         confirmBtn.textContent = 'OK';
         confirmBtn.style.background = 'var(--rk-accent-bg, #f9bb1a)';
         confirmBtn.style.color = '#FFF';
         confirmBtn.style.border = 'none';
+        declineBtn.style.display = 'none';
 
         if (type === 'success') {
             iconBox.style.background = 'rgba(34, 197, 94, 0.15)'; // green light
@@ -547,6 +677,7 @@ function rkAlert(message, title = 'Information', type = 'info') {
         const handleClose = () => { cleanup(); resolve(false); modal.hide(); };
         const cleanup = () => {
             confirmBtn.onclick = null;
+            declineBtn.onclick = null;
             closeBtn.onclick = null;
         };
         confirmBtn.onclick = handleConfirm;

@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 # Global dict: scan_id -> list of progress messages (for WebSocket delivery)
 scan_progress: dict[int, list[dict]] = {}
+scan_cancel_events: dict[int, asyncio.Event] = {}
 
 
 def validate_targets(targets: list[str]) -> tuple[list[str], list[str]]:
@@ -88,11 +89,20 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
     engine = create_async_engine(db_url)
     AsyncSession = async_sessionmaker(engine, expire_on_commit=False)
 
+    cancel_event = scan_cancel_events.setdefault(scan_id, asyncio.Event())
+
     async with AsyncSession() as db:
         # Update scan status to running
         result = await db.execute(select(Scan).where(Scan.id == scan_id))
         scan = result.scalar_one_or_none()
         if not scan:
+            scan_cancel_events.pop(scan_id, None)
+            return
+
+        if scan.status == ScanStatus.cancelled:
+            scan.completed_at = datetime.utcnow()
+            await db.commit()
+            scan_cancel_events.pop(scan_id, None)
             return
 
         scan.status = ScanStatus.running
@@ -109,6 +119,8 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
         
         async def process_target(idx, target):
             nonlocal completed, failed
+            if cancel_event.is_set():
+                return idx, target, None, None
             base_pct = round((idx / len(targets)) * 100)
             step_pct = max(1, round(100 / len(targets)))
 
@@ -138,6 +150,8 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             try:
                 loop = asyncio.get_event_loop()
                 async with sem:
+                    if cancel_event.is_set():
+                        return idx, target, None, None
                     await sub_progress("tls")
                     scan_result_raw = await loop.run_in_executor(
                         None,
@@ -148,57 +162,95 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 logger.exception(f"Error scanning {target}")
                 return idx, target, False, e
 
-        tasks = [process_target(idx, target) for idx, target in enumerate(targets)]
-        
-        for coro in asyncio.as_completed(tasks):
-            idx, target, success, result_or_err = await coro
-            if success:
-                try:
-                    await save_scan_result(db, scan_id, target, result_or_err)
-                    completed += 1
-                    label = result_or_err.get("pqc_label", "unknown")
-                    label_icons = {"fully_quantum_safe": "🟢", "pqc_ready": "🔵", "partially_quantum_safe": "🟡", "not_quantum_safe": "❌", "unknown": "⚪"}
-                    label_display = result_or_err.get("pqc_label_display", label.replace('_', ' ').title())
-                    await push_progress(scan_id, {
-                        "phase": "completed_target",
-                        "target": target,
-                        "current": completed + failed,
-                        "total": len(targets),
-                        "pct": round(((completed + failed) / len(targets)) * 100),
-                        "label": label,
-                        "message": f"✅ {target} → {label_icons.get(label, '')} {label_display}",
-                    })
-                except Exception as e:
-                    logger.exception(f"Error saving {target}")
-                    failed += 1
-            else:
-                failed += 1
-                failed_result = ScanResult(
-                    scan_id=scan_id,
-                    target_url=target,
-                    status="failed",
-                    error_message=str(result_or_err),
-                )
-                db.add(failed_result)
-                await db.commit()
+        def progress_pct() -> int:
+            if not targets:
+                return 0
+            return round(((completed + failed) / len(targets)) * 100)
 
-                await push_progress(scan_id, {
-                    "phase": "failed_target",
-                    "target": target,
-                    "message": f"Failed: {target} — {str(result_or_err)}",
-                })
+        target_iter = iter(enumerate(targets))
+        active_tasks: set[asyncio.Task] = set()
 
-            # Intermediate DB commit for progress tracking via polling API
+        def launch_next() -> bool:
+            if cancel_event.is_set():
+                return False
             try:
-                result = await db.execute(select(Scan).where(Scan.id == scan_id))
-                scan = result.scalar_one_or_none()
-                if scan:
-                    scan.completed_count = completed
-                    scan.failed_count = failed
-                    scan.progress_pct = round(((completed + failed) / len(targets)) * 100)
+                idx, target = next(target_iter)
+            except StopIteration:
+                return False
+            active_tasks.add(asyncio.create_task(process_target(idx, target)))
+            return True
+
+        for _ in range(min(50, len(targets))):
+            if not launch_next():
+                break
+
+        cancel_notice_sent = False
+
+        while active_tasks:
+            done, _ = await asyncio.wait(active_tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                active_tasks.discard(task)
+                idx, target, success, result_or_err = await task
+                if success is None:
+                    continue
+
+                if cancel_event.is_set():
+                    if not cancel_notice_sent:
+                        await push_progress(scan_id, {
+                            "phase": "cancel_requested",
+                            "message": "Termination requested. Rakshak will keep only completed target results.",
+                        })
+                        cancel_notice_sent = True
+                    continue
+
+                if success:
+                    try:
+                        await save_scan_result(db, scan_id, target, result_or_err)
+                        completed += 1
+                        label = result_or_err.get("pqc_label", "unknown")
+                        label_icons = {"fully_quantum_safe": "🟢", "pqc_ready": "🔵", "partially_quantum_safe": "🟡", "not_quantum_safe": "❌", "unknown": "⚪", "intranet_only": "🔒", "dns_failed": "🚫"}
+                        label_display = result_or_err.get("pqc_label_display", label.replace('_', ' ').title())
+                        await push_progress(scan_id, {
+                            "phase": "completed_target",
+                            "target": target,
+                            "current": completed + failed,
+                            "total": len(targets),
+                            "pct": progress_pct(),
+                            "label": label,
+                            "message": f"✅ {target} → {label_icons.get(label, '')} {label_display}",
+                        })
+                    except Exception as e:
+                        logger.exception(f"Error saving {target}")
+                        failed += 1
+                else:
+                    failed += 1
+                    failed_result = ScanResult(
+                        scan_id=scan_id,
+                        target_url=target,
+                        status="failed",
+                        error_message=str(result_or_err),
+                    )
+                    db.add(failed_result)
                     await db.commit()
-            except Exception as e:
-                logger.error(f"Failed to update intermediate db progress: {e}")
+
+                    await push_progress(scan_id, {
+                        "phase": "failed_target",
+                        "target": target,
+                        "message": f"Failed: {target} — {str(result_or_err)}",
+                    })
+
+                try:
+                    result = await db.execute(select(Scan).where(Scan.id == scan_id))
+                    scan = result.scalar_one_or_none()
+                    if scan:
+                        scan.completed_count = completed
+                        scan.failed_count = failed
+                        scan.progress_pct = progress_pct()
+                        await db.commit()
+                except Exception as e:
+                    logger.error(f"Failed to update intermediate db progress: {e}")
+
+                launch_next()
 
         # Recompute cyber rating safely
         try:
@@ -211,11 +263,11 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             result = await db.execute(select(Scan).where(Scan.id == scan_id))
             scan = result.scalar_one_or_none()
             if scan:
-                scan.status = ScanStatus.completed
+                scan.status = ScanStatus.cancelled if cancel_event.is_set() else ScanStatus.completed
                 scan.completed_at = datetime.utcnow()
                 scan.completed_count = completed
                 scan.failed_count = failed
-                scan.progress_pct = 100.0
+                scan.progress_pct = progress_pct() if cancel_event.is_set() else 100.0
                 await db.commit()
         except Exception as e:
             logger.error(f"Failed to mark scan as complete in DB: {e}")
@@ -226,10 +278,17 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 "total": len(targets),
                 "completed": completed,
                 "failed": failed,
-                "message": f"Scan complete: {completed} succeeded, {failed} failed.",
+                "status": "cancelled" if cancel_event.is_set() else "completed",
+                "message": (
+                    f"Scan cancelled: {completed} completed targets kept, {failed} failed."
+                    if cancel_event.is_set()
+                    else f"Scan complete: {completed} succeeded, {failed} failed."
+                ),
             })
         except Exception as e:
             logger.error(f"Failed to push final done progress: {e}")
+        finally:
+            scan_cancel_events.pop(scan_id, None)
 
 
 async def _check_reachability(host: str, port: int, timeout: float = 5.0) -> str:
