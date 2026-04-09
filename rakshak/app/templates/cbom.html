@@ -239,12 +239,12 @@ function renderCBOMPage() {
       <tr style="background:var(--rk-surface)">
         <td colspan="6">
           <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.cbom-group-${safe}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
-            <i class="bi bi-chevron-down"></i>
+            <i class="bi bi-chevron-right"></i>
           </button>
           <strong>${domain}</strong> <span class="badge bg-secondary ms-1">${items.length} targets</span>
         </td>
       </tr>`;
-    const rows = items.map(s => `<tr class="cbom-group-${safe}" style="background:rgba(255,255,255,0.01)">
+    const rows = items.map(s => `<tr class="cbom-group-${safe}" style="display:none;background:rgba(255,255,255,0.01)">
       <td><code>#${s.id}</code></td>
       <td><div class="text-blue fs-12 cell-truncate" title="${s.target}">${s.target}</div></td>
       <td>${pqcBadge(s.pqc_label)}</td>
