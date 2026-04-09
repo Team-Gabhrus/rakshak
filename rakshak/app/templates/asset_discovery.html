@@ -133,6 +133,19 @@ function setFilter(status, btn) {
 let allDiscData = [];
 let filteredDiscData = [];
 
+function buildDiscoveryScanPrompt(liveCount) {
+  if (liveCount > 100) {
+    return {
+      title: 'Large Scan Warning',
+      message: `Warning! You are about to scan ${liveCount} targets. Start the quantum vulnerability scan now?`,
+    };
+  }
+  return {
+    title: 'Start Quantum Scan',
+    message: `Discovery finished with ${liveCount} live target(s). Start the quantum vulnerability scan now?`,
+  };
+}
+
 
 async function loadDiscoveries() {
   let url = `/api/assets/discovery?category=${currentCategory}`;
@@ -483,9 +496,10 @@ async function runSubdomainScan(pendingTargets = null) {
         if (typeof loadTaskStatus === 'function') loadTaskStatus();
         if (live > 0 && activeSubdomainJobId && !promptedDiscoveryScanJobs.has(activeSubdomainJobId)) {
           promptedDiscoveryScanJobs.add(activeSubdomainJobId);
-          const shouldScanNow = await rkConfirm(`Discovery finished with ${live} live target(s). Start the quantum vulnerability scan now?`, 'Start Quantum Scan');
+          const prompt = buildDiscoveryScanPrompt(live);
+          const shouldScanNow = await rkConfirm(prompt.message, prompt.title);
           if (shouldScanNow) {
-            await scanDiscoveredSubdomainTargets();
+            await scanDiscoveredSubdomainTargets(true);
           }
         }
       }
@@ -503,7 +517,7 @@ async function runSubdomainScan(pendingTargets = null) {
   }
 }
 
-async function scanDiscoveredSubdomainTargets() {
+async function scanDiscoveredSubdomainTargets(skipLargeScanWarning = false) {
   if (!activeSubdomainJobId) return;
   const stateRes = await API.get(`/api/assets/discover/subdomains/${activeSubdomainJobId}`);
   if (!stateRes || !stateRes.ok) return;
@@ -513,7 +527,7 @@ async function scanDiscoveredSubdomainTargets() {
     showToast('No live targets available to scan', 'warning');
     return;
   }
-  if (!await confirmLargeScan(liveCount)) return;
+  if (!skipLargeScanWarning && !await confirmLargeScan(liveCount)) return;
 
   const res = await API.post(`/api/assets/discover/subdomains/${activeSubdomainJobId}/scan`, {});
   if (!res) return;

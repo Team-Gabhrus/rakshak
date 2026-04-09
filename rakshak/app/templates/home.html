@@ -264,6 +264,32 @@ function watchQueuedScan(scanId, targetCount) {
   };
 }
 
+function buildDiscoveryScanPrompt(liveCount) {
+  if (liveCount > 100) {
+    return {
+      title: 'Large Scan Warning',
+      message: `Warning! You are about to scan ${liveCount} targets. Start the quantum vulnerability scan now?`,
+    };
+  }
+  return {
+    title: 'Start Quantum Scan',
+    message: `Discovery finished with ${liveCount} live target(s). Start the quantum vulnerability scan now?`,
+  };
+}
+
+async function submitDiscoveredScan(jobId) {
+  const res = await API.post(`/api/assets/discover/subdomains/${jobId}/scan`, {});
+  if (!res) return false;
+  const data = await res.json();
+  if (!res.ok) {
+    showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
+    return false;
+  }
+  showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+  watchQueuedScan(data.scan_id, data.target_count);
+  return true;
+}
+
 async function loadPageData() {
   let url = '/api/home/summary';
   if (window._timeFilter) {
@@ -545,9 +571,10 @@ async function startDomainDiscovery() {
       if (typeof loadTaskStatus === 'function') loadTaskStatus();
       if ((msg.live_count || 0) > 0 && activeDiscoveryJobId && !promptedDiscoveryScanJobs.has(activeDiscoveryJobId)) {
         promptedDiscoveryScanJobs.add(activeDiscoveryJobId);
-        const shouldScanNow = await rkConfirm(`Discovery finished with ${msg.live_count} live target(s). Start the quantum vulnerability scan now?`, 'Start Quantum Scan');
+        const prompt = buildDiscoveryScanPrompt(msg.live_count || 0);
+        const shouldScanNow = await rkConfirm(prompt.message, prompt.title);
         if (shouldScanNow) {
-          await scanDiscoveredTargets();
+          await scanDiscoveredTargets(true);
         }
       }
     }
@@ -559,7 +586,7 @@ async function startDomainDiscovery() {
   };
 }
 
-async function scanDiscoveredTargets() {
+async function scanDiscoveredTargets(skipLargeScanWarning = false) {
   if (!activeDiscoveryJobId) return;
   const stateRes = await API.get(`/api/assets/discover/subdomains/${activeDiscoveryJobId}`);
   if (!stateRes || !stateRes.ok) return;
@@ -569,17 +596,8 @@ async function scanDiscoveredTargets() {
     showToast('No live targets available to scan', 'warning');
     return;
   }
-  if (!await confirmLargeScan(liveCount)) return;
-
-  const res = await API.post(`/api/assets/discover/subdomains/${activeDiscoveryJobId}/scan`, {});
-  if (!res) return;
-  const data = await res.json();
-  if (!res.ok) {
-    showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
-    return;
-  }
-  showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
-  watchQueuedScan(data.scan_id, data.target_count);
+  if (!skipLargeScanWarning && !await confirmLargeScan(liveCount)) return;
+  await submitDiscoveredScan(activeDiscoveryJobId);
 }
 
 function toggleAllScans(checked) {

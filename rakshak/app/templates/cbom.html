@@ -27,20 +27,18 @@
       <div class="col-md-4"><div class="rk-chart-card" style="height:260px"><div class="rk-chart-title">Encryption Protocols</div><div class="rk-chart-body"><canvas id="protocolChart"></canvas></div></div></div>
     </div>  <!-- CBOM Table -->
   <div class="rk-card mb-4">
-    <div class="rk-section-title">CBOM Snapshots</div>
+    <div class="d-flex align-items-center justify-content-between mb-3 flex-wrap gap-2">
+      <div class="rk-section-title mb-0">CBOM Snapshots</div>
+      <label class="d-flex align-items-center gap-2 fs-13 text-muted" style="cursor:pointer">
+        <input type="checkbox" id="cbomHideUnknown" checked onchange="reloadCBOMView()">
+        Hide Unknown
+      </label>
+    </div>
     <div class="rk-table-wrap">
       <table class="rk-table">
         <thead><tr><th>ID</th><th>Target</th><th>PQC Label</th><th>Created</th><th>Hash</th><th>Actions</th></tr></thead>
         <tbody id="cbomBody"><tr><td colspan="6" class="text-center text-muted py-4">Loading…</td></tr></tbody>
       </table>
-    </div>
-    <!-- Pagination controls -->
-    <div id="cbomPagination" class="d-flex justify-content-between align-items-center mt-3 d-none">
-      <span class="fs-13 text-muted" id="cbomPageInfo"></span>
-      <div class="btn-group gap-2">
-        <button class="rk-btn rk-btn-sm rk-btn-outline" id="cbomPrevBtn" onclick="prevCBOMPage()">Prev</button>
-        <button class="rk-btn rk-btn-sm rk-btn-outline" id="cbomNextBtn" onclick="nextCBOMPage()">Next</button>
-      </div>
     </div>
   </div>
 
@@ -156,12 +154,19 @@
 <script>
 let cbomSnapshots = [];
 let currentCBOM = null;
-let cbomCurrentPage = 1;
-const cbomPageSize = 10;
 let cbomSelectedDomain = '';
 
+function cbomIncludeUnknown() {
+  return !document.getElementById('cbomHideUnknown')?.checked;
+}
+
+function reloadCBOMView() {
+  loadCBOMMetrics();
+  loadCBOMList();
+}
+
   async function loadCBOMMetrics() {
-    let url = '/api/cbom/metrics?include_unknown=false';
+    let url = `/api/cbom/metrics?include_unknown=${cbomIncludeUnknown() ? 'true' : 'false'}`;
     if (cbomSelectedDomain) url += `&domain=${encodeURIComponent(cbomSelectedDomain)}`;
     const res = await API.get(url);
     if (!res) return;
@@ -189,7 +194,7 @@ let cbomSelectedDomain = '';
   }
 
   async function loadCBOMList() {
-    let url = '/api/cbom?include_unknown=false';
+    let url = `/api/cbom?include_unknown=${cbomIncludeUnknown() ? 'true' : 'false'}`;
     if (cbomSelectedDomain) url += `&domain=${encodeURIComponent(cbomSelectedDomain)}`;
     const res = await API.get(url);
     if (!res) return;
@@ -197,11 +202,9 @@ let cbomSelectedDomain = '';
     
     if (!cbomSnapshots.length) { 
       document.getElementById('cbomBody').innerHTML = '<tr><td colspan="6" class="text-center text-muted py-4">No CBOM snapshots yet. Run a scan first.</td></tr>';
-      document.getElementById('cbomPagination').classList.add('d-none');
       return; 
     }
 
-    cbomCurrentPage = 1;
     renderCBOMPage();
 
     // Snapshot selectors for comparison
@@ -223,17 +226,9 @@ let cbomSelectedDomain = '';
 }
 
 function renderCBOMPage() {
-  const totalPages = Math.ceil(cbomSnapshots.length / cbomPageSize);
-  if (cbomCurrentPage < 1) cbomCurrentPage = 1;
-  if (cbomCurrentPage > totalPages) cbomCurrentPage = totalPages;
-
-  const start = (cbomCurrentPage - 1) * cbomPageSize;
-  const end = start + cbomPageSize;
-  const pageData = cbomSnapshots.slice(start, end);
-
   const tbody = document.getElementById('cbomBody');
   const grouped = {};
-  pageData.forEach(snapshot => {
+  cbomSnapshots.forEach(snapshot => {
     if (!grouped[snapshot.domain]) grouped[snapshot.domain] = [];
     grouped[snapshot.domain].push(snapshot);
   });
@@ -244,12 +239,12 @@ function renderCBOMPage() {
       <tr style="background:var(--rk-surface)">
         <td colspan="6">
           <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.cbom-group-${safe}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
-            <i class="bi bi-chevron-right"></i>
+            <i class="bi bi-chevron-down"></i>
           </button>
           <strong>${domain}</strong> <span class="badge bg-secondary ms-1">${items.length} targets</span>
         </td>
       </tr>`;
-    const rows = items.map(s => `<tr class="cbom-group-${safe}" style="display:none;background:rgba(255,255,255,0.01)">
+    const rows = items.map(s => `<tr class="cbom-group-${safe}" style="background:rgba(255,255,255,0.01)">
       <td><code>#${s.id}</code></td>
       <td><div class="text-blue fs-12 cell-truncate" title="${s.target}">${s.target}</div></td>
       <td>${pqcBadge(s.pqc_label)}</td>
@@ -262,15 +257,6 @@ function renderCBOMPage() {
     </tr>`).join('');
     return header + rows;
   }).join('');
-
-  if (totalPages > 1) {
-    document.getElementById('cbomPagination').classList.remove('d-none');
-    document.getElementById('cbomPageInfo').textContent = `Page ${cbomCurrentPage} of ${totalPages} (${cbomSnapshots.length} total)`;
-    document.getElementById('cbomPrevBtn').disabled = cbomCurrentPage === 1;
-    document.getElementById('cbomNextBtn').disabled = cbomCurrentPage === totalPages;
-  } else {
-    document.getElementById('cbomPagination').classList.add('d-none');
-  }
 }
 
 async function loadCBOMDomains() {
@@ -282,9 +268,7 @@ async function loadCBOMDomains() {
 
 function applyCBOMDomainFilter(value) {
   cbomSelectedDomain = value.trim();
-  cbomCurrentPage = 1;
-  loadCBOMMetrics();
-  loadCBOMList();
+  reloadCBOMView();
 }
 
 async function openCBOMHistory(target) {
@@ -315,21 +299,6 @@ async function openCBOMHistory(target) {
       </div>`;
   }
   new bootstrap.Modal(document.getElementById('historyModal')).show();
-}
-
-function prevCBOMPage() {
-  if (cbomCurrentPage > 1) {
-    cbomCurrentPage--;
-    renderCBOMPage();
-  }
-}
-
-function nextCBOMPage() {
-  const totalPages = Math.ceil(cbomSnapshots.length / cbomPageSize);
-  if (cbomCurrentPage < totalPages) {
-    cbomCurrentPage++;
-    renderCBOMPage();
-  }
 }
 
 async function loadCBOMDetail(id) {
