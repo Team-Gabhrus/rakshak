@@ -106,10 +106,10 @@
         </div>
         <div id="domainSection" class="mb-3" style="display: none;">
           <label class="rk-form-label">Select Domain *</label>
-          <select class="rk-form-control" id="domainSelectModal">
-            <option value="">Loading domains...</option>
-          </select>
-          <small class="text-muted" id="domainDetails" style="display: block; margin-top: 0.5rem;">All subdomains and root domain data will be loaded into AI context.</small>
+          <input type="text" class="rk-form-control" id="domainSearchInput" placeholder="Search domains..." autocomplete="off" oninput="filterDomainTree(this.value)">
+          <input type="hidden" id="domainSelectModal" value="">
+          <div id="domainTreeContainer" style="max-height: 220px; overflow-y: auto; border: 1px solid var(--rk-border); border-radius: 6px; margin-top: 0.5rem; background: var(--rk-bg);"></div>
+          <small class="text-muted" id="domainDetails" style="display: block; margin-top: 0.5rem;">Click a root domain to select it with all its live subdomains.</small>
         </div>
         <div class="mb-3">
           <label class="rk-form-label">Session Title (Optional)</label>
@@ -455,32 +455,83 @@ function getRiskColor(risk) {
 loadSessions();
 setInterval(loadSessions, 5000);
 
+let _allDomainData = [];
+
 async function loadDomains() {
   try {
     const res = await API.get('/api/chat/domains');
     if (!res) return;
-    const domains = await res.json();
-    const select = document.getElementById('domainSelectModal');
-    
-    let html = '<option value="">None — no domain context</option>';
-    
-    domains.forEach(d => {
-        html += `<optgroup label="${d.domain}">`;
-        html += `<option value="${d.domain}">${d.domain} (All ${d.subdomain_count} subdomains)</option>`;
-        if (d.subdomains && d.subdomains.length) {
-            d.subdomains.forEach(sub => {
-                if (sub !== d.domain) {
-                    html += `<option value="${sub}">${sub}</option>`;
-                }
-            });
-        }
-        html += `</optgroup>`;
-    });
-    
-    select.innerHTML = html;
+    _allDomainData = await res.json();
+    renderDomainTree(_allDomainData);
   } catch(e) {
     console.warn('Could not load domains', e);
   }
 }
+
+function renderDomainTree(data) {
+  const container = document.getElementById('domainTreeContainer');
+  if (!data.length) {
+    container.innerHTML = '<div style="padding:12px; color:#999; font-size:0.85rem; text-align:center;">No discovered domains yet. Run a subdomain scan first.</div>';
+    return;
+  }
+  let html = '';
+  data.forEach((group, idx) => {
+    const safeId = group.domain.replace(/[^a-zA-Z0-9]/g, '-');
+    const isSelected = document.getElementById('domainSelectModal').value === group.domain;
+    const subs = group.subdomains.filter(s => s !== group.domain);
+    html += `
+      <div class="domain-tree-group" data-root="${group.domain}" style="border-bottom: 1px solid var(--rk-border);">
+        <div onclick="selectDomain('${group.domain}')" style="display:flex; align-items:center; padding: 8px 12px; cursor:pointer; gap:8px; background: ${isSelected ? 'rgba(46,204,113,0.15)' : 'transparent'}; transition: background 0.2s;" onmouseover="if(!this.classList.contains('selected'))this.style.background='var(--rk-surface)'" onmouseout="if(!this.classList.contains('selected'))this.style.background='${isSelected ? 'rgba(46,204,113,0.15)' : 'transparent'}'">
+          <button onclick="event.stopPropagation(); toggleDomainGroup('${safeId}')" style="background:none; border:none; color:var(--rk-text); cursor:pointer; padding:0; font-size:0.85rem; width:18px;">
+            <i class="bi bi-chevron-right" id="chevron-${safeId}"></i>
+          </button>
+          <i class="bi bi-globe2" style="color: var(--rk-accent); font-size:0.9rem;"></i>
+          <strong style="font-size: 0.9rem; color: var(--rk-text); flex:1;">${group.domain}</strong>
+          <span class="badge bg-secondary" style="font-size: 0.7rem;">${group.subdomain_count} live</span>
+          ${isSelected ? '<i class="bi bi-check-circle-fill" style="color:#2ECC71;"></i>' : ''}
+        </div>
+        <div id="subs-${safeId}" style="display: none; padding-left: 42px; padding-bottom: 4px;">
+          ${subs.map(sub => `<div style="padding: 3px 0; font-size: 0.8rem; color: var(--rk-text); opacity: 0.8;">🟢 ${sub}</div>`).join('')}
+          ${subs.length === 0 ? '<div style="padding: 3px 0; font-size: 0.8rem; color: #999;">No subdomains</div>' : ''}
+        </div>
+      </div>`;
+  });
+  container.innerHTML = html;
+}
+
+function toggleDomainGroup(safeId) {
+  const subsEl = document.getElementById('subs-' + safeId);
+  const chevron = document.getElementById('chevron-' + safeId);
+  if (!subsEl) return;
+  const isHidden = subsEl.style.display === 'none';
+  subsEl.style.display = isHidden ? 'block' : 'none';
+  if (chevron) {
+    chevron.className = isHidden ? 'bi bi-chevron-down' : 'bi bi-chevron-right';
+  }
+}
+
+function selectDomain(domainValue) {
+  document.getElementById('domainSelectModal').value = domainValue;
+  document.getElementById('domainDetails').innerHTML = `<strong style="color:#2ECC71;">✓ Selected:</strong> ${domainValue} — all live subdomains will be loaded into AI context.`;
+  // Re-render to update highlight
+  renderDomainTree(_allDomainData);
+}
+
+function filterDomainTree(query) {
+  const q = query.toLowerCase().trim();
+  if (!q) {
+    renderDomainTree(_allDomainData);
+    return;
+  }
+  const filtered = _allDomainData.filter(group => {
+    if (group.domain.toLowerCase().includes(q)) return true;
+    return group.subdomains.some(s => s.toLowerCase().includes(q));
+  }).map(group => ({
+    ...group,
+    subdomains: group.subdomains.filter(s => s.toLowerCase().includes(q) || group.domain.toLowerCase().includes(q))
+  }));
+  renderDomainTree(filtered);
+}
+
 </script>
 {% endblock %}

@@ -326,16 +326,18 @@ async def asset_metrics(
 
 
 class SubdomainScanRequest(BaseModel):
-    domain: str
+    domain: Optional[str] = None
     auto_scan: bool = False
     pending_targets: Optional[list[str]] = None
 
 @router.post("/discover/subdomains")
 async def discover_subdomains_endpoint(
-    req: SubdomainScanRequest,
     background_tasks: BackgroundTasks,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
+    domain: Optional[str] = Query(None, description="Root domain (query param fallback)"),
+    auto_scan: bool = Query(False, description="Auto-scan fallback"),
+    req: Optional[SubdomainScanRequest] = None,
 ):
     """
     Run passive subdomain OSINT for a specific root domain.
@@ -343,10 +345,16 @@ async def discover_subdomains_endpoint(
     Live subdomains are tagged 'new'; cert ghosts tagged 'false_positive'.
     """
     from app.services.subdomain_service import discover_subdomains
+    # Merge: prefer JSON body, fall back to query param
+    effective_domain = (req.domain if req and req.domain else domain) or ""
+    effective_auto_scan = (req.auto_scan if req else auto_scan)
+    effective_pending = (req.pending_targets if req else None)
+    if not effective_domain:
+        raise HTTPException(status_code=400, detail="domain is required (as query param or in JSON body)")
     try:
-        result = await discover_subdomains(req.domain, db, pending_targets=req.pending_targets)
+        result = await discover_subdomains(effective_domain, db, pending_targets=effective_pending)
         
-        if req.auto_scan and result.get("live_hosts"):
+        if effective_auto_scan and result.get("live_hosts"):
             from app.services.scan_service import validate_targets, run_scan
             from app.models.scan import Scan
             from app.config import settings

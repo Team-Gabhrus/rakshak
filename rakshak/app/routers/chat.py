@@ -579,7 +579,8 @@ async def list_available_domains(
     for d in discoveries:
         meta = json.loads(d.metadata_json) if d.metadata_json else {}
         root = meta.get("root_domain", "")
-        if root:
+        dns_status = meta.get("dns_status", "unknown")
+        if root and dns_status == "live":
             if root not in roots:
                 roots[root] = []
             roots[root].append(d.value)
