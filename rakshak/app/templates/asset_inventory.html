@@ -260,8 +260,10 @@ function renderAssetPage(page) {
                  <button class="btn btn-sm text-muted p-0 me-1 border-0" onclick="document.querySelectorAll('.asset-row-${gId}').forEach(r=>r.style.display=r.style.display==='none'?'table-row':'none'); const c=this.querySelector('i'); c.classList.toggle('bi-chevron-down'); c.classList.toggle('bi-chevron-right');">
                    <i class="bi bi-chevron-right"></i>
                  </button>
-                 <strong>${root}</strong> 
-                 <span class="badge bg-secondary ms-1">${assets.length} hosts</span>
+                 <span style="display:inline-flex;align-items:center;gap:0.4rem;white-space:nowrap;">
+                   <strong>${root}</strong>
+                   <span class="badge bg-secondary">${assets.length} hosts</span>
+                 </span>
               </td>
               <td colspan="10"></td>
             </tr>`;
