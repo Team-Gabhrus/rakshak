@@ -372,7 +372,7 @@ async function loadScans() {
           <i class="bi bi-chevron-right transition-transform" id="scan-chevron-${s.id}"></i>
         </button>
       </td>
-      <td><span style="color: var(--rk-accent-bg);">#${s.id}</span></td>
+      <td><span style="color: var(--rk-accent);">#${s.id}</span></td>
       <td><span class="badge ${((s.display_status || s.status)==='completed')?'bg-success':((s.display_status || s.status)==='running')?'bg-warning text-dark':((s.display_status || s.status)==='cancelling')?'bg-warning text-dark':((s.display_status || s.status)==='failed')?'bg-danger':((s.display_status || s.status)==='cancelled')?'bg-danger':'bg-secondary'}">${s.display_status || s.status}</span></td>
       <td>${s.target_count}</td>
       <td>${s.completed_count}</td>
