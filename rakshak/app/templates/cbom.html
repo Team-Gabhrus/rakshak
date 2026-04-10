@@ -139,8 +139,18 @@
       </div>
       <div class="modal-body">
         <div class="row g-3 mb-3">
-          <div class="col-md-6"><label class="rk-form-label">Snapshot A (earlier)</label><select class="rk-form-control" id="snapA"></select></div>
-          <div class="col-md-6"><label class="rk-form-label">Snapshot B (later)</label><select class="rk-form-control" id="snapB"></select></div>
+          <div class="col-md-6" style="position: relative;">
+            <label class="rk-form-label">Snapshot A (latest scan)</label>
+            <input type="text" class="rk-form-control" id="snapAInput" placeholder="Search targets..." autocomplete="off" onfocus="renderSnapAOptions('')" oninput="renderSnapAOptions(this.value)">
+            <input type="hidden" id="snapA" value="">
+            <div id="snapADropdown" class="d-none" style="position: absolute; width: calc(100% - 1rem); max-height: 200px; overflow-y: auto; border: 1px solid var(--rk-border); border-radius: 6px; margin-top: 0.2rem; background: var(--rk-surface); z-index: 1050; box-shadow: var(--rk-shadow);"></div>
+          </div>
+          <div class="col-md-6">
+            <label class="rk-form-label">Snapshot B (earlier scans)</label>
+            <select class="rk-form-control" id="snapB" disabled>
+              <option value="">Select Snapshot A target first</option>
+            </select>
+          </div>
         </div>
         <button class="rk-btn rk-btn-primary" onclick="runCompare()"><i class="bi bi-arrows-collapse"></i> Compare</button>
         <div id="compareResult" class="mt-3"></div>
@@ -214,10 +224,11 @@ function reloadCBOMView() {
 
     renderCBOMPage();
 
-    // Snapshot selectors for comparison
-    const opts = cbomSnapshots.map(s=>`<option value="${s.id}">#${s.id} — ${s.target} (${fmtDate(s.created_at)})</option>`).join('');
-    document.getElementById('snapA').innerHTML = opts;
-    document.getElementById('snapB').innerHTML = opts;
+    // Reset Snapshot selectors for comparison
+    document.getElementById('snapAInput').value = '';
+    document.getElementById('snapA').value = '';
+    document.getElementById('snapB').innerHTML = '<option value="">Select Snapshot A target first</option>';
+    document.getElementById('snapB').disabled = true;
 
     // Check if we need to auto-open a specific target
     const urlParams = new URLSearchParams(window.location.search);
@@ -474,10 +485,74 @@ async function openCompare() {
   new bootstrap.Modal(document.getElementById('compareModal')).show();
 }
 
+function renderSnapAOptions(query) {
+  const q = (query || '').toLowerCase().trim();
+  const dropdown = document.getElementById('snapADropdown');
+  dropdown.classList.remove('d-none');
+  
+  const targetMap = new Map();
+  cbomSnapshots.forEach(s => {
+    if (!targetMap.has(s.target)) targetMap.set(s.target, []);
+    targetMap.get(s.target).push(s);
+  });
+  
+  const latestSnaps = Array.from(targetMap.values()).map(arr => arr[0]);
+  const items = latestSnaps.filter(s => !q || s.target.toLowerCase().includes(q) || String(s.id).includes(q));
+
+  dropdown.innerHTML = items.map(s => `
+    <div style="padding:10px;cursor:pointer;border-bottom:1px solid var(--rk-border)" onclick="selectSnapA(${s.id}, '${s.target.replace(/'/g, "\\'")}')">
+      <div style="font-weight:600;color:var(--rk-text)">${s.target}</div>
+      <div style="font-size:0.8rem;color:var(--rk-text-muted)">Latest: #${s.id} (${fmtDate(s.created_at)})</div>
+    </div>
+  `).join('') || '<div style="padding:10px;color:#999">No targets found</div>';
+}
+
+async function selectSnapA(id, target) {
+  const s = cbomSnapshots.find(x => x.id === id);
+  if (!s) return;
+  document.getElementById('snapA').value = id;
+  document.getElementById('snapAInput').value = `${target} (Latest: #${id})`;
+  document.getElementById('snapADropdown').classList.add('d-none');
+  
+  const snapB = document.getElementById('snapB');
+  snapB.innerHTML = '<option value="">Loading earlier scans...</option>';
+  snapB.disabled = true;
+
+  try {
+    const res = await API.get('/api/cbom/history?target=' + encodeURIComponent(target));
+    if (!res) throw new Error('API failed');
+    const earlier = (await res.json()).filter(x => x.id < id).sort((a,b) => b.id - a.id);
+    
+    if (!earlier.length) {
+      snapB.innerHTML = '<option value="">No earlier scans available</option>';
+      snapB.disabled = true;
+    } else {
+      snapB.innerHTML = earlier.map(x => `<option value="${x.id}">#${x.id} (${fmtDate(x.created_at)})</option>`).join('');
+      snapB.disabled = false;
+    }
+  } catch (err) {
+    console.error(err);
+    snapB.innerHTML = '<option value="">Error loading history</option>';
+  }
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('#snapAInput') && !e.target.closest('#snapADropdown')) {
+    const dd = document.getElementById('snapADropdown');
+    if (dd) dd.classList.add('d-none');
+  }
+});
+
 async function runCompare() {
-  const a = document.getElementById('snapA').value;
-  const b = document.getElementById('snapB').value;
-  const res = await API.get(`/api/cbom/compare?snap_a=${a}&snap_b=${b}`);
+  const latestId = document.getElementById('snapA').value;
+  const earlierId = document.getElementById('snapB').value;
+  if (!latestId || !earlierId) {
+    showToast('Please select both snapshots', 'warning');
+    return;
+  }
+  
+  // Note: Backend considers snap_a as earlier, snap_b as later
+  const res = await API.get(`/api/cbom/compare?snap_a=${earlierId}&snap_b=${latestId}`);
   if (!res) return;
   const diff = await res.json();
   const categories = ['algorithms','keys','protocols','certificates'];
