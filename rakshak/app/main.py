@@ -287,7 +287,10 @@ async def task_status(
     from sqlalchemy import func
     from app.models.scan import Scan, ScanStatus
     from app.models.report import Report
-    from app.services.subdomain_service import get_active_subdomain_task_count
+    from app.services.subdomain_service import (
+        get_action_required_subdomain_task_count,
+        get_active_subdomain_task_count,
+    )
 
     running_scan_result = await db.execute(
         select(func.count(Scan.id)).where(Scan.status.in_([ScanStatus.queued, ScanStatus.running]))
@@ -299,14 +302,17 @@ async def task_status(
     running_scans = running_scan_result.scalar() or 0
     generating_reports = report_result.scalar() or 0
     discovery_jobs = get_active_subdomain_task_count()
+    discovery_actions = get_action_required_subdomain_task_count()
     total_running = running_scans + generating_reports + discovery_jobs
 
     return {
         "has_running_tasks": total_running > 0,
+        "has_action_required": discovery_actions > 0,
         "counts": {
             "scans": running_scans,
             "reports": generating_reports,
             "discovery_jobs": discovery_jobs,
+            "action_required": discovery_actions,
             "total": total_running,
         },
     }
@@ -344,6 +350,7 @@ async def task_inventory(
             "scans": len(scans),
             "reports": len(reports),
             "discovery_jobs": len(discovery_jobs),
+            "action_required": sum(1 for job in discovery_jobs if job.get("action_required")),
             "total": len(scans) + len(reports) + len(discovery_jobs),
         },
         "scans": [
@@ -383,6 +390,8 @@ async def task_inventory(
                 "dead_count": job["dead_count"],
                 "breadth_level": job["breadth_level"],
                 "created_at": job["created_at"],
+                "action_required": job.get("action_required", False),
+                "pending_prompt": job.get("pending_prompt"),
                 "last_message": job.get("last_message") or job.get("final_message"),
                 "queued_scan_id": job.get("queued_scan_id"),
                 "can_terminate": job["status"] in {"queued", "running", "waiting_confirmation", "stopping"} and not job.get("queued_scan_id"),

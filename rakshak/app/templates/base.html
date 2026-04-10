@@ -11,6 +11,16 @@
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <link href="/static/css/style.css" rel="stylesheet">
     {% block extra_css %}{% endblock %}
+    <style>
+        @keyframes rkBellAttention {
+            0%, 100% { transform: translateY(0) scale(1); box-shadow: 0 0 0 rgba(249, 187, 26, 0); background: transparent; }
+            50% { transform: translateY(-1px) scale(1.04); box-shadow: 0 0 0 6px rgba(249, 187, 26, 0.08); background: rgba(249, 187, 26, 0.12); }
+        }
+        .rk-icon-btn.rk-bell-attention {
+            animation: rkBellAttention 1.4s ease-in-out infinite;
+            border-color: rgba(249, 187, 26, 0.35);
+        }
+    </style>
 
     
 
@@ -113,7 +123,7 @@
             
             
             <div class="rk-topbar-right">
-                <button class="rk-icon-btn" title="Running Tasks" onclick="openTaskStatusModal()">
+                <button class="rk-icon-btn" id="taskBellButton" title="Running Tasks" onclick="openTaskStatusModal()">
                     <i class="bi bi-bell-fill"></i>
                     <span class="rk-badge" id="taskBellBadge" style="display:none;min-width:18px;height:18px;padding:0 5px;border-radius:999px;font-size:10px;line-height:18px;text-align:center"></span>
                 </button>

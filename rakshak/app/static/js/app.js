@@ -107,34 +107,47 @@ function goToUsersFromProfile() {
 async function loadTaskStatus() {
     if (window.location.pathname === '/login') return;
     const badge = document.getElementById('taskBellBadge');
-    if (!badge) return;
+    const bellBtn = document.getElementById('taskBellButton');
+    if (!badge || !bellBtn) return;
 
     try {
         const res = await API.get('/api/tasks/status');
         if (!res || !res.ok) return;
         const data = await res.json();
-        badge.style.display = data.has_running_tasks ? 'block' : 'none';
+        const total = data.counts?.total || 0;
+        badge.style.display = total > 0 ? 'block' : 'none';
         badge.dataset.counts = JSON.stringify(data.counts || {});
-        badge.textContent = (data.counts?.total || 0).toString();
+        badge.textContent = total.toString();
+        bellBtn.classList.toggle('rk-bell-attention', !!data.has_action_required);
+        bellBtn.classList.toggle('rk-bell-has-items', total > 0);
     } catch (err) {
         console.warn('Failed to load task status', err);
+    }
+}
+
+async function refreshTaskStatusModalContent() {
+    const body = document.getElementById('rkTaskStatusBody');
+    if (!body) {
+        await loadTaskStatus();
+        return;
+    }
+    try {
+        const res = await API.get('/api/tasks');
+        if (!res || !res.ok) throw new Error('Unable to load tasks');
+        const data = await res.json();
+        renderTaskStatusContent(data);
+        await loadTaskStatus();
+    } catch (err) {
+        body.innerHTML = '<div class="text-danger">Failed to load task details.</div>';
     }
 }
 
 async function openTaskStatusModal() {
     const modal = _initTaskStatusModal();
     const body = document.getElementById('rkTaskStatusBody');
-    body.innerHTML = '<div class="text-muted text-center py-4">Loading running tasks…</div>';
+    body.innerHTML = '<div class="text-muted text-center py-4">Loading task details…</div>';
     modal.show();
-
-    try {
-        const res = await API.get('/api/tasks');
-        if (!res || !res.ok) throw new Error('Unable to load tasks');
-        const data = await res.json();
-        renderTaskStatusContent(data);
-    } catch (err) {
-        body.innerHTML = '<div class="text-danger">Failed to load task details.</div>';
-    }
+    await refreshTaskStatusModalContent();
 }
 
 function _initTaskStatusModal() {
@@ -164,9 +177,10 @@ function renderTaskStatusContent(data) {
     const reports = data.reports || [];
     const discoveryJobs = data.discovery_jobs || [];
     const total = data.counts?.total || 0;
+    const actionRequired = data.counts?.action_required || 0;
 
     if (!total) {
-        body.innerHTML = '<div class="text-muted text-center py-4">No running tasks right now.</div>';
+        body.innerHTML = '<div class="text-muted text-center py-4">No active tasks or pending decisions right now.</div>';
         return;
     }
 
@@ -176,6 +190,7 @@ function renderTaskStatusContent(data) {
         <span class="badge bg-warning text-dark">${scans.length} scans</span>
         <span class="badge bg-info text-dark">${reports.length} reports</span>
         <span class="badge bg-primary">${discoveryJobs.length} discoveries</span>
+        ${actionRequired ? `<span class="badge bg-warning text-dark">${actionRequired} action required</span>` : ''}
       </div>
       ${renderTaskSection('Scan Tasks', scans.map(task => renderTaskCard('scan', task)).join(''))}
       ${renderTaskSection('Subdomain Discovery', discoveryJobs.map(task => renderTaskCard('discovery', task)).join(''))}
@@ -217,15 +232,51 @@ function renderTaskCard(type, task) {
     }
 
     if (type === 'discovery') {
+        const prompt = task.pending_prompt || null;
+        const promptBox = prompt ? `
+          <div class="mt-3 p-2 rounded" style="background:rgba(249,187,26,0.12);border:1px solid rgba(249,187,26,0.35)">
+            <div class="fs-12 fw-semibold text-warning mb-1">Action Required</div>
+            <div class="fs-12" style="color:var(--rk-text)">${prompt.message || task.last_message || ''}</div>
+          </div>` : '';
+        const statusBadge = task.queued_scan_id
+            ? `<span class="badge bg-success">Scan #${task.queued_scan_id} queued</span>`
+            : task.action_required
+                ? '<span class="badge bg-warning text-dark">action required</span>'
+                : task.status === 'stopping'
+                    ? '<span class="badge bg-warning text-dark">stopping</span>'
+                    : task.status === 'running'
+                        ? '<span class="badge bg-primary">running</span>'
+                        : `<span class="badge bg-secondary">${task.status}</span>`;
+
+        let actions = '';
+        if (prompt?.kind === 'scan_ready') {
+            actions = `
+              <div class="d-flex flex-wrap gap-2">
+                <button class="rk-btn rk-btn-sm rk-btn-primary" onclick="startDiscoveryQueuedScan('${task.job_id}')">${prompt.confirm_label || 'Start Scan'}</button>
+                <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="dismissDiscoveryPrompt('${task.job_id}')">${prompt.decline_label || 'Later'}</button>
+                ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('discovery', '${task.job_id}')"><i class="bi bi-stop-circle"></i> Terminate</button>` : ''}
+              </div>`;
+        } else if (prompt) {
+            actions = `
+              <div class="d-flex flex-wrap gap-2">
+                <button class="rk-btn rk-btn-sm rk-btn-primary" onclick="respondToDiscoveryPrompt('${task.job_id}', true)">${prompt.confirm_label || 'Continue'}</button>
+                <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="respondToDiscoveryPrompt('${task.job_id}', false)">${prompt.decline_label || 'Decline'}</button>
+                ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('discovery', '${task.job_id}')"><i class="bi bi-stop-circle"></i> Terminate</button>` : ''}
+              </div>`;
+        } else if (task.can_terminate) {
+            actions = `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('discovery', '${task.job_id}')"><i class="bi bi-stop-circle"></i> Terminate</button>`;
+        }
+
         return `
         <div class="p-3 rounded" style="border:1px solid var(--rk-border);background:var(--rk-bg)">
           <div class="d-flex justify-content-between align-items-start gap-3">
             <div>
-              <div class="fw-semibold">${task.domain}</div>
+              <div class="fw-semibold d-flex align-items-center gap-2 flex-wrap">${task.domain} ${statusBadge}</div>
               <div class="fs-12 text-muted mt-1">${task.last_message || 'Breadth-first recursive subdomain discovery is running.'}</div>
-              <div class="fs-12 text-muted mt-2">${task.processed_count || 0} processed • ${task.live_count || 0} live • ${task.dead_count || 0} dead</div>
+              <div class="fs-12 text-muted mt-2">${task.processed_count || 0} processed • ${task.live_count || 0} live • ${task.dead_count || 0} dead • Level ${Number(task.breadth_level || 0) + 1}</div>
+              ${promptBox}
             </div>
-            ${task.can_terminate ? `<button class="rk-btn rk-btn-sm" style="background:rgba(220,53,69,0.12);color:#dc3545;border:1px solid rgba(220,53,69,0.35)" onclick="terminateTask('discovery', '${task.job_id}')"><i class="bi bi-stop-circle"></i> Terminate</button>` : task.queued_scan_id ? `<span class="badge bg-success">Scan #${task.queued_scan_id} queued</span>` : ''}
+            ${actions}
           </div>
         </div>`;
     }
@@ -235,6 +286,45 @@ function renderTaskCard(type, task) {
       <div class="fw-semibold">${task.title}</div>
       <div class="fs-12 text-muted mt-1">${task.status} • ${String(task.format || 'report').toUpperCase()} report</div>
     </div>`;
+}
+
+async function respondToDiscoveryPrompt(jobId, continueScanning) {
+    const res = await API.post(`/api/assets/discover/subdomains/${jobId}/decision`, { continue_scanning: continueScanning });
+    if (!res) return;
+    const data = await res.json();
+    if (!res.ok) {
+        showToast(data.detail || 'Failed to update discovery task', 'danger');
+        return;
+    }
+    showToast(continueScanning ? 'Discovery will continue scanning deeper.' : 'Discovery will stop at the current breadth and preserve results.', continueScanning ? 'success' : 'warning');
+    await refreshTaskStatusModalContent();
+}
+
+async function startDiscoveryQueuedScan(jobId) {
+    const res = await API.post(`/api/assets/discover/subdomains/${jobId}/scan`, {});
+    if (!res) return;
+    const data = await res.json();
+    if (!res.ok) {
+        showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
+        return;
+    }
+    showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
+    if (data.scan_id && typeof window.watchQueuedScan === 'function') {
+        window.watchQueuedScan(data.scan_id, data.target_count || 0);
+    }
+    await refreshTaskStatusModalContent();
+}
+
+async function dismissDiscoveryPrompt(jobId) {
+    const res = await API.post(`/api/assets/discover/subdomains/${jobId}/dismiss`, {});
+    if (!res) return;
+    const data = await res.json();
+    if (!res.ok) {
+        showToast(data.detail || 'Failed to dismiss discovery prompt', 'danger');
+        return;
+    }
+    showToast(data.last_message || 'Discovery notification dismissed', 'info');
+    await refreshTaskStatusModalContent();
 }
 
 async function terminateTask(type, id) {
@@ -263,7 +353,7 @@ async function terminateTask(type, id) {
     }
 
     await loadTaskStatus();
-    await openTaskStatusModal();
+    await refreshTaskStatusModalContent();
 }
 
 async function confirmLargeScan(count) {
@@ -272,6 +362,9 @@ async function confirmLargeScan(count) {
 }
 
 window.confirmLargeScan = confirmLargeScan;
+window.respondToDiscoveryPrompt = respondToDiscoveryPrompt;
+window.startDiscoveryQueuedScan = startDiscoveryQueuedScan;
+window.dismissDiscoveryPrompt = dismissDiscoveryPrompt;
 
 function toggleSidebar() {
     document.getElementById('sidebar')?.classList.toggle('collapsed');

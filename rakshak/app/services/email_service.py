@@ -1,11 +1,14 @@
 import aiosmtplib
 from email.message import EmailMessage
+from email.utils import formataddr
 import os
 import mimetypes
 from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
+DISPLAY_FROM_NAME = "Rakshak (Team Gabrus)"
 
 async def send_report_email(to_email: str, subject: str, body: str, attachment_path: str = None):
     """Sends an email with an optional attachment using aiosmtplib."""
@@ -14,7 +17,7 @@ async def send_report_email(to_email: str, subject: str, body: str, attachment_p
         return
 
     msg = EmailMessage()
-    msg["From"] = settings.SMTP_USER  # using the authenticating user as 'From' to avoid spam blocks
+    msg["From"] = formataddr((DISPLAY_FROM_NAME, settings.SMTP_USER or settings.SMTP_FROM))
     msg["To"] = to_email
     msg["Subject"] = subject
     msg.set_content(body)

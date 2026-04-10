@@ -146,6 +146,40 @@ function buildDiscoveryScanPrompt(liveCount) {
   };
 }
 
+function isSubdomainModalOpen() {
+  const modal = document.getElementById('subdomainModal');
+  return !!modal && modal.style.display === 'flex';
+}
+
+function notifyDiscoveryPromptNeedsAttention(domain) {
+  showToast(`Discovery for ${domain} needs your input in Notifications.`, 'warning');
+  if (typeof loadTaskStatus === 'function') loadTaskStatus();
+}
+
+async function handleInlineSubdomainPrompt(jobId, msg) {
+  const prompt = msg.prompt || {};
+  if (!jobId) return;
+
+  if (msg.phase === 'scan_prompt') {
+    const btn = document.getElementById('subdomainScanBtn');
+    btn.disabled = false;
+    btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
+    document.getElementById('scanDiscoveredDiscoveryBtn').classList.toggle('d-none', !((msg.live_count || 0) > 0));
+    if (promptedDiscoveryScanJobs.has(jobId)) return;
+    promptedDiscoveryScanJobs.add(jobId);
+    const shouldScanNow = await rkConfirm(prompt.message || buildDiscoveryScanPrompt(msg.live_count || 0).message, prompt.title || 'Start Quantum Scan');
+    if (shouldScanNow) {
+      await scanDiscoveredSubdomainTargets(true);
+    } else if (typeof window.dismissDiscoveryPrompt === 'function') {
+      await window.dismissDiscoveryPrompt(jobId);
+    }
+    return;
+  }
+
+  const shouldContinue = await rkConfirm(prompt.message || msg.message || 'Continue Scanning?', prompt.title || 'Discovery Checkpoint');
+  await API.post(`/api/assets/discover/subdomains/${jobId}/decision`, { continue_scanning: shouldContinue });
+}
+
 
 async function loadDiscoveries() {
   let url = `/api/assets/discovery?category=${currentCategory}`;
@@ -479,12 +513,15 @@ async function runSubdomainScan(pendingTargets = null) {
       const processed = msg.processed_count || 0;
       const live = msg.live_count || 0;
       const dead = msg.dead_count || 0;
-      resultEl.innerHTML += `<div style="padding:3px 0;color:${msg.phase === 'continue_prompt' ? '#F1C40F' : 'var(--rk-text)'}">${msg.message}</div>`;
+      resultEl.innerHTML += `<div style="padding:3px 0;color:${['continue_prompt','level_prompt','scan_prompt'].includes(msg.phase) ? '#F1C40F' : 'var(--rk-text)'}">${msg.message}</div>`;
       resultEl.scrollTop = resultEl.scrollHeight;
 
-      if (msg.phase === 'continue_prompt' && activeSubdomainJobId) {
-        const shouldContinue = await rkConfirm(`${msg.processed_count} results found. Continue Scanning?`, 'Discovery Checkpoint');
-        await API.post(`/api/assets/discover/subdomains/${activeSubdomainJobId}/decision`, { continue_scanning: shouldContinue });
+      if (['continue_prompt', 'level_prompt', 'scan_prompt'].includes(msg.phase) && activeSubdomainJobId) {
+        if (isSubdomainModalOpen()) {
+          await handleInlineSubdomainPrompt(activeSubdomainJobId, msg);
+        } else {
+          notifyDiscoveryPromptNeedsAttention(msg.domain || data.domain);
+        }
       }
 
       if (msg.phase === 'completed') {
@@ -494,14 +531,6 @@ async function runSubdomainScan(pendingTargets = null) {
         showToast(`Discovery finished: ${live} live / ${dead} dead`, 'success');
         loadDiscoveries();
         if (typeof loadTaskStatus === 'function') loadTaskStatus();
-        if (live > 0 && activeSubdomainJobId && !promptedDiscoveryScanJobs.has(activeSubdomainJobId)) {
-          promptedDiscoveryScanJobs.add(activeSubdomainJobId);
-          const prompt = buildDiscoveryScanPrompt(live);
-          const shouldScanNow = await rkConfirm(prompt.message, prompt.title);
-          if (shouldScanNow) {
-            await scanDiscoveredSubdomainTargets(true);
-          }
-        }
       }
 
       if (msg.phase === 'failed') {

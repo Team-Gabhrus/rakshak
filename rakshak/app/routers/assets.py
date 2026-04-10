@@ -379,6 +379,18 @@ async def decide_subdomain_discovery_job(
         raise HTTPException(status_code=400, detail=str(exc))
 
 
+@router.post("/discover/subdomains/{job_id}/dismiss")
+async def dismiss_subdomain_discovery_prompt(
+    job_id: str,
+    current_user: User = Depends(require_admin),
+):
+    from app.services.subdomain_service import dismiss_subdomain_job_prompt
+    try:
+        return await dismiss_subdomain_job_prompt(job_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+
 @router.post("/discover/subdomains/{job_id}/scan")
 async def trigger_scan_from_subdomain_job(
     job_id: str,

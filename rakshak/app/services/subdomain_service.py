@@ -60,8 +60,10 @@ class SubdomainScanState:
     decision_event: Optional[asyncio.Event] = None
     continue_scan: bool = True
     stop_requested: bool = False
+    auto_queue_scan_on_stop: bool = False
     queued_scan_id: Optional[int] = None
     last_message: str = ""
+    pending_prompt: Optional[dict] = None
 
     def summary(self) -> dict:
         return {
@@ -78,10 +80,62 @@ class SubdomainScanState:
             "final_message": self.final_message,
             "last_message": self.last_message,
             "stop_requested": self.stop_requested,
+            "action_required": self.pending_prompt is not None,
+            "pending_prompt": self.pending_prompt,
             "queued_scan_id": self.queued_scan_id,
             "live_hosts": sorted(self.live_hosts),
             "dead_hosts": sorted(self.dead_hosts),
         }
+
+
+def _set_pending_prompt(
+    state: SubdomainScanState,
+    *,
+    kind: str,
+    title: str,
+    message: str,
+    confirm_label: str,
+    decline_label: str,
+    level: Optional[int] = None,
+) -> dict:
+    state.pending_prompt = {
+        "kind": kind,
+        "title": title,
+        "message": message,
+        "confirm_label": confirm_label,
+        "decline_label": decline_label,
+        "level": level,
+        "created_at": datetime.utcnow().isoformat(),
+    }
+    state.last_message = message
+    return state.pending_prompt
+
+
+def _clear_pending_prompt(state: SubdomainScanState) -> None:
+    state.pending_prompt = None
+
+
+def _should_list_job(state: SubdomainScanState) -> bool:
+    active_states = {"queued", "running", "waiting_confirmation", "stopping", "awaiting_scan_confirmation"}
+    return state.status in active_states or state.pending_prompt is not None
+
+
+def _build_scan_ready_prompt(state: SubdomainScanState) -> dict:
+    live_count = state.live_count
+    title = "Large Scan Warning" if live_count > 100 else "Start Quantum Scan"
+    message = (
+        f"Warning! You are about to scan {live_count} targets. Continue?"
+        if live_count > 100
+        else f"Discovery finished with {live_count} live target(s). Start the quantum vulnerability scan now?"
+    )
+    return _set_pending_prompt(
+        state,
+        kind="scan_ready",
+        title=title,
+        message=message,
+        confirm_label="Start Scan",
+        decline_label="Later",
+    )
 
 
 def _extract_subdomains(text: str, domain: str) -> set[str]:
@@ -283,13 +337,15 @@ def get_subdomain_job_live_hosts(job_id: str) -> list[str]:
 
 
 def get_active_subdomain_task_count() -> int:
-    active_states = {"queued", "running", "waiting_confirmation", "stopping"}
-    return sum(1 for state in subdomain_scan_states.values() if state.status in active_states)
+    return sum(1 for state in subdomain_scan_states.values() if _should_list_job(state))
+
+
+def get_action_required_subdomain_task_count() -> int:
+    return sum(1 for state in subdomain_scan_states.values() if state.pending_prompt is not None)
 
 
 def list_active_subdomain_jobs() -> list[dict]:
-    active_states = {"queued", "running", "waiting_confirmation", "stopping"}
-    jobs = [state.summary() for state in subdomain_scan_states.values() if state.status in active_states]
+    jobs = [state.summary() for state in subdomain_scan_states.values() if _should_list_job(state)]
     return sorted(jobs, key=lambda item: item.get("created_at", ""), reverse=True)
 
 
@@ -300,6 +356,7 @@ async def decide_subdomain_job(job_id: str, continue_scanning: bool) -> dict:
     if not state.decision_event:
         raise ValueError("Subdomain discovery job is not waiting for a decision")
 
+    _clear_pending_prompt(state)
     state.continue_scan = continue_scanning
     if not continue_scanning:
         state.stop_requested = True
@@ -314,6 +371,8 @@ async def stop_subdomain_job(job_id: str) -> dict:
 
     state.stop_requested = True
     state.continue_scan = False
+    state.auto_queue_scan_on_stop = True
+    _clear_pending_prompt(state)
     if state.status in {"queued", "running", "waiting_confirmation"}:
         state.status = "stopping"
 
@@ -338,6 +397,31 @@ def set_subdomain_job_scan_id(job_id: str, scan_id: int) -> None:
     state = subdomain_scan_states.get(job_id)
     if state:
         state.queued_scan_id = scan_id
+        _clear_pending_prompt(state)
+        if state.status == "awaiting_scan_confirmation":
+            state.status = "completed"
+
+
+async def dismiss_subdomain_job_prompt(job_id: str) -> dict:
+    state = subdomain_scan_states.get(job_id)
+    if not state:
+        raise ValueError("Subdomain discovery job not found")
+    if state.status != "awaiting_scan_confirmation" or not state.pending_prompt:
+        raise ValueError("Subdomain discovery job has no dismissible prompt")
+
+    message = f"Discovery results for {state.domain} were saved without queueing a scan."
+    _clear_pending_prompt(state)
+    state.status = "completed"
+    state.last_message = message
+    await _push_progress(job_id, {
+        "phase": "scan_prompt_dismissed",
+        "domain": state.domain,
+        "processed_count": state.processed_count,
+        "live_count": state.live_count,
+        "dead_count": state.dead_count,
+        "message": message,
+    })
+    return state.summary()
 
 
 def _chunked(values: list[str], size: int) -> list[list[str]]:
@@ -449,7 +533,7 @@ async def _execute_discovery(
     db: AsyncSession,
     state: Optional[SubdomainScanState] = None,
     progress_callback: Optional[Callable[[dict], Awaitable[None]]] = None,
-    decision_callback: Optional[Callable[[SubdomainScanState], Awaitable[bool]]] = None,
+    decision_callback: Optional[Callable[[SubdomainScanState, dict], Awaitable[bool]]] = None,
 ) -> dict:
     root_domain = get_root_domain(domain) or extract_hostname(domain)
     if not root_domain:
@@ -513,7 +597,14 @@ async def _execute_discovery(
                 })
 
             if decision_callback and state.processed_count >= state.next_prompt_at:
-                should_continue = await decision_callback(state)
+                should_continue = await decision_callback(state, {
+                    "phase": "continue_prompt",
+                    "kind": "checkpoint",
+                    "title": "Discovery Checkpoint",
+                    "message": f"{state.processed_count} results found. Continue Scanning?",
+                    "confirm_label": "Continue",
+                    "decline_label": "Stop Here",
+                })
                 state.next_prompt_at += state.continue_threshold
                 if not should_continue:
                     state.status = "completed"
@@ -538,6 +629,36 @@ async def _execute_discovery(
         next_frontier = new_live_for_level - state.expanded_hosts
         if not next_frontier:
             break
+
+        if decision_callback:
+            should_continue = await decision_callback(state, {
+                "phase": "level_prompt",
+                "kind": "level_complete",
+                "title": "Depth Checkpoint",
+                "message": (
+                    f"Domain {root_domain} scanned till Level {breadth_level + 1}. "
+                    f"{state.live_count} live domains discovered. Scan deeper?"
+                ),
+                "confirm_label": "Scan Deeper",
+                "decline_label": "Stop Here",
+                "level": breadth_level + 1,
+            })
+            if not should_continue:
+                state.status = "completed"
+                state.final_message = (
+                    f"Stopped at Level {breadth_level + 1}. Found {state.processed_count} results, "
+                    f"{state.live_count} live and {state.dead_count} dead."
+                )
+                return {
+                    "domain": root_domain,
+                    "total_found": state.processed_count,
+                    "live": state.live_count,
+                    "dead": state.dead_count,
+                    "new_records": state.new_records,
+                    "live_hosts": sorted(state.live_hosts),
+                    "dead_hosts": sorted(state.dead_hosts),
+                    "stopped_early": True,
+                }
 
         state.expanded_hosts |= next_frontier
         recursive_candidates = await _gather_recursive_candidates(next_frontier, root_domain)
@@ -602,21 +723,33 @@ async def _run_discovery_job(job_id: str, db_url: str):
     async def progress_callback(payload: dict):
         await _push_progress(job_id, payload)
 
-    async def decision_callback(current_state: SubdomainScanState) -> bool:
+    async def decision_callback(current_state: SubdomainScanState, prompt: dict) -> bool:
         current_state.status = "waiting_confirmation"
         current_state.decision_event = asyncio.Event()
+        prompt_payload = _set_pending_prompt(
+            current_state,
+            kind=prompt.get("kind", "checkpoint"),
+            title=prompt.get("title", "Discovery Checkpoint"),
+            message=prompt.get("message", "Continue Scanning?"),
+            confirm_label=prompt.get("confirm_label", "Continue"),
+            decline_label=prompt.get("decline_label", "Decline"),
+            level=prompt.get("level"),
+        )
         await _push_progress(job_id, {
-            "phase": "continue_prompt",
+            "phase": prompt.get("phase", "continue_prompt"),
             "domain": current_state.domain,
             "processed_count": current_state.processed_count,
             "live_count": current_state.live_count,
             "dead_count": current_state.dead_count,
-            "message": f"{current_state.processed_count} results found. Continue Scanning?",
+            "level": prompt.get("level"),
+            "prompt": prompt_payload,
+            "message": prompt_payload["message"],
         })
         await current_state.decision_event.wait()
         current_state.decision_event = None
         if current_state.stop_requested:
             return False
+        _clear_pending_prompt(current_state)
         current_state.status = "running"
         await _push_progress(job_id, {
             "phase": "resumed",
@@ -634,17 +767,32 @@ async def _run_discovery_job(job_id: str, db_url: str):
                 progress_callback=progress_callback,
                 decision_callback=decision_callback,
             )
-        await _push_progress(job_id, {
-            "phase": "completed",
-            "domain": state.domain,
-            "processed_count": state.processed_count,
-            "live_count": state.live_count,
-            "dead_count": state.dead_count,
-            "new_records": state.new_records,
-            "message": state.final_message or (
-                f"Discovery complete. Found {result['total_found']} total and {result['live']} live."
-            ),
-        })
+        if state.live_count > 0 and not state.queued_scan_id and not state.auto_queue_scan_on_stop:
+            state.status = "awaiting_scan_confirmation"
+            prompt_payload = _build_scan_ready_prompt(state)
+            await _push_progress(job_id, {
+                "phase": "scan_prompt",
+                "domain": state.domain,
+                "processed_count": state.processed_count,
+                "live_count": state.live_count,
+                "dead_count": state.dead_count,
+                "new_records": state.new_records,
+                "prompt": prompt_payload,
+                "message": prompt_payload["message"],
+            })
+        else:
+            state.status = "completed"
+            await _push_progress(job_id, {
+                "phase": "completed",
+                "domain": state.domain,
+                "processed_count": state.processed_count,
+                "live_count": state.live_count,
+                "dead_count": state.dead_count,
+                "new_records": state.new_records,
+                "message": state.final_message or (
+                    f"Discovery complete. Found {result['total_found']} total and {result['live']} live."
+                ),
+            })
     except Exception as exc:
         logger.exception("Subdomain discovery job failed for %s", state.domain)
         state.status = "failed"
