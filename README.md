@@ -15,10 +15,12 @@
 
 | | |
 |---|---|
-| 🚀 **Live Deployment** | **[https://rakshak.live](https://rakshak.live)** — Running on AWS EC2 · Login: `admin` / `admin@123` |
-| 🎬 **Demo Video** | **[Watch on YouTube](https://youtu.be/qE33vVxZ83I)** — Full walkthrough of all platform features |
+| 🚀 **Live Deployment** | **[https://rakshak.live](https://rakshak.live)** — Running on AWS EC2 |
+| 🎥 **Demo Video (v1.1)** | **[Watch on YouTube](https://youtu.be/iU02nusd_a8)** — Walkthrough of New Features! |
 | 📊 **Presentation (PDF)** | **[Rakshak — Team Gabrus Presentation](Rakshak%20(Team%20Gabrus)%20Presentation.pdf)** — Hackathon pitch deck |
 | 📑 **SRS Document (v1.1)** | **[Rakshak v1.1 SRS](Rakshak%20v1.1%20SRS.pdf)** — Full Software Requirements Specification v1.1 |
+| 🎬 **Demo Video (v1.0)** | **[Watch on YouTube](https://youtu.be/qE33vVxZ83I)** — Full walkthrough of all platform features (OLD) |
+| 📜 **SRS Document (v1.0)** | **[Rakshak v1.0 SRS](Rakshak%20v1.0%20SRS%20(Team%20Gabrus)%20Updated.pdf)** — Old Software Requirements Specification v1.0 |
 
 Rakshak is an automated **Post-Quantum Cryptography (PQC) readiness and cyber-rating platform** built for Punjab National Bank. It acts as a continuous single source of truth for an organization's cryptographic posture, preparing financial institutions against "Harvest Now, Decrypt Later" (HNDL) attacks and the eventual capabilities of Cryptographically Relevant Quantum Computers (CRQCs).
 
