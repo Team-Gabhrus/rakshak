@@ -98,7 +98,6 @@
     <div class="rk-table-wrap">
       <table class="rk-table">
         <thead><tr>
-          <th style="width: 40px;"><input type="checkbox" class="form-check-input" id="selectAllScans" onclick="toggleAllScans(this.checked)"></th>
           <th style="width: 40px;"></th> <!-- Expand arrow -->
           <th>Scan ID</th><th>Status</th><th>Targets</th><th>Completed</th><th>Progress</th><th>Started</th>
         </tr></thead>
@@ -111,7 +110,7 @@
 <!-- Scan modal -->
 <div class="modal fade" id="scanModal" tabindex="-1">
   <div class="modal-dialog modal-lg">
-    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border)">
+    <div class="modal-content" style="background:var(--rk-surface);border:1px solid var(--rk-border); z-index: 1001;">
       <div class="modal-header" style="border-color:var(--rk-border)">
         <h5 class="modal-title" style="color:var(--rk-text)"><i class="bi bi-play-fill me-2"></i>New Scan</h5>
         <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
@@ -368,13 +367,12 @@ async function loadScans() {
   if (!scans.length) { tbody.innerHTML = '<tr><td colspan="7" class="text-muted text-center py-3">No scans yet</td></tr>'; return; }
   tbody.innerHTML = scans.slice(0,8).map(s => `
     <tr>
-      <td><input type="checkbox" class="form-check-input scan-checkbox" value="${s.id}" onchange="updateSelectAllScans()"></td>
       <td>
         <button class="btn btn-sm text-muted p-0 border-0" onclick="toggleScanDetails(${s.id}, this)">
           <i class="bi bi-chevron-right transition-transform" id="scan-chevron-${s.id}"></i>
         </button>
       </td>
-      <td><code>#${s.id}</code></td>
+      <td><span style="color: var(--rk-accent-bg);">#${s.id}</span></td>
       <td><span class="badge ${((s.display_status || s.status)==='completed')?'bg-success':((s.display_status || s.status)==='running')?'bg-warning text-dark':((s.display_status || s.status)==='cancelling')?'bg-warning text-dark':((s.display_status || s.status)==='failed')?'bg-danger':((s.display_status || s.status)==='cancelled')?'bg-danger':'bg-secondary'}">${s.display_status || s.status}</span></td>
       <td>${s.target_count}</td>
       <td>${s.completed_count}</td>
@@ -382,7 +380,7 @@ async function loadScans() {
       <td class="text-muted">${fmtDateTime(s.started_at)}</td>
     </tr>
     <tr id="scan-details-${s.id}" style="display:none; background:var(--rk-bg);">
-      <td colspan="8" class="p-3">
+      <td colspan="7" class="p-3">
         <div class="d-flex align-items-center justify-content-center py-4"><div class="spinner-border spinner-border-sm text-primary"></div></div>
       </td>
     </tr>`).join('');
@@ -616,45 +614,7 @@ async function scanDiscoveredTargets(skipLargeScanWarning = false) {
   await submitDiscoveredScan(activeDiscoveryJobId);
 }
 
-function toggleAllScans(checked) {
-  document.querySelectorAll('.scan-checkbox').forEach(cb => cb.checked = checked);
-}
-
-function updateSelectAllScans() {
-  const all = document.querySelectorAll('.scan-checkbox');
-  const checked = document.querySelectorAll('.scan-checkbox:checked');
-  const selectAllCb = document.getElementById('selectAllScans');
-  if (selectAllCb) {
-    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
-  }
-}
-
-async function deleteSelectedScans() {
-  const checked = document.querySelectorAll('.scan-checkbox:checked');
-  if (checked.length === 0) {
-    showToast('Please select at least one scan to delete.', 'warning');
-    return;
-  }
-  const confirmed = await rkConfirm(`Are you sure you want to delete ${checked.length} scans?`);
-  if (!confirmed) return;
-  
-  const ids = Array.from(checked).map(cb => cb.value);
-  let successCount = 0;
-  
-  for (const id of ids) {
-    const res = await fetch(`/api/scan/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
-    if (res.ok) successCount++;
-  }
-  
-  if (successCount > 0) {
-    showToast(`Successfully deleted ${successCount} scans.`, 'success');
-  } else {
-    showToast('Failed to delete scans.', 'danger');
-  }
-  
-  loadScans();
-}
-
+// Initial load
 loadPageData();
 loadScans();
 setInterval(loadScans, 15000);

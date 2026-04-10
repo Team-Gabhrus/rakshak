@@ -323,7 +323,7 @@ function renderMessages(messages) {
     return `
       <div style="margin-bottom: 1.5rem; display: flex; ${isUser ? 'justify-content: flex-end;' : 'justify-content: flex-start;'}">
         <div style="max-width: 70%;">
-          <div style="padding: 1rem; border-radius: 12px; background: ${isUser ? 'var(--rk-accent)' : 'var(--rk-border)'}; color: ${isUser ? 'white' : 'var(--rk-text)'}; line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
+          <div style="padding: 1rem; border-radius: 12px; background: ${isUser ? 'var(--rk-accent)' : 'var(--rk-border)'}; color: ${isUser ? 'var(--rk-surface)' : 'var(--rk-text)'}; line-height: 1.5; word-wrap: break-word; overflow-x: auto;">
             <div class="${isUser ? '' : 'markdown-body'}" style="margin: 0;">${contentHtml}</div>
           </div>
           ${actionBtns}
@@ -361,7 +361,7 @@ async function sendMessage() {
 
   list.insertAdjacentHTML('beforeend', `
     <div style="margin-bottom: 1.5rem; display: flex; justify-content: flex-end;">
-      <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: var(--rk-accent); color: white; line-height: 1.5; word-wrap: break-word;">
+      <div style="max-width: 70%; padding: 1rem; border-radius: 12px; background: var(--rk-accent); color: var(--rk-surface); line-height: 1.5; word-wrap: break-word;">
         <p style="margin: 0; white-space: pre-wrap;">${escapeHtml(message)}</p>
       </div>
     </div>
