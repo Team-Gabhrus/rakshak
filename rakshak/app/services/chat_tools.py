@@ -1,4 +1,5 @@
 import json
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from app.database import AsyncSessionLocal
 from app.models.asset import Asset
@@ -6,15 +7,13 @@ from app.models.cbom import CBOMSnapshot
 from app.models.scan import ScanResult
 from app.services.domain_service import list_domain_inventory
 
-async def get_domain_subdomain_inventory(domain: str, db: AsyncSession | None = None) -> str:
+async def get_domain_subdomain_inventory(domain: str) -> str:
     """
     Returns a consolidated list of subdomains for a given root domain.
     Use this to list targets, find live vs dead hosts, and see which subdomains are available for deeper analysis.
     Args:
         domain: The root domain (e.g., 'example.com').
     """
-    if db:
-        return await _get_inventory_logic(domain, db)
     async with AsyncSessionLocal() as db:
         return await _get_inventory_logic(domain, db)
 
@@ -44,15 +43,13 @@ async def _get_inventory_logic(domain: str, db: AsyncSession) -> str:
     return json.dumps(inventory)
 
 
-async def get_subdomain_detailed_cbom(hostname: str, db: AsyncSession | None = None) -> str:
+async def get_subdomain_detailed_cbom(hostname: str) -> str:
     """
     Returns the full Cryptographic Bill of Materials (CBOM) for a specific subdomain hostname.
     Use this to identify specific algorithms (RSA, ML-KEM, etc.), key types, protocol versions, and certificates.
     Args:
         hostname: The hostname of the target (e.g., 'portal.example.com').
     """
-    if db:
-        return await _get_cbom_logic(hostname, db)
     async with AsyncSessionLocal() as db:
         return await _get_cbom_logic(hostname, db)
 
@@ -76,15 +73,13 @@ async def _get_cbom_logic(hostname: str, db: AsyncSession) -> str:
     })
 
 
-async def get_subdomain_remediation_guidance(hostname: str, db: AsyncSession | None = None) -> str:
+async def get_subdomain_remediation_guidance(hostname: str) -> str:
     """
     Returns specific remediation steps and PQC migration playbooks for a subdomain.
     Use this when the user asks how to fix a target, improve its score, or migrate to Quantum-Safe algorithms.
     Args:
         hostname: The hostname of the target (e.g., 'api.example.com').
     """
-    if db:
-        return await _get_remediation_logic(hostname, db)
     async with AsyncSessionLocal() as db:
         return await _get_remediation_logic(hostname, db)
 

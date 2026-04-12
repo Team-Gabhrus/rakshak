@@ -464,7 +464,7 @@ async def send_chat_message(
                     handler = tool_map.get(fc.name)
                     if handler:
                         args = dict(fc.args)
-                        tasks.append((fc.name, fc.id, handler(db=db, **args)))
+                        tasks.append((fc.name, fc.id, handler(**args)))
                 
                 if tasks:
                     # Execute all tools in parallel
