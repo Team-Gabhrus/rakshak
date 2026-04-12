@@ -35,7 +35,7 @@ import google.generativeai as genai
 from google.generativeai import types
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-1.5-flash"  # Using 1.5 Flash for better tool support
+GEMINI_MODEL = "gemini-3-flash-preview"
 genai.configure(api_key=GEMINI_API_KEY)
 
 
@@ -464,19 +464,24 @@ async def send_chat_message(
                     handler = tool_map.get(fc.name)
                     if handler:
                         args = dict(fc.args)
-                        tasks.append((fc.name, handler(db=db, **args)))
+                        tasks.append((fc.name, fc.id, handler(db=db, **args)))
                 
                 if tasks:
                     # Execute all tools in parallel
-                    names = [t[0] for t in tasks]
-                    coroutines = [t[1] for t in tasks]
+                    # Each task is (name, id, coroutine)
+                    coroutines = [t[2] for t in tasks]
                     results = await asyncio.gather(*coroutines)
                     
-                    for name, result in zip(names, results):
-                        tool_responses.append(types.Part.from_function_response(
-                            name=name,
-                            response={"result": result}
-                        ))
+                    for i, result in enumerate(results):
+                        name = tasks[i][0]
+                        fc_id = tasks[i][1]
+                        tool_responses.append({
+                            "function_response": {
+                                "name": name,
+                                "response": {"result": result},
+                                "id": fc_id
+                            }
+                        })
                 
                 # Send tool results back to the model for the next turn
                 current_payload = tool_responses
