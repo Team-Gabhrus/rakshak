@@ -26,17 +26,91 @@ PQC_KEY_SIZES = {
     "SLH-DSA-128s": 32, "SLH-DSA-128f": 32,
 }
 
+# PQC KEM fragments — if a group name contains any of these, it's PQC-related
+_PQC_KEM_FRAGMENTS = {"mlkem", "kyber", "frodo", "bike", "hqc", "ntru", "saber", "sike"}
+
+# Cached OQS groups list (discovered at runtime from the Docker image)
+_oqs_groups_cache: Optional[str] = None
+
 def _docker_available() -> bool:
     """Check if Docker CLI is available."""
     return shutil.which("docker") is not None
 
+def _discover_oqs_groups(timeout: int = 15) -> str:
+    """
+    Query the OQS Docker image for all supported KEM/group algorithms.
+    Returns a colon-separated groups string for -groups parameter.
+    Caches the result so we only run this once per process lifetime.
+    """
+    global _oqs_groups_cache
+    if _oqs_groups_cache is not None:
+        return _oqs_groups_cache
+
+    # Hardcoded fallback in case discovery fails
+    fallback = "X25519MLKEM768:SecP256r1MLKEM768:mlkem768:x25519"
+
+    if not _docker_available():
+        _oqs_groups_cache = fallback
+        return fallback
+
+    try:
+        proc = subprocess.run(
+            ["docker", "run", "--rm", OQS_DOCKER_IMAGE, "openssl", "list", "-kem-algorithms"],
+            capture_output=True, timeout=timeout,
+        )
+        output = proc.stdout.decode("utf-8", errors="replace")
+
+        # Parse group names: each line looks like "  X25519MLKEM768 @ oqsprovider"
+        all_groups = []
+        for line in output.splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            # Extract the algorithm name (before " @ provider" or end of line)
+            name = line.split("@")[0].strip().split(",")[0].strip()
+            # Strip OID prefixes like "{ 1.3.101.110, X25519 }"
+            if name.startswith("{"):
+                parts = name.strip("{}").split(",")
+                name = parts[-1].strip() if len(parts) > 1 else parts[0].strip()
+            if name:
+                all_groups.append(name)
+
+        # Separate into PQC/hybrid groups and classical groups
+        pqc_groups = []
+        classical_groups = []
+        for g in all_groups:
+            g_lower = g.lower().replace("-", "").replace("_", "")
+            if any(frag in g_lower for frag in _PQC_KEM_FRAGMENTS):
+                pqc_groups.append(g)
+            else:
+                classical_groups.append(g)
+
+        if pqc_groups:
+            # Order: hybrid groups first (contain x25519/secp256r1 + PQC), then pure PQC, then classical fallback
+            hybrid = [g for g in pqc_groups if any(c in g.lower() for c in ["x25519", "x448", "p256", "p384", "p521", "secp"])]
+            pure_pqc = [g for g in pqc_groups if g not in hybrid]
+            # Always end with x25519 as safe classical fallback
+            ordered = hybrid + pure_pqc + ["x25519"]
+            groups_str = ":".join(ordered)
+            logger.info(f"OQS groups discovered: {len(hybrid)} hybrid, {len(pure_pqc)} pure PQC, groups={groups_str[:200]}")
+            _oqs_groups_cache = groups_str
+            return groups_str
+        else:
+            logger.warning("No PQC groups found in OQS image, using fallback")
+            _oqs_groups_cache = fallback
+            return fallback
+
+    except Exception as e:
+        logger.warning(f"OQS group discovery failed ({e}), using fallback")
+        _oqs_groups_cache = fallback
+        return fallback
+
+
 def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    Runs full `openssl s_client` with -showcerts and PQC groups to get:
-    - Complete cert chain with per-cert sigalg (mldsa44, RSA-SHA256, etc.)
-    - PQC KEX detection via -groups mlkem768
-    - Signature type / auth algorithm
+    Dynamically discovers all supported PQC/hybrid groups from the OQS image
+    and offers them all during the handshake for maximum detection coverage.
     Returns dict with parsed fields or None on failure.
     """
     if not _docker_available():
@@ -44,6 +118,7 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         return None
 
     try:
+        groups = _discover_oqs_groups()
         cmd = [
             "docker", "run", "--rm", "-i",
             OQS_DOCKER_IMAGE,
@@ -51,9 +126,7 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
             "-connect", f"{host}:{port}",
             "-servername", host,  # Fix SNI
             "-showcerts",            # Show the full certificate chain
-            # Try hybrid first (Chrome/BoringSSL style), then pure PQC as fallback.
-            # Google & most real servers use hybrid X25519+ML-KEM-768, not pure ML-KEM.
-            "-groups", "x25519_mlkem768:x25519_kyber768:mlkem768:x25519",
+            "-groups", groups,       # All discovered PQC/hybrid groups + x25519 fallback
         ]
         logger.info(f"OQS probe cmd: {' '.join(cmd)}")
         proc = subprocess.run(
