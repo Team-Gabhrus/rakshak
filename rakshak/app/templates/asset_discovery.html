@@ -421,15 +421,13 @@ async function deleteSelectedDiscoveries() {
   if (!confirmed) return;
   
   const ids = Array.from(selectedDiscIds);
-  let successCount = 0;
+  showToast(`Deleting ${ids.length} records in the background...`, 'info');
   
-  for (const id of ids) {
-    const res = await API.delete(`/api/assets/discovery/${id}`);
-    if (res && res.ok) successCount++;
-  }
+  const res = await API.post('/api/assets/discovery/bulk-delete', { disc_ids: ids });
   
-  if (successCount > 0) {
-    showToast(`Successfully deleted ${successCount} records.`, 'success');
+  if (res && res.ok) {
+    const data = await res.json();
+    showToast(`Successfully deleted ${data.deleted} records.`, 'success');
   } else {
     showToast('Failed to delete records.', 'danger');
   }
@@ -450,9 +448,12 @@ async function scanSelectedDiscoveries() {
     showToast('No valid targets selected.', 'warning');
     return;
   }
-  if (!await confirmLargeScan(targets.length)) return;
-  const confirmed = await rkConfirm(`Submit ${targets.length} target(s) to the vulnerability scanner?`);
-  if (!confirmed) return;
+  if (targets.length <= 100) {
+    const confirmed = await rkConfirm(`Submit ${targets.length} target(s) to the vulnerability scanner?`);
+    if (!confirmed) return;
+  } else {
+    if (!await confirmLargeScan(targets.length)) return;
+  }
   try {
     const res = await API.post('/api/scan', { targets });
     if (res?.ok) {

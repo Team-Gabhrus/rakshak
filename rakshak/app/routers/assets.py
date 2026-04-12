@@ -139,6 +139,9 @@ async def delete_asset(
     return {"message": "Asset deleted successfully", "id": asset_id, "deleted": deleted}
 
 
+class BulkDiscoveryDeleteRequest(BaseModel):
+    disc_ids: list[int]
+
 class BulkDeleteRequest(BaseModel):
     asset_ids: list[int]
 
@@ -592,6 +595,34 @@ async def delete_discovery(
 
     deleted = await delete_related_records_for_hosts(db, {host})
     return {"message": "Discovery and related records deleted", "id": disc_id, "deleted": deleted}
+
+
+@router.post("/discovery/bulk-delete")
+async def bulk_delete_discoveries(
+    req: BulkDiscoveryDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    if not req.disc_ids:
+        return {"message": "No ids provided"}
+
+    result = await db.execute(select(AssetDiscovery).where(AssetDiscovery.id.in_(req.disc_ids)))
+    discs = result.scalars().all()
+    
+    hosts = set()
+    for d in discs:
+        host = extract_hostname(d.value or d.name)
+        if host:
+            hosts.add(host)
+        else:
+            await db.delete(d)
+            
+    if hosts:
+        await delete_related_records_for_hosts(db, hosts)
+    else:
+        await db.commit()
+        
+    return {"message": f"Successfully deleted {len(req.disc_ids)} records"}
 
 
 @router.get("/nameservers")
