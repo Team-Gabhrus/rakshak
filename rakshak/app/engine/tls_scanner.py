@@ -108,13 +108,58 @@ def _discover_oqs_groups(timeout: int = 15) -> str:
         return fallback
 
 
+def _quick_group_test(host: str, port: int, group: str, timeout: int = 15) -> bool:
+    """Quick test: can the server negotiate with this specific group?
+    Uses a single-group probe — if the handshake succeeds, we know for certain
+    this exact group was negotiated (no fallback possible).
+    """
+    try:
+        cmd = [
+            "docker", "run", "--rm", "-i",
+            OQS_DOCKER_IMAGE,
+            "openssl", "s_client",
+            "-connect", f"{host}:{port}",
+            "-servername", host,
+            "-groups", group,
+        ]
+        proc = subprocess.run(cmd, input=b"Q\n", capture_output=True, timeout=timeout)
+        output = proc.stdout.decode("utf-8", errors="replace") + proc.stderr.decode("utf-8", errors="replace")
+        return "CONNECTED" in output and "Cipher is " in output and "Cipher is (NONE)" not in output
+    except Exception:
+        return False
+
+
+# Map OQS internal group names → display names for the scanner output
+_GROUP_DISPLAY_NAMES = {
+    # Pure PQC
+    "mlkem512": "ML-KEM-512", "mlkem768": "ML-KEM-768", "mlkem1024": "ML-KEM-1024",
+    # Hybrid (X25519 + PQC)
+    "X25519MLKEM768": "X25519_MLKEM768", "x25519_mlkem512": "X25519_MLKEM512",
+    "SecP256r1MLKEM768": "SecP256r1_MLKEM768", "SecP384r1MLKEM1024": "SecP384r1_MLKEM1024",
+    "p256_mlkem512": "P256_MLKEM512", "p384_mlkem768": "P384_MLKEM768",
+    "x448_mlkem768": "X448_MLKEM768", "p521_mlkem1024": "P521_MLKEM1024",
+    # Hybrid (other PQC families)
+    "x25519_frodo640shake": "X25519_FrodoKEM640", "x25519_frodo640aes": "X25519_FrodoKEM640AES",
+    "x25519_bikel1": "X25519_BIKEL1",
+}
+
+
 def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    Two-stage approach:
-      Stage 1: Pure PQC groups only (mlkem512/768/1024) — catches native PQC servers.
-      Stage 2: All groups (hybrid + classical fallback) — catches hybrid servers like Google.
-    Returns dict with parsed fields or None on failure.
+    
+    Strategy (no cases missed):
+      1. Discover ALL supported PQC/hybrid groups from the OQS image.
+      2. Separate into pure PQC and hybrid lists.
+      3. Test each group INDIVIDUALLY (single-group probe) — if the handshake
+         succeeds with one group, we know FOR CERTAIN that's what was negotiated
+         (OpenSSL s_client cannot fall back when only one group is offered).
+      4. Order: pure PQC first → hybrid → stop at first success.
+      5. Do a final full probe with -showcerts using the winning group to get
+         cert chain and signature info.
+    
+    This catches every PQC/hybrid group the OQS image supports, including
+    servers that only show hybrid KEX in practice (like Google's X25519MLKEM768).
     """
     if not _docker_available():
         logger.warning("Docker not available — skipping OQS probe")
@@ -123,42 +168,86 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     try:
         all_groups = _discover_oqs_groups()
 
-        # Stage 1: Try pure PQC groups only (no hybrid, no classical fallback).
-        # This ensures servers that support pure ML-KEM negotiate it instead of hybrid.
-        pure_pqc = ":".join(g for g in all_groups.split(":") if not any(
-            c in g.lower() for c in ["x25519", "x448", "p256", "p384", "p521", "secp"]
-        ) and g.lower() != "x25519") or "mlkem768:mlkem512:mlkem1024"
-
-        for stage, groups in [("pure_pqc", pure_pqc), ("all_groups", all_groups)]:
-            cmd = [
-                "docker", "run", "--rm", "-i",
-                OQS_DOCKER_IMAGE,
-                "openssl", "s_client",
-                "-connect", f"{host}:{port}",
-                "-servername", host,
-                "-showcerts",
-                "-groups", groups,
-            ]
-            logger.info(f"OQS probe [{stage}] cmd: {' '.join(cmd)}")
-            proc = subprocess.run(
-                cmd, input=b"Q\n", capture_output=True, timeout=timeout,
-            )
-            output = (proc.stdout.decode("utf-8", errors="replace") +
-                      proc.stderr.decode("utf-8", errors="replace"))
-
-            # Check if this stage connected and negotiated a real cipher
-            connected = "CONNECTED" in output
-            cipher_ok = connected and "Cipher is " in output and "Cipher is (NONE)" not in output
-
-            if cipher_ok:
-                logger.info(f"OQS probe [{stage}] succeeded for {host}:{port}")
-                # Tag which stage worked so KEX normalization knows
-                return _parse_oqs_output(output, host, port, stage)
+        # Separate into pure PQC and hybrid
+        pure_pqc_groups = []
+        hybrid_groups = []
+        classical_prefixes = {"x25519", "x448", "p256", "p384", "p521", "secp"}
+        for g in all_groups.split(":"):
+            g_lower = g.lower()
+            if g_lower == "x25519":
+                continue  # skip classical fallback
+            is_hybrid = any(c in g_lower for c in classical_prefixes)
+            if is_hybrid:
+                hybrid_groups.append(g)
             else:
-                logger.info(f"OQS probe [{stage}] failed for {host}:{port}, trying next stage")
+                pure_pqc_groups.append(g)
 
-        logger.info(f"OQS probe all stages failed for {host}:{port}")
-        return None
+        # ── Phase 1: Single-group probes to identify exact KEX ────────────
+        # Try each group individually. First match wins.
+        # Order: pure PQC (best) → hybrid (good) → classical (fallback)
+        negotiated_group = None
+        probe_type = None  # "pure_pqc" or "hybrid"
+
+        logger.info(f"OQS KEX scan for {host}:{port}: testing {len(pure_pqc_groups)} pure PQC + {len(hybrid_groups)} hybrid groups")
+
+        # Test pure PQC groups first
+        for g in pure_pqc_groups:
+            if _quick_group_test(host, port, g, timeout=15):
+                negotiated_group = g
+                probe_type = "pure_pqc"
+                logger.info(f"OQS KEX: {host}:{port} accepts pure PQC group '{g}'")
+                break
+
+        # If no pure PQC, test hybrid groups
+        if not negotiated_group:
+            for g in hybrid_groups:
+                if _quick_group_test(host, port, g, timeout=15):
+                    negotiated_group = g
+                    probe_type = "hybrid"
+                    logger.info(f"OQS KEX: {host}:{port} accepts hybrid group '{g}'")
+                    break
+
+        if not negotiated_group:
+            logger.info(f"OQS KEX: {host}:{port} does not support any PQC/hybrid groups")
+
+        # ── Phase 2: Full probe with -showcerts for cert chain info ───────
+        # Use the negotiated group (or all groups as fallback) to get full cert/sig data
+        full_group = negotiated_group or all_groups
+        cmd = [
+            "docker", "run", "--rm", "-i",
+            OQS_DOCKER_IMAGE,
+            "openssl", "s_client",
+            "-connect", f"{host}:{port}",
+            "-servername", host,
+            "-showcerts",
+            "-groups", full_group,
+        ]
+        logger.info(f"OQS full probe cmd: {' '.join(cmd)}")
+        proc = subprocess.run(cmd, input=b"Q\n", capture_output=True, timeout=timeout)
+        output = (proc.stdout.decode("utf-8", errors="replace") +
+                  proc.stderr.decode("utf-8", errors="replace"))
+
+        if "CONNECTED" not in output or "Cipher is (NONE)" in output:
+            logger.info(f"OQS full probe to {host}:{port} did not connect")
+            return None
+
+        # Parse cert chain and signature info from the full probe output
+        stage = probe_type or "classical"
+        result = _parse_oqs_output(output, host, port, stage)
+        if result is None:
+            return None
+
+        # Inject the verified KEX group name (from Phase 1)
+        if negotiated_group:
+            display_name = _GROUP_DISPLAY_NAMES.get(negotiated_group, negotiated_group)
+            result["verified_kex_group"] = display_name
+            result["pqc_kex_negotiated"] = True
+            logger.info(f"OQS result: KEX={display_name} ({probe_type}), pqc_kex=True")
+        else:
+            result["verified_kex_group"] = None
+            # pqc_kex_negotiated stays as whatever _parse_oqs_output set it to
+
+        return result
 
     except subprocess.TimeoutExpired:
         logger.warning(f"OQS probe timed out for {host}:{port}")
@@ -601,28 +690,25 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 oqs_auth = sig_type.upper()
 
         # Normalize PQC key exchange name.
-        # In TLS 1.3 the "Server Temp Key" line is absent. Instead we detect PQC KEX
-        # by whether the server accepted our hybrid/PQC group offer (pqc_kex_negotiated).
-        # The probe_stage tells us which group set was used:
-        #   "pure_pqc"   → server accepted pure ML-KEM groups → default to ML-KEM-768
-        #   "all_groups"  → server needed hybrid groups → default to X25519_MLKEM768
+        # The new probe sets "verified_kex_group" to the EXACT group that was
+        # confirmed via single-group probing (100% certain identification).
+        # Fall back to server_temp_key parsing only if verified_kex_group is absent.
         oqs_kex = None
-        if oqs_data.get("pqc_kex_negotiated"):
-            probe_stage = oqs_data.get("probe_stage", "all_groups")
-            if probe_stage == "pure_pqc":
-                oqs_kex = "ML-KEM-768"  # Pure PQC negotiated
-            else:
-                oqs_kex = "X25519_MLKEM768"  # Hybrid negotiated
-        if server_key:
+
+        # Priority 1: Use the verified group name from single-group probing
+        verified = oqs_data.get("verified_kex_group")
+        if verified:
+            oqs_kex = verified
+            logger.info(f"KEX from verified single-group probe: {oqs_kex}")
+        # Priority 2: Infer from Server Temp Key line (TLS 1.2 or some TLS 1.3 impls)
+        elif server_key:
             sk_upper = server_key.upper().replace("-", "").replace("_", "").split(",")[0].strip()
-            # Check for hybrid names first (e.g. "X25519MLKEM768")
             if "X25519MLKEM768" in sk_upper or "X25519KYBER768" in sk_upper:
                 oqs_kex = "X25519_MLKEM768"
             elif "SECP256R1MLKEM768" in sk_upper:
                 oqs_kex = "SecP256r1_MLKEM768"
             elif "X25519MLKEM512" in sk_upper:
                 oqs_kex = "X25519_MLKEM512"
-            # Then check pure PQC names
             elif "MLKEM512" in sk_upper or "KYBER512" in sk_upper:
                 oqs_kex = "ML-KEM-512"
             elif "MLKEM768" in sk_upper or "KYBER768" in sk_upper:
@@ -631,6 +717,10 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 oqs_kex = "ML-KEM-1024"
             elif "MLKEM" in sk_upper or "KYBER" in sk_upper:
                 oqs_kex = "ML-KEM"
+        # Priority 3: If pqc_kex_negotiated but no group info, use probe_stage hint
+        elif oqs_data.get("pqc_kex_negotiated"):
+            probe_stage = oqs_data.get("probe_stage", "all_groups")
+            oqs_kex = "ML-KEM-768" if probe_stage == "pure_pqc" else "X25519_MLKEM768"
 
         # Build OQS cert chain from depth info.
         # Prefer the 'sigalg' field parsed from the cert-chain block ('a:...sigalg:...'),
