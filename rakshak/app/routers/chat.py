@@ -16,6 +16,11 @@ from app.models.asset import Asset, AssetDiscovery, DiscoveryCategory
 from app.models.cbom import CBOMSnapshot
 from app.dependencies import require_any_role
 from app.services.audit_service import log_event
+from app.services.chat_tools import (
+    get_domain_subdomain_inventory,
+    get_subdomain_detailed_cbom,
+    get_subdomain_remediation_guidance
+)
 from app.services.domain_service import (
     get_assets_for_domains,
     get_latest_cbom_by_target,
@@ -376,7 +381,7 @@ async def send_chat_message(
     else:
         system_prompt = "You are Rakshak AI, a cybersecurity assistant. Answer questions about security and PQC."
 
-    # Inject domain context if available
+    # Inject domain context if available (High-level only)
     if domain_ctx:
         system_prompt += _format_domain_context(domain_ctx)
     elif session.domain_context_json:
@@ -386,18 +391,27 @@ async def send_chat_message(
         except Exception:
             pass
 
-    messages_for_api = []
-    for msg in recent_messages:
-        messages_for_api.append({
-            "role": msg.role,
-            "parts": [{"text": msg.content}]
-        })
+    # Transform history into the format required for start_chat
+    history = []
+    if recent_messages:
+        # The last message is the one we just added to DB, but we pass it as 'content' to send_message
+        # So history should be all BUT the last one.
+        for msg in recent_messages[:-1]:
+            history.append({
+                "role": "model" if msg.role == "assistant" else "user",
+                "parts": [msg.content]
+            })
 
     import google.generativeai as genai
     genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
         system_instruction=system_prompt,
+        tools=[
+            get_domain_subdomain_inventory,
+            get_subdomain_detailed_cbom,
+            get_subdomain_remediation_guidance
+        ],
         generation_config={
             "temperature": 0.7,
             "top_p": 0.95,
@@ -408,7 +422,12 @@ async def send_chat_message(
     async def generate_response():
         try:
             from app.database import AsyncSessionLocal
-            response = await model.generate_content_async(messages_for_api, stream=True)
+            # Use ChatSession with automatic function calling
+            chat = model.start_chat(history=history or None, enable_automatic_function_calling=True)
+            
+            # Send the latest user message
+            response = await chat.send_message_async(req.message, stream=True)
+            
             full_reply = ""
             async for chunk in response:
                 if chunk.text:
@@ -629,31 +648,16 @@ async def _fetch_domain_context(domain: str, db: AsyncSession) -> dict:
 
 
 def _format_domain_context(ctx: dict) -> str:
-    """Format domain context for injection into the system prompt."""
-    if not ctx or not ctx.get("targets"):
+    """Format high-level domain context (stats only) for the system prompt."""
+    if not ctx:
         return ""
     lines = [f"\n\n## Domain Intelligence: {ctx['root_domain']}"]
     lines.append(f"- **Total Targets:** {ctx['total_targets']}")
     lines.append(f"- **Scanned Targets:** {ctx['scanned_targets']}")
     lines.append(f"- **Live:** {ctx['live']}")
     lines.append(f"- **Dead Hosts:** {ctx['dead']}")
-    if ctx.get("dead_hosts"):
-        lines.append(f"- **Dead Host List:** {', '.join(ctx['dead_hosts'][:20])}")
-    lines.append("\n### Target Details, Scan Results, and CBOM Context:")
-    for target in ctx["targets"][:40]:
-        cbom = target.get("cbom", {})
-        rec_count = len(target.get("recommendations") or [])
-        playbook_steps = len((target.get("playbook") or {}).get("steps", []))
-        lines.append(
-            "- "
-            f"{target['hostname']} — scanned={target['scanned']} live={target['is_live']} "
-            f"status={target['scan_status']} pqc={target.get('pqc_label') or 'unknown'} "
-            f"tls={target.get('tls_version') or 'unknown'} "
-            f"cbom_pqc={cbom.get('pqc_label') or 'unknown'} "
-            f"algos={cbom.get('algorithms_count', 0)} protos={cbom.get('protocols_count', 0)} "
-            f"certs={cbom.get('certificates_count', 0)} recs={rec_count} playbook_steps={playbook_steps}"
-        )
-    lines.append("\nUse this inventory-backed domain context to answer questions about live coverage, scanned assets, PQC posture, CBOM composition, and remediation state.")
+    
+    lines.append("\n**Important:** You have access to tools to query specific subdomain details. Do not guess inventory. If the user asks about specific subdomains, their CBOM, or remediation steps, use the provided tools (`get_domain_subdomain_inventory`, `get_subdomain_detailed_cbom`, `get_subdomain_remediation_guidance`).")
     return "\n".join(lines)
 
 
