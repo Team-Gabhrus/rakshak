@@ -248,11 +248,17 @@ def classify(
             break
 
     if has_broken_proto or has_broken_cipher:
-        label = "not_quantum_safe"
-        risk = "critical"
-        score = min(score, 100.0)
         details["downgrade_vulnerability"] = True
         details["downgrade_reason"] = "Asset supports legacy protocols/ciphers vulnerable to downgrade attacks."
+        # Only fully downgrade the label if there is NO PQC anywhere.
+        # If PQC KEX or Auth is present, the server HAS quantum protection on its
+        # best connection — don't negate that just because it also supports legacy.
+        # Example: google.com has ML-KEM-1024 KEX + TLS 1.3, but also supports TLS 1.0
+        # for backward compat. The PQC label should reflect the strongest capability.
+        if not any_pqc_kex and not any_pqc_auth:
+            label = "not_quantum_safe"
+            risk = "critical"
+            score = min(score, 100.0)
 
     recommendations = generate_recommendations(kex, auth, enc, hsh, kex_status, auth_status, enc_status, hash_status)
 
