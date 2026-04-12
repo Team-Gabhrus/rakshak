@@ -38,7 +38,8 @@ def generate_playbook(
     _PQC_KEX = ("ML-KEM", "MLKEM", "KYBER")
     _PQC_AUTH = ("ML-DSA", "MLDSA", "SLH-DSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM")
 
-    def _is_pqc(s, lst): return s and any(str(s).upper().replace("-","").replace("_","").startswith(p.replace("-","")) for p in lst)
+    # Use contains-match (not startswith) so hybrid names like X25519_MLKEM768 are recognized
+    def _is_pqc(s, lst): return s and any(p.replace("-","") in str(s).upper().replace("-","").replace("_","") for p in lst)
     
     has_pqc_kex  = _is_pqc(key_exchange, _PQC_KEX)
     has_pqc_auth = _is_pqc(authentication, _PQC_AUTH)
@@ -169,8 +170,9 @@ def generate_risk_timeline(key_exchange: Optional[str], authentication: Optional
     _PQC_KEX  = ("MLKEM", "KYBER")
     _PQC_AUTH = ("MLDSA", "SLHDSA", "SPHINCS", "FALCON", "FNDSA", "DILITHIUM")
     def _norm(s): return (s or "").upper().replace("-","").replace("_","")
-    is_vulnerable_kex  = bool(key_exchange)  and not any(_norm(key_exchange).startswith(p)  for p in _PQC_KEX)
-    is_vulnerable_auth = bool(authentication) and not any(_norm(authentication).startswith(p) for p in _PQC_AUTH)
+    # Use contains-match so hybrid names like X25519_MLKEM768 are recognized
+    is_vulnerable_kex  = bool(key_exchange)  and not any(p in _norm(key_exchange)  for p in _PQC_KEX)
+    is_vulnerable_auth = bool(authentication) and not any(p in _norm(authentication) for p in _PQC_AUTH)
 
     timeline = {
         "hndl_exposure": {

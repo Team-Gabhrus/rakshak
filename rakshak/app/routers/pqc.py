@@ -56,11 +56,12 @@ async def get_pqc_posture(
     result2 = await db.execute(select(ScanResult).order_by(ScanResult.scanned_at.desc()).limit(500))
     scan_results = [row for row in result2.scalars().all() if not scan_target_urls or row.target_url in scan_target_urls]
     for sr in scan_results:
-        kex = sr.key_exchange or ""
-        auth = sr.authentication or ""
-        if kex and kex not in ["ML-KEM", "ML-KEM-768", "ML-KEM-1024", "Unknown"]:
+        kex = (sr.key_exchange or "").upper().replace("-", "").replace("_", "")
+        auth = (sr.authentication or "").upper().replace("-", "").replace("_", "")
+        # Use contains-match so hybrid names like X25519_MLKEM768 are recognized
+        if kex and not any(p in kex for p in ["MLKEM", "KYBER"]):
             has_vulnerable_kex = True
-        if auth and auth not in ["ML-DSA", "SLH-DSA", "Unknown"]:
+        if auth and not any(p in auth for p in ["MLDSA", "SLHDSA", "FALCON", "FNDSA", "DILITHIUM"]):
             has_vulnerable_auth = True
 
     dynamic_timeline = generate_risk_timeline("RSA" if has_vulnerable_kex else "ML-KEM", "RSA" if has_vulnerable_auth else "ML-DSA")

@@ -51,7 +51,9 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
             "-connect", f"{host}:{port}",
             "-servername", host,  # Fix SNI
             "-showcerts",            # Show the full certificate chain
-            "-groups", "mlkem768",  # Prefer PQC KEX (ML-KEM-768)
+            # Try hybrid first (Chrome/BoringSSL style), then pure PQC as fallback.
+            # Google & most real servers use hybrid X25519+ML-KEM-768, not pure ML-KEM.
+            "-groups", "x25519_mlkem768:x25519_kyber768:mlkem768:x25519",
         ]
         logger.info(f"OQS probe cmd: {' '.join(cmd)}")
         proc = subprocess.run(
@@ -172,14 +174,26 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
 
         result["chain_info"] = sorted(chain_entries.values(), key=lambda x: x["depth"])
 
-        # Detect PQC KEX: we offered only mlkem768 as the group.
-        # - PQC server: accepts, establishes a real cipher → "Cipher is TLS_AES..."
-        # - Classical server: cannot negotiate ML-KEM, replies with HelloRetryRequest
-        #   or falls back → OpenSSL shows "Cipher is (NONE)" (no cipher agreed).
-        # So: pqc_kex_negotiated = CONNECTED + real cipher + PQC signature detected.
+        # Detect PQC KEX: we offered hybrid (x25519_mlkem768) and pure (mlkem768) groups.
+        # - HYBRID PQC server (e.g. Google): accepts x25519_mlkem768 with classical cert
+        #   → "Cipher is TLS_AES..." + Server Temp Key may show hybrid info
+        # - PURE PQC server: accepts mlkem768 with PQC cert
+        # - Classical server: falls back to x25519 (last in our list)
+        #   → negotiates fine but with classical KEX only
+        # Detection: if connected + real cipher + (PQC sig OR hybrid/PQC temp key)
         cipher_negotiated = "Cipher is (NONE)" not in output and "Cipher is " in output
         pqc_sig_detected = bool(result.get("signature_type", ""))
-        result["pqc_kex_negotiated"] = "CONNECTED" in output and cipher_negotiated and pqc_sig_detected
+
+        # Check if Server Temp Key or any output line indicates PQC/hybrid KEX
+        server_key_raw = result.get("server_temp_key", "").upper()
+        pqc_kex_in_output = any(frag in server_key_raw for frag in ["MLKEM", "KYBER", "ML-KEM"])
+        # Also check raw output for groups negotiation hints
+        if not pqc_kex_in_output:
+            pqc_kex_in_output = any(frag in output.upper() for frag in [
+                "X25519_MLKEM768", "X25519MLKEM768", "MLKEM768", "ML-KEM-768",
+                "X25519_KYBER768", "KYBER768",
+            ])
+        result["pqc_kex_negotiated"] = "CONNECTED" in output and cipher_negotiated and (pqc_sig_detected or pqc_kex_in_output)
 
         sig_algos = result.get("signature_algorithms", [])
         pk_algos = result.get("public_key_algos", [])
@@ -251,17 +265,15 @@ def parse_cipher_name(cipher_name: str) -> CipherSuiteInfo:
 
     name_upper = cipher_name.upper()
 
-    # Key exchange
-    if "ECDHE" in name_upper or "ECDH" in name_upper:
+    # Key exchange — check PQC/hybrid FIRST to avoid ECDHE/X25519 short-circuiting
+    if "MLKEM" in name_upper or "ML_KEM" in name_upper or "KYBER" in name_upper:
+        kex = "ML-KEM"
+    elif "ECDHE" in name_upper or "ECDH" in name_upper:
         kex = "ECDHE"
     elif "DHE" in name_upper or "EDH" in name_upper:
         kex = "DHE"
     elif "RSA" in name_upper and "ECDHE" not in name_upper and "DHE" not in name_upper:
         kex = "RSA"
-    elif "ML_KEM" in name_upper or "KYBER" in name_upper:
-        kex = "ML-KEM"
-    elif "MLKEM" in name_upper:
-        kex = "ML-KEM"
 
     # Authentication
     if "ECDSA" in name_upper:
@@ -514,14 +526,22 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
 
         # Normalize PQC key exchange name.
         # In TLS 1.3 the "Server Temp Key" line is absent. Instead we detect PQC KEX
-        # by whether the server accepted our -groups mlkem768 offer (pqc_kex_negotiated).
+        # by whether the server accepted our hybrid/PQC group offer (pqc_kex_negotiated).
         oqs_kex = None
         if oqs_data.get("pqc_kex_negotiated"):
-            # We only offered mlkem groups so a successful connection = PQC KEX
-            oqs_kex = "ML-KEM-768"  # default; refine from server_temp_key if available
+            # Default to hybrid X25519+ML-KEM-768; refine from server_temp_key if available
+            oqs_kex = "X25519_MLKEM768"  # Use hybrid name to preserve full info
         if server_key:
             sk_upper = server_key.upper().replace("-", "").replace("_", "").split(",")[0].strip()
-            if "MLKEM512" in sk_upper or "KYBER512" in sk_upper:
+            # Check for hybrid names first (e.g. "X25519MLKEM768")
+            if "X25519MLKEM768" in sk_upper or "X25519KYBER768" in sk_upper:
+                oqs_kex = "X25519_MLKEM768"
+            elif "SECP256R1MLKEM768" in sk_upper:
+                oqs_kex = "SecP256r1_MLKEM768"
+            elif "X25519MLKEM512" in sk_upper:
+                oqs_kex = "X25519_MLKEM512"
+            # Then check pure PQC names
+            elif "MLKEM512" in sk_upper or "KYBER512" in sk_upper:
                 oqs_kex = "ML-KEM-512"
             elif "MLKEM768" in sk_upper or "KYBER768" in sk_upper:
                 oqs_kex = "ML-KEM-768"

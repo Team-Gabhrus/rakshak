@@ -32,6 +32,15 @@ PQC_AUTHENTICATION = {"ML-DSA", "ML-DSA-44", "ML-DSA-65", "ML-DSA-87",
                        "SLH-DSA", "SLH-DSA-128s", "SLH-DSA-128f",
                        "DILITHIUM", "SPHINCS+", "FALCON", "FN-DSA"}
 
+# Hybrid PQC key exchange patterns — real-world TLS implementations use these
+# Chrome/BoringSSL: X25519_MLKEM768, X25519Kyber768
+# AWS s2n / CloudFlare: SecP256r1MLKEM768, X25519MLKEM768
+# These combine a classical curve with a PQC KEM in a single hybrid group.
+HYBRID_PQC_KEX_FRAGMENTS = {
+    "MLKEM1024", "MLKEM768", "MLKEM512", "MLKEM",
+    "KYBER1024", "KYBER768", "KYBER512", "KYBER",
+}
+
 # Classical algorithms vulnerable to Shor's algorithm
 CLASSICAL_KX_VULNERABLE = {"RSA", "ECDHE", "ECDH", "DH", "DHE", "X25519", "X448", "P-256", "P-384", "P-521"}
 CLASSICAL_AUTH_VULNERABLE = {"RSA", "ECDSA", "DSA"}
@@ -42,11 +51,27 @@ CLASSICAL_AUTH_VULNERABLE = {"RSA", "ECDSA", "DSA"}
 # --------------------------------------------------------------------------
 
 def classify_key_exchange(kex: str) -> str:
-    """Returns: 'pqc', 'vulnerable', 'unknown'"""
+    """Returns: 'pqc', 'hybrid_pqc', 'vulnerable', 'unknown'
+    
+    Checks PQC and hybrid patterns FIRST so that hybrid names like
+    'X25519_MLKEM768' are not short-circuited by the X25519 classical match.
+    """
     kex_upper = kex.upper().replace("-", "_").replace(" ", "_")
+    # Strip ALL separators for fuzzy matching (X25519_MLKEM768 → X25519MLKEM768)
+    kex_stripped = kex_upper.replace("_", "")
+
+    # 1. Check pure PQC KEX (exact-ish: ML_KEM_768 in input)
     for pqc in PQC_KEY_EXCHANGE:
         if pqc.upper().replace("-", "_") in kex_upper:
             return "pqc"
+
+    # 2. Check hybrid PQC KEX — strip all separators and look for PQC KEM fragments
+    #    e.g. X25519MLKEM768 contains MLKEM768 → hybrid PQC
+    for frag in HYBRID_PQC_KEX_FRAGMENTS:
+        if frag in kex_stripped:
+            return "pqc"  # Hybrid PQC counts as PQC for HNDL protection
+
+    # 3. Only THEN check classical (so X25519 alone = vulnerable, X25519+MLKEM = pqc)
     for vuln in CLASSICAL_KX_VULNERABLE:
         if vuln.upper() in kex_upper:
             return "vulnerable"

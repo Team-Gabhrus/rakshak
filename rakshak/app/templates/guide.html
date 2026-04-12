@@ -56,13 +56,13 @@
                 <tbody>
                     <tr>
                         <td><span class="badge" style="background: rgba(231,76,60,0.1); color: #e74c3c; border: 1px solid #e74c3c; padding: 6px 10px; font-weight: 600;">❌ Not Quantum-Safe</span></td>
-                        <td class="fs-13 text-muted"><strong>No PQC Detected.</strong> No Post-Quantum Cryptography is detected anywhere — neither in the negotiated TLS cipher suite (key exchange) nor in the server's X.509 certificate chain (signature algorithm OIDs). The connection relies entirely on classical cryptography vulnerable to Shor's algorithm.</td>
-                        <td class="fs-13">ECDHE key exchange + RSA/ECDSA certificate + AES-256-GCM. Scan targets: <code>google.com</code>, <code>badssl.com</code>.</td>
+                        <td class="fs-13 text-muted"><strong>No PQC Detected.</strong> No Post-Quantum Cryptography is detected anywhere — neither in the key exchange (no ML-KEM, no hybrid X25519+ML-KEM) nor in the server's X.509 certificate chain (signature algorithm OIDs). The connection relies entirely on classical cryptography vulnerable to Shor's algorithm.</td>
+                        <td class="fs-13">ECDHE key exchange + RSA/ECDSA certificate + AES-256-GCM. Scan targets: <code>badssl.com</code>, <code>pnbindia.in</code>.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(241,196,15,0.1); color: #f1c40f; border: 1px solid #f1c40f; padding: 6px 10px; font-weight: 600;">🟡 Partially Quantum-Safe</span></td>
-                        <td class="fs-13 text-muted"><strong>PQC Detected in One Layer.</strong> At least one PQC algorithm has been detected — either in the negotiated cipher suite (ML-KEM key exchange) or from the server's leaf certificate signature OID (ML-DSA, SLH-DSA). However, full PQC migration across the certificate trust chain is not yet complete.</td>
-                        <td class="fs-13">ML-KEM-768 key exchange with a classical RSA identity cert. Data is protected against HNDL, but identity is classical. Scan target: <code>kms.us-east-1.amazonaws.com</code>.</td>
+                        <td class="fs-13 text-muted"><strong>PQC Detected in One Layer.</strong> At least one PQC algorithm has been detected — either via a <strong>hybrid key exchange</strong> (e.g. X25519+ML-KEM-768 as used by Chrome, AWS, and CloudFlare) or from the server's leaf certificate signature OID (ML-DSA, SLH-DSA). However, full PQC migration across the certificate trust chain is not yet complete. Hybrid KEX protects data-in-transit against Harvest Now, Decrypt Later (HNDL) attacks.</td>
+                        <td class="fs-13">Hybrid X25519_MLKEM768 KEX with a classical ECDSA identity cert. Scan targets: <code>google.com</code>, <code>kms.us-east-1.amazonaws.com</code>.</td>
                     </tr>
                     <tr>
                         <td><span class="badge" style="background: rgba(52,152,219,0.1); color: #3498db; border: 1px solid #3498db; padding: 6px 10px; font-weight: 600;">🔵 PQC-Ready</span></td>
@@ -218,6 +218,33 @@
                         <td>FIPS 203</td>
                         <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 Fully Quantum-Safe</span></td>
                     </tr>
+                    <tr>
+                        <td colspan="5" class="fw-semibold fs-13" style="background:rgba(52,152,219,0.06);color:var(--rk-text);border-bottom:2px solid var(--rk-border)"><i class="bi bi-shield-plus me-1" style="color:#3498db"></i>Hybrid PQC Key Exchange (Classical + PQC combined)</td>
+                    </tr>
+                    <tr>
+                        <td><code>X25519_MLKEM768</code> <span class="text-muted fs-12">(Chrome, BoringSSL)</span></td>
+                        <td>Hybrid: ECDH + Lattice KEM</td>
+                        <td>NIST Level 3 + ~128 classical</td>
+                        <td>FIPS 203 + RFC 9180</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 HNDL-Protected</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>SecP256r1_MLKEM768</code> <span class="text-muted fs-12">(AWS, CloudFlare)</span></td>
+                        <td>Hybrid: ECDH P-256 + Lattice KEM</td>
+                        <td>NIST Level 3 + ~128 classical</td>
+                        <td>FIPS 203</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 HNDL-Protected</span></td>
+                    </tr>
+                    <tr>
+                        <td><code>X25519_MLKEM512</code></td>
+                        <td>Hybrid: ECDH + Lattice KEM</td>
+                        <td>NIST Level 1 + ~128 classical</td>
+                        <td>FIPS 203</td>
+                        <td style="text-align:center"><span class="badge" style="background:rgba(46,204,113,0.15);color:#2ecc71;border:1px solid #2ecc71">🟢 HNDL-Protected</span></td>
+                    </tr>
+                    <tr>
+                        <td colspan="5" class="fw-semibold fs-13" style="background:rgba(231,76,60,0.04);color:var(--rk-text);border-bottom:2px solid var(--rk-border)"><i class="bi bi-exclamation-triangle me-1" style="color:#e74c3c"></i>Classical Key Exchange (Vulnerable to Shor's)</td>
+                    </tr>
                     <tr style="opacity:0.7">
                         <td><code>X25519</code></td>
                         <td>Elliptic Curve DH</td>
@@ -338,8 +365,8 @@
                     <tr>
                         <td><span style="background:rgba(46,204,113,0.15);color:#2ecc71;border-radius:50%;width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;">2</span></td>
                         <td><strong>OQS Docker Probe 🐳</strong></td>
-                        <td class="fs-13 text-muted">Runs <code>openssl s_client -brief</code> inside the <code>openquantumsafe/curl</code> Docker container, which ships with liboqs-enabled OpenSSL capable of negotiating PQC cipher suites and parsing PQC certificates.</td>
-                        <td class="fs-13 text-muted">ML-DSA, Falcon, SLH-DSA signatures; ML-KEM key exchange; PQC cert chain depth</td>
+                        <td class="fs-13 text-muted">Runs <code>openssl s_client</code> inside the <code>openquantumsafe/curl</code> Docker container with liboqs-enabled OpenSSL. Negotiates hybrid PQC groups (<code>x25519_mlkem768</code>, <code>x25519_kyber768</code>) and pure PQC groups (<code>mlkem768</code>) to detect both hybrid and native PQC key exchange. Also parses PQC certificates.</td>
+                        <td class="fs-13 text-muted">ML-DSA, Falcon, SLH-DSA signatures; hybrid X25519+ML-KEM and pure ML-KEM key exchange; PQC cert chain depth</td>
                     </tr>
                 </tbody>
             </table>
@@ -357,15 +384,15 @@
         <div class="d-flex gap-3 flex-wrap">
             <div class="p-2 rounded flex-fill" style="background:rgba(231,76,60,0.08);border:1px solid rgba(231,76,60,0.2)">
                 <div class="fs-12 fw-bold" style="color:#e74c3c">Why not just sslyze?</div>
-                <div class="fs-12 text-muted">Standard OpenSSL cannot negotiate PQC cipher suites or parse PQC certificates. The TLS handshake fails entirely on PQC-only servers.</div>
+                <div class="fs-12 text-muted">Standard OpenSSL (3.0.x) cannot negotiate ML-KEM or hybrid X25519+ML-KEM groups. The TLS handshake falls back to classical ECDHE, missing the server's hybrid PQC capability entirely.</div>
             </div>
             <div class="p-2 rounded flex-fill" style="background:rgba(46,204,113,0.08);border:1px solid rgba(46,204,113,0.2)">
                 <div class="fs-12 fw-bold" style="color:#2ecc71">Why OQS Docker?</div>
-                <div class="fs-12 text-muted">The OQS container bundles liboqs + oqs-provider, enabling our scanner to speak PQC natively and detect ML-DSA, Falcon, ML-KEM algorithms from real connections.</div>
+                <div class="fs-12 text-muted">The OQS container bundles liboqs + oqs-provider, enabling our scanner to negotiate hybrid groups (x25519_mlkem768) used by Chrome, AWS, and CloudFlare — as well as pure PQC groups for dedicated PQC servers.</div>
             </div>
             <div class="p-2 rounded flex-fill" style="background:rgba(52,152,219,0.08);border:1px solid rgba(52,152,219,0.2)">
-                <div class="fs-12 fw-bold" style="color:#3498db">Dual-stack servers?</div>
-                <div class="fs-12 text-muted">Servers supporting both classical + PQC send classical certs to classical clients. The OQS probe discovers their hidden PQC capability and upgrades the classification.</div>
+                <div class="fs-12 fw-bold" style="color:#3498db">Hybrid PQC KEX?</div>
+                <div class="fs-12 text-muted">Major providers (Google, AWS, CloudFlare) deploy hybrid key exchange — combining X25519 with ML-KEM-768. Rakshak detects these hybrids and classifies them as PQC-protected for HNDL purposes.</div>
             </div>
         </div>
     </div>
@@ -385,8 +412,8 @@
                         <ul class="mb-0">
                             <li class="mb-2"><strong>🟢 Fully Quantum Safe:</strong> Scan <code>test.openquantumsafe.org:6182</code> — OQS Docker probe detects <strong>ML-DSA-44/65/87</strong> signatures across the entire chain.</li>
                             <li class="mb-2"><strong>🔵 PQC Ready:</strong> Scan <code>scans.rakshak.live:4433</code> — PQC KEX + PQC Auth, but classical Root CA.</li>
-                            <li class="mb-2"><strong>🟡 Partially Quantum Safe:</strong> Scan <code>kms.us-east-1.amazonaws.com</code> — <strong>ML-KEM-768</strong> Key Exchange with classical certificates (HNDL-Protected).</li>
-                            <li class="mb-2"><strong>❌ Not Quantum-Safe:</strong> Scan <code>google.com</code> or <code>pnbindia.in</code> — Classical RSA/ECDSA certs.</li>
+                            <li class="mb-2"><strong>🟡 Partially Quantum Safe:</strong> Scan <code>google.com</code> or <code>kms.us-east-1.amazonaws.com</code> — <strong>Hybrid X25519+ML-KEM-768</strong> KEX with classical ECDSA/RSA certificates (HNDL-Protected).</li>
+                            <li class="mb-2"><strong>❌ Not Quantum-Safe:</strong> Scan <code>pnbindia.in</code> or <code>badssl.com</code> — Classical ECDHE/RSA key exchange with RSA/ECDSA certs — no PQC anywhere.</li>
                             <li><strong>⚪ Unknown:</strong> Scan <code>192.0.2.1</code> — Demonstrates graceful failure for unreachable endpoints.</li>
                         </ul>
                     </div>
