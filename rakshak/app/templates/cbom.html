@@ -97,7 +97,7 @@
             <tr style="border-left:3px solid #2ecc71;background:rgba(46,204,113,0.06)">
               <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(46,204,113,0.2);color:#2ecc71;border:1px solid #2ecc71;font-weight:600">✓&nbsp;PQC&nbsp;Safe</span></td>
               <td class="fs-12 text-muted">NIST-standardised PQC algorithm. Resistant to Shor's and Grover's algorithms.</td>
-              <td class="fs-12"><code>ML-DSA-44/65/87</code>, <code>ML-KEM-768</code>, <code>Falcon-512</code>, <code>SLH-DSA</code></td>
+              <td class="fs-12">ML-DSA, ML-KEM-768, Falcon-512, SLH-DSA, X25519_MLKEM768 (hybrid)</td>
             </tr>
             <tr style="border-left:3px solid #3498db;background:rgba(52,152,219,0.04)">
               <td><span style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(52,152,219,0.15);color:#3498db;border:1px solid #3498db;font-weight:600">✓&nbsp;Safe</span></td>
@@ -413,9 +413,11 @@ function cbomRowSafety(item) {
   const worstFirst = (list, testFn) => list.some(p => parts.some(n => testFn(n, p)));
 
   if (worstFirst(BROKEN,    (n,p) => n.includes(p))) return 'broken';
+  // PQC check MUST come before CLASSICAL — hybrid names like X25519MLKEM768 contain both
+  // X25519 (CLASSICAL) and MLKEM (PQC). PQC wins because it provides quantum protection.
+  if (worstFirst(PQC_SAFE,  (n,p) => n.includes(p))) return 'safe';
   if (worstFirst(CLASSICAL, (n,p) => n.startsWith(p) || n === p)) return 'classical';
   if (worstFirst(MARGINAL,  (n,p) => n.startsWith(p))) return 'marginal';
-  if (worstFirst(PQC_SAFE,  (n,p) => n.startsWith(p))) return 'safe';
   return 'ok';
 }
 

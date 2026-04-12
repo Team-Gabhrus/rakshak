@@ -86,13 +86,15 @@ def _discover_oqs_groups(timeout: int = 15) -> str:
                 classical_groups.append(g)
 
         if pqc_groups:
-            # Order: hybrid groups first (contain x25519/secp256r1 + PQC), then pure PQC, then classical fallback
+            # Order: pure PQC first → hybrid → classical fallback.
+            # Pure PQC first so servers that support native ML-KEM negotiate it directly.
+            # Hybrid-only servers (Google, AWS) will skip pure groups and pick their hybrid.
             hybrid = [g for g in pqc_groups if any(c in g.lower() for c in ["x25519", "x448", "p256", "p384", "p521", "secp"])]
             pure_pqc = [g for g in pqc_groups if g not in hybrid]
             # Always end with x25519 as safe classical fallback
-            ordered = hybrid + pure_pqc + ["x25519"]
+            ordered = pure_pqc + hybrid + ["x25519"]
             groups_str = ":".join(ordered)
-            logger.info(f"OQS groups discovered: {len(hybrid)} hybrid, {len(pure_pqc)} pure PQC, groups={groups_str[:200]}")
+            logger.info(f"OQS groups discovered: {len(pure_pqc)} pure PQC, {len(hybrid)} hybrid, groups={groups_str[:200]}")
             _oqs_groups_cache = groups_str
             return groups_str
         else:
