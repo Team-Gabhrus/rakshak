@@ -299,8 +299,10 @@ async def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         # the group name in the output (e.g., Google, Cloudflare).
         if not negotiated_group:
             top_candidates = [
+                # Pure PQC first (best classification) — matches old code order
+                "mlkem1024", "mlkem768", "mlkem512",
+                # Hybrid fallback
                 "X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024",
-                "mlkem768", "mlkem512", "mlkem1024",
             ]
             for g in top_candidates:
                 if g not in (pure_pqc_groups + hybrid_groups):
