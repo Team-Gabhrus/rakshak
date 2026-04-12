@@ -111,8 +111,9 @@ def _discover_oqs_groups(timeout: int = 15) -> str:
 def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    Dynamically discovers all supported PQC/hybrid groups from the OQS image
-    and offers them all during the handshake for maximum detection coverage.
+    Two-stage approach:
+      Stage 1: Pure PQC groups only (mlkem512/768/1024) — catches native PQC servers.
+      Stage 2: All groups (hybrid + classical fallback) — catches hybrid servers like Google.
     Returns dict with parsed fields or None on failure.
     """
     if not _docker_available():
@@ -120,166 +121,44 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
         return None
 
     try:
-        groups = _discover_oqs_groups()
-        cmd = [
-            "docker", "run", "--rm", "-i",
-            OQS_DOCKER_IMAGE,
-            "openssl", "s_client",
-            "-connect", f"{host}:{port}",
-            "-servername", host,  # Fix SNI
-            "-showcerts",            # Show the full certificate chain
-            "-groups", groups,       # All discovered PQC/hybrid groups + x25519 fallback
-        ]
-        logger.info(f"OQS probe cmd: {' '.join(cmd)}")
-        proc = subprocess.run(
-            cmd, input=b"Q\n", capture_output=True, timeout=timeout,
-        )
-        output = (proc.stdout.decode("utf-8", errors="replace") +
-                  proc.stderr.decode("utf-8", errors="replace"))
-        logger.info(f"OQS probe raw output for {host}:{port} ({len(output)} chars)")
+        all_groups = _discover_oqs_groups()
 
-        if "CONNECTED" not in output:
-            logger.info(f"OQS probe to {host}:{port} did not connect")
-            return None
+        # Stage 1: Try pure PQC groups only (no hybrid, no classical fallback).
+        # This ensures servers that support pure ML-KEM negotiate it instead of hybrid.
+        pure_pqc = ":".join(g for g in all_groups.split(":") if not any(
+            c in g.lower() for c in ["x25519", "x448", "p256", "p384", "p521", "secp"]
+        ) and g.lower() != "x25519") or "mlkem768:mlkem512:mlkem1024"
 
-        result = {}
+        for stage, groups in [("pure_pqc", pure_pqc), ("all_groups", all_groups)]:
+            cmd = [
+                "docker", "run", "--rm", "-i",
+                OQS_DOCKER_IMAGE,
+                "openssl", "s_client",
+                "-connect", f"{host}:{port}",
+                "-servername", host,
+                "-showcerts",
+                "-groups", groups,
+            ]
+            logger.info(f"OQS probe [{stage}] cmd: {' '.join(cmd)}")
+            proc = subprocess.run(
+                cmd, input=b"Q\n", capture_output=True, timeout=timeout,
+            )
+            output = (proc.stdout.decode("utf-8", errors="replace") +
+                      proc.stderr.decode("utf-8", errors="replace"))
 
-        # Parse from the full s_client output
-        for line in output.splitlines():
-            stripped = line.strip()
+            # Check if this stage connected and negotiated a real cipher
+            connected = "CONNECTED" in output
+            cipher_ok = connected and "Cipher is " in output and "Cipher is (NONE)" not in output
 
-            # "New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384"
-            if "Cipher is " in stripped:
-                m = re.search(r"Cipher is (\S+)", stripped)
-                if m:
-                    result["ciphersuite"] = m.group(1)
+            if cipher_ok:
+                logger.info(f"OQS probe [{stage}] succeeded for {host}:{port}")
+                # Tag which stage worked so KEX normalization knows
+                return _parse_oqs_output(output, host, port, stage)
+            else:
+                logger.info(f"OQS probe [{stage}] failed for {host}:{port}, trying next stage")
 
-            # "Protocol  : TLSv1.3"
-            if "Protocol" in stripped and ":" in stripped and "TLS" in stripped:
-                m = re.search(r"Protocol\s*:\s*(\S+)", stripped)
-                if m:
-                    result["tls_version"] = m.group(1)
-
-            # "Server Temp Key: X25519, 253 bits" (TLS 1.2) or nothing in TLS 1.3
-            if stripped.startswith("Server Temp Key:"):
-                result["server_temp_key"] = stripped.split(":", 1)[1].strip()
-
-            # "Peer signing digest: ..." or "Peer signature type: mldsa44"
-            if stripped.startswith("Signature type:") or stripped.startswith("Peer signature type:"):
-                result["signature_type"] = stripped.split(":", 1)[1].strip()
-
-            # "Signature Algorithm: mldsa44" (from cert PEM blocks with -showcerts)
-            if "Signature Algorithm:" in stripped:
-                sig_algo = stripped.split(":", 1)[1].strip()
-                result.setdefault("signature_algorithms", []).append(sig_algo)
-
-            # "Public-Key: (1312 bit)"
-            if "Public-Key:" in stripped:
-                m = re.search(r"\((\d+) bit\)", stripped)
-                if m:
-                    result.setdefault("public_key_bits", []).append(int(m.group(1)))
-
-            if "Public Key Algorithm:" in stripped:
-                algo = stripped.split(":", 1)[1].strip()
-                result.setdefault("public_key_algos", []).append(algo)
-
-        # ── Parse the "Certificate chain" block ──────────────────────────────
-        # This block (before "Server certificate") shows full chain info like:
-        #  0 s:CN=localhost
-        #    i:CN=My_Classical_Root_CA
-        #    a:PKEY: UNDEF, 128 (bit); sigalg: mldsa44
-        # We parse depth, CN, and per-cert sigalg from here.
-        chain_entries = {}  # depth -> dict
-        lines = output.splitlines()
-        in_chain_block = False
-        current_depth = None
-        for line in lines:
-            stripped = line.strip()
-            if stripped == "Certificate chain":
-                in_chain_block = True
-                continue
-            if in_chain_block and (stripped.startswith("---") or stripped.startswith("Server certificate")):
-                in_chain_block = False
-                continue
-            if in_chain_block:
-                # "0 s:CN=localhost" — depth + subject
-                m_depth = re.match(r"(\d+)\s+s:(.+)", stripped)
-                if m_depth:
-                    current_depth = int(m_depth.group(1))
-                    dn = m_depth.group(2).strip()
-                    cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
-                    cn = cn_match.group(1).strip() if cn_match else dn
-                    chain_entries.setdefault(current_depth, {"depth": current_depth, "cn": cn, "dn": dn})
-                    continue
-                # "  i:CN=My_Classical_Root_CA" — issuer at current_depth + 1
-                m_issuer = re.match(r"i:(.+)", stripped)
-                if m_issuer and current_depth is not None:
-                    issuer_dn = m_issuer.group(1).strip()
-                    issuer_cn_match = re.search(r"CN\s*=\s*([^,/]+)", issuer_dn)
-                    issuer_cn = issuer_cn_match.group(1).strip() if issuer_cn_match else issuer_dn
-                    # Create an entry for the issuer (depth+1) if it doesn't have one
-                    next_depth = current_depth + 1
-                    if next_depth not in chain_entries:
-                        chain_entries[next_depth] = {"depth": next_depth, "cn": issuer_cn, "dn": issuer_dn}
-                    continue
-                # "  a:PKEY: UNDEF, 128 (bit); sigalg: mldsa44" — attributes of current cert
-                m_attr = re.match(r"a:(.+)", stripped)
-                if m_attr and current_depth is not None:
-                    attr_str = m_attr.group(1)
-                    sigalg_m = re.search(r"sigalg:\s*(\S+)", attr_str)
-                    if sigalg_m and current_depth in chain_entries:
-                        chain_entries[current_depth]["sigalg"] = sigalg_m.group(1)
-                        # sigalg = the algorithm used by the ISSUER to sign this cert.
-                        # Propagate it to the issuer entry (depth+1) so the root CA is labeled correctly.
-                        issuer_depth = current_depth + 1
-                        if issuer_depth in chain_entries:
-                            chain_entries[issuer_depth].setdefault("sigalg", sigalg_m.group(1))
-
-        # Deduplicate verify-error depth lines ("depth=0 CN=localhost")
-        # and merge into chain_entries
-        for line in lines:
-            m = re.search(r"depth=(\d+)\s+(.+)", line.strip())
-            if m:
-                depth = int(m.group(1))
-                dn = m.group(2).strip()
-                cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
-                cn = cn_match.group(1).strip() if cn_match else dn
-                if depth not in chain_entries:
-                    chain_entries[depth] = {"depth": depth, "cn": cn, "dn": dn}
-
-        result["chain_info"] = sorted(chain_entries.values(), key=lambda x: x["depth"])
-
-        # Detect PQC KEX: we offered hybrid (x25519_mlkem768) and pure (mlkem768) groups.
-        # - HYBRID PQC server (e.g. Google): accepts x25519_mlkem768 with classical cert
-        #   → "Cipher is TLS_AES..." + Server Temp Key may show hybrid info
-        # - PURE PQC server: accepts mlkem768 with PQC cert
-        # - Classical server: falls back to x25519 (last in our list)
-        #   → negotiates fine but with classical KEX only
-        # Detection: if connected + real cipher + (PQC sig OR hybrid/PQC temp key)
-        cipher_negotiated = "Cipher is (NONE)" not in output and "Cipher is " in output
-        pqc_sig_detected = bool(result.get("signature_type", ""))
-
-        # Check if Server Temp Key or any output line indicates PQC/hybrid KEX
-        server_key_raw = result.get("server_temp_key", "").upper()
-        pqc_kex_in_output = any(frag in server_key_raw for frag in ["MLKEM", "KYBER", "ML-KEM"])
-        # Also check raw output for groups negotiation hints
-        if not pqc_kex_in_output:
-            pqc_kex_in_output = any(frag in output.upper() for frag in [
-                "X25519_MLKEM768", "X25519MLKEM768", "MLKEM768", "ML-KEM-768",
-                "X25519_KYBER768", "KYBER768",
-            ])
-        result["pqc_kex_negotiated"] = "CONNECTED" in output and cipher_negotiated and (pqc_sig_detected or pqc_kex_in_output)
-
-        sig_algos = result.get("signature_algorithms", [])
-        pk_algos = result.get("public_key_algos", [])
-        logger.info(f"OQS probe success: sig_algos={sig_algos}, pk_algos={pk_algos}, chain={result.get('chain_info')}, pqc_kex={result.get('pqc_kex_negotiated')}")
-        
-        # If openssl failed the handshake, we don't have a valid TLS connection
-        if "no peer certificate available" in output or "Cipher is (NONE)" in output or "1408F10B:SSL routines:ssl3_get_record:wrong version number" in output or "Connection reset by peer" in output:
-            logger.warning(f"OQS probe failed handshake for {host}:{port} - {output[:100]}")
-            return None
-        
-        return result
+        logger.info(f"OQS probe all stages failed for {host}:{port}")
+        return None
 
     except subprocess.TimeoutExpired:
         logger.warning(f"OQS probe timed out for {host}:{port}")
@@ -287,6 +166,128 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     except Exception as e:
         logger.warning(f"OQS probe failed for {host}:{port}: {e}")
         return None
+
+
+def _parse_oqs_output(output: str, host: str, port: int, stage: str) -> Optional[dict]:
+    """Parse the raw openssl s_client output from the OQS probe into structured data."""
+    result = {"probe_stage": stage}  # Tag which stage produced this result
+
+    # Parse from the full s_client output
+    for line in output.splitlines():
+        stripped = line.strip()
+
+        # "New, TLSv1.3, Cipher is TLS_AES_256_GCM_SHA384"
+        if "Cipher is " in stripped:
+            m = re.search(r"Cipher is (\S+)", stripped)
+            if m:
+                result["ciphersuite"] = m.group(1)
+
+        # "Protocol  : TLSv1.3"
+        if "Protocol" in stripped and ":" in stripped and "TLS" in stripped:
+            m = re.search(r"Protocol\s*:\s*(\S+)", stripped)
+            if m:
+                result["tls_version"] = m.group(1)
+
+        # "Server Temp Key: X25519, 253 bits" (TLS 1.2) or nothing in TLS 1.3
+        if stripped.startswith("Server Temp Key:"):
+            result["server_temp_key"] = stripped.split(":", 1)[1].strip()
+
+        # "Peer signing digest: ..." or "Peer signature type: mldsa44"
+        if stripped.startswith("Signature type:") or stripped.startswith("Peer signature type:"):
+            result["signature_type"] = stripped.split(":", 1)[1].strip()
+
+        # "Signature Algorithm: mldsa44" (from cert PEM blocks with -showcerts)
+        if "Signature Algorithm:" in stripped:
+            sig_algo = stripped.split(":", 1)[1].strip()
+            result.setdefault("signature_algorithms", []).append(sig_algo)
+
+        # "Public-Key: (1312 bit)"
+        if "Public-Key:" in stripped:
+            m = re.search(r"\((\d+) bit\)", stripped)
+            if m:
+                result.setdefault("public_key_bits", []).append(int(m.group(1)))
+
+        if "Public Key Algorithm:" in stripped:
+            algo = stripped.split(":", 1)[1].strip()
+            result.setdefault("public_key_algos", []).append(algo)
+
+    # ── Parse the "Certificate chain" block ──────────────────────────────
+    chain_entries = {}  # depth -> dict
+    lines = output.splitlines()
+    in_chain_block = False
+    current_depth = None
+    for line in lines:
+        stripped = line.strip()
+        if stripped == "Certificate chain":
+            in_chain_block = True
+            continue
+        if in_chain_block and (stripped.startswith("---") or stripped.startswith("Server certificate")):
+            in_chain_block = False
+            continue
+        if in_chain_block:
+            m_depth = re.match(r"(\d+)\s+s:(.+)", stripped)
+            if m_depth:
+                current_depth = int(m_depth.group(1))
+                dn = m_depth.group(2).strip()
+                cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
+                cn = cn_match.group(1).strip() if cn_match else dn
+                chain_entries.setdefault(current_depth, {"depth": current_depth, "cn": cn, "dn": dn})
+                continue
+            m_issuer = re.match(r"i:(.+)", stripped)
+            if m_issuer and current_depth is not None:
+                issuer_dn = m_issuer.group(1).strip()
+                issuer_cn_match = re.search(r"CN\s*=\s*([^,/]+)", issuer_dn)
+                issuer_cn = issuer_cn_match.group(1).strip() if issuer_cn_match else issuer_dn
+                next_depth = current_depth + 1
+                if next_depth not in chain_entries:
+                    chain_entries[next_depth] = {"depth": next_depth, "cn": issuer_cn, "dn": issuer_dn}
+                continue
+            m_attr = re.match(r"a:(.+)", stripped)
+            if m_attr and current_depth is not None:
+                attr_str = m_attr.group(1)
+                sigalg_m = re.search(r"sigalg:\s*(\S+)", attr_str)
+                if sigalg_m and current_depth in chain_entries:
+                    chain_entries[current_depth]["sigalg"] = sigalg_m.group(1)
+                    issuer_depth = current_depth + 1
+                    if issuer_depth in chain_entries:
+                        chain_entries[issuer_depth].setdefault("sigalg", sigalg_m.group(1))
+
+    # Deduplicate depth lines
+    for line in lines:
+        m = re.search(r"depth=(\d+)\s+(.+)", line.strip())
+        if m:
+            depth = int(m.group(1))
+            dn = m.group(2).strip()
+            cn_match = re.search(r"CN\s*=\s*([^,/]+)", dn)
+            cn = cn_match.group(1).strip() if cn_match else dn
+            if depth not in chain_entries:
+                chain_entries[depth] = {"depth": depth, "cn": cn, "dn": dn}
+
+    result["chain_info"] = sorted(chain_entries.values(), key=lambda x: x["depth"])
+
+    # Detect PQC KEX
+    cipher_negotiated = "Cipher is (NONE)" not in output and "Cipher is " in output
+    pqc_sig_detected = bool(result.get("signature_type", ""))
+
+    server_key_raw = result.get("server_temp_key", "").upper()
+    pqc_kex_in_output = any(frag in server_key_raw for frag in ["MLKEM", "KYBER", "ML-KEM"])
+    if not pqc_kex_in_output:
+        pqc_kex_in_output = any(frag in output.upper() for frag in [
+            "X25519_MLKEM768", "X25519MLKEM768", "MLKEM768", "ML-KEM-768",
+            "X25519_KYBER768", "KYBER768",
+        ])
+    result["pqc_kex_negotiated"] = "CONNECTED" in output and cipher_negotiated and (pqc_sig_detected or pqc_kex_in_output)
+
+    sig_algos = result.get("signature_algorithms", [])
+    pk_algos = result.get("public_key_algos", [])
+    logger.info(f"OQS probe [{stage}] parsed: sig_algos={sig_algos}, pk_algos={pk_algos}, pqc_kex={result.get('pqc_kex_negotiated')}")
+
+    # If openssl failed the handshake
+    if "no peer certificate available" in output or "Cipher is (NONE)" in output or "Connection reset by peer" in output:
+        logger.warning(f"OQS probe failed handshake for {host}:{port}")
+        return None
+
+    return result
 
 
 # PQC signature type fragments for matching OQS probe output
@@ -602,10 +603,16 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
         # Normalize PQC key exchange name.
         # In TLS 1.3 the "Server Temp Key" line is absent. Instead we detect PQC KEX
         # by whether the server accepted our hybrid/PQC group offer (pqc_kex_negotiated).
+        # The probe_stage tells us which group set was used:
+        #   "pure_pqc"   → server accepted pure ML-KEM groups → default to ML-KEM-768
+        #   "all_groups"  → server needed hybrid groups → default to X25519_MLKEM768
         oqs_kex = None
         if oqs_data.get("pqc_kex_negotiated"):
-            # Default to hybrid X25519+ML-KEM-768; refine from server_temp_key if available
-            oqs_kex = "X25519_MLKEM768"  # Use hybrid name to preserve full info
+            probe_stage = oqs_data.get("probe_stage", "all_groups")
+            if probe_stage == "pure_pqc":
+                oqs_kex = "ML-KEM-768"  # Pure PQC negotiated
+            else:
+                oqs_kex = "X25519_MLKEM768"  # Hybrid negotiated
         if server_key:
             sk_upper = server_key.upper().replace("-", "").replace("_", "").split(",")[0].strip()
             # Check for hybrid names first (e.g. "X25519MLKEM768")
