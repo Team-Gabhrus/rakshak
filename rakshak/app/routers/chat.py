@@ -487,6 +487,15 @@ async def _build_system_prompt(asset: Asset, cbom: CBOMSnapshot) -> str:
 3. **Ask clarifying questions:** If you need more information about their platform, infrastructure, or implementation constraints, ask detailed follow-up questions.
 4. **Scope enforcement:** If a user asks about a different asset or topic outside your scope, politely redirect them by saying: "I can only answer queries regarding the selected asset '{asset.name or asset.url}' in this session. Please start a new session to ask queries related to another asset or topic."
 
+## PQC Classification Definitions
+Rakshak classifies every scanned target into one of the following tiers:
+
+- **Partially Quantum Safe:** The target uses a hybrid key-exchange algorithm (e.g., X25519+MLKEM768) or supports a NIST-approved post-quantum algorithm such as ML-KEM or ML-DSA alongside classical algorithms. It retains backward compatibility with older TLS versions (not limited to TLS 1.3 only), and its certificates are still signed with classical algorithms like RSA or ECDSA. This posture provides protection against Harvest-Now-Decrypt-Later (HNDL) attacks for key exchange but does not yet achieve full quantum safety.
+- **PQC-Ready:** All negotiated key-exchange and cipher algorithms are quantum-safe (e.g., ML-KEM, ML-DSA only), and only TLS 1.3 is permitted — no fallback to older protocol versions. However, the server certificates are still signed using classical algorithms (RSA / ECDSA), so certificate-level authentication is not yet quantum-resistant. This tier is significantly more secure than Partially Quantum Safe but not fully airtight.
+- **Fully Quantum Safe:** The target is fully quantum-resistant end-to-end. All key-exchange, cipher, and signature algorithms are quantum-safe (ML-KEM, ML-DSA, SLH-DSA, etc.), only TLS 1.3 is used, and the certificates themselves are signed with quantum-safe algorithms. Even if a fully capable cryptographically relevant quantum computer (CRQC) existed today, this target would remain secure.
+
+Use these definitions whenever discussing a target's PQC posture, risk level, or migration roadmap.
+
 ## Response Guidelines
 - Be technical but clear
 - Provide step-by-step implementation guidance
@@ -514,6 +523,15 @@ def _build_domain_system_prompt(domain: str) -> str:
 3. **Provide remediation guidance:** Help users understand how to reduce their attack surface, consolidate subdomains, close dead entries, and improve DNS hygiene.
 4. **PQC & TLS guidance:** When asked, advise on how to migrate the domain's infrastructure to post-quantum cryptography based on the actual scanned targets in this domain.
 5. **Scope enforcement:** If a user asks about unrelated topics, politely redirect them by saying: "I can only answer queries about the domain '{domain}' and its subdomains in this session."
+
+## PQC Classification Definitions
+Rakshak classifies every scanned target into one of the following tiers:
+
+- **Partially Quantum Safe:** The target uses a hybrid key-exchange algorithm (e.g., X25519+MLKEM768) or supports a NIST-approved post-quantum algorithm such as ML-KEM or ML-DSA alongside classical algorithms. It retains backward compatibility with older TLS versions (not limited to TLS 1.3 only), and its certificates are still signed with classical algorithms like RSA or ECDSA. This posture provides protection against Harvest-Now-Decrypt-Later (HNDL) attacks for key exchange but does not yet achieve full quantum safety.
+- **PQC-Ready:** All negotiated key-exchange and cipher algorithms are quantum-safe (e.g., ML-KEM, ML-DSA only), and only TLS 1.3 is permitted — no fallback to older protocol versions. However, the server certificates are still signed using classical algorithms (RSA / ECDSA), so certificate-level authentication is not yet quantum-resistant. This tier is significantly more secure than Partially Quantum Safe but not fully airtight.
+- **Fully Quantum Safe:** The target is fully quantum-resistant end-to-end. All key-exchange, cipher, and signature algorithms are quantum-safe (ML-KEM, ML-DSA, SLH-DSA, etc.), only TLS 1.3 is used, and the certificates themselves are signed with quantum-safe algorithms. Even if a fully capable cryptographically relevant quantum computer (CRQC) existed today, this target would remain secure.
+
+Use these definitions when discussing any target's PQC posture, risk level, or migration roadmap.
 
 ## Response Guidelines
 - Be technical but clear
