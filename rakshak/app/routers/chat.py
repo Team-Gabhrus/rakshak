@@ -31,9 +31,12 @@ import re
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
 
+import google.generativeai as genai
+from google.generativeai import types
 load_dotenv()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-GEMINI_MODEL = "gemini-3-flash-preview"
+GEMINI_MODEL = "gemini-1.5-flash"  # Using 1.5 Flash for better tool support
+genai.configure(api_key=GEMINI_API_KEY)
 
 
 class StartChatRequest(BaseModel):
@@ -402,8 +405,6 @@ async def send_chat_message(
                 "parts": [msg.content]
             })
 
-    import google.generativeai as genai
-    genai.configure(api_key=GEMINI_API_KEY)
     model = genai.GenerativeModel(
         model_name=GEMINI_MODEL,
         system_instruction=system_prompt,
@@ -421,23 +422,67 @@ async def send_chat_message(
 
     async def generate_response():
         try:
+            import asyncio
             from app.database import AsyncSessionLocal
-            # Use ChatSession with automatic function calling
-            chat = model.start_chat(history=history or None, enable_automatic_function_calling=True)
             
-            # Send the latest user message
-            response = await chat.send_message_async(req.message, stream=True)
+            # Start chat session with manual function calling
+            chat_session = model.start_chat(history=history, enable_automatic_function_calling=False)
             
+            # Send the initial user message
+            current_payload = req.message
             full_reply = ""
-            async for chunk in response:
-                if chunk.text:
-                    full_reply += chunk.text
-                    yield chunk.text
+            
+            while True:
+                response = await chat_session.send_message_async(current_payload, stream=True)
+                
+                tool_calls = []
+                text_parts = []
+                
+                async for chunk in response:
+                    for part in chunk.candidates[0].content.parts:
+                        if part.function_call:
+                            tool_calls.append(part.function_call)
+                        elif part.text:
+                            text_parts.append(part.text)
+                            yield part.text
+                
+                if not tool_calls:
+                    full_reply = "".join(text_parts)
+                    break
+                
+                # Turn with tool calls
+                tool_map = {
+                    "get_domain_subdomain_inventory": get_domain_subdomain_inventory,
+                    "get_subdomain_detailed_cbom": get_subdomain_detailed_cbom,
+                    "get_subdomain_remediation_guidance": get_subdomain_remediation_guidance
+                }
+                
+                tool_responses = []
+                tasks = []
+                
+                for fc in tool_calls:
+                    handler = tool_map.get(fc.name)
+                    if handler:
+                        args = dict(fc.args)
+                        tasks.append((fc.name, handler(db=db, **args)))
+                
+                if tasks:
+                    # Execute all tools in parallel
+                    names = [t[0] for t in tasks]
+                    coroutines = [t[1] for t in tasks]
+                    results = await asyncio.gather(*coroutines)
+                    
+                    for name, result in zip(names, results):
+                        tool_responses.append(types.Part.from_function_response(
+                            name=name,
+                            response={"result": result}
+                        ))
+                
+                # Send tool results back to the model for the next turn
+                current_payload = tool_responses
 
-            # After yielding all chunks, store assistant response in a new DB session
+            # Store assistant response in a new DB session
             async with AsyncSessionLocal() as task_db:
-                task_sess = await task_db.execute(select(ChatSession).where(ChatSession.id == session_id))
-                tsession = task_sess.scalar_one()
                 assistant_msg = ChatMessage(
                     session_id=session_id,
                     user_id=current_user.id,
@@ -445,7 +490,11 @@ async def send_chat_message(
                     content=full_reply,
                 )
                 task_db.add(assistant_msg)
-                tsession.message_count += 1
+                
+                # Update message count (user + assistant)
+                task_sess = await task_db.execute(select(ChatSession).where(ChatSession.id == session_id))
+                tsession = task_sess.scalar_one()
+                tsession.message_count += 2
                 await task_db.commit()
 
         except Exception as e:
