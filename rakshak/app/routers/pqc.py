@@ -46,7 +46,7 @@ async def get_pqc_posture(
             categories["standard"].append(asset_info)
         elif label == "partially_quantum_safe":
             categories["legacy"].append(asset_info)
-        else:
+        elif label == "not_quantum_safe":
             categories["critical"].append(asset_info)
 
     # FR-45 & FR-46 Dynamic Timeline
