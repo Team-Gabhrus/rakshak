@@ -424,8 +424,8 @@ async function deleteSelectedDiscoveries() {
   let successCount = 0;
   
   for (const id of ids) {
-    const res = await fetch(`/api/assets/discovery/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
-    if (res.ok) successCount++;
+    const res = await API.delete(`/api/assets/discovery/${id}`);
+    if (res && res.ok) successCount++;
   }
   
   if (successCount > 0) {
