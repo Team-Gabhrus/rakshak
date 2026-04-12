@@ -116,7 +116,7 @@ async function loadRating() {
   const bk = d.breakdown || {};
   document.getElementById('countFQS').textContent = bk.fully_quantum_safe||0;
   document.getElementById('countPQC').textContent = bk.pqc_ready||0;
-  document.getElementById('countQS').textContent = bk.quantum_safe||0;
+  document.getElementById('countQS').textContent = bk.partially_quantum_safe||0;
   document.getElementById('countNQS').textContent = bk.not_quantum_safe||0;
 
   // FR-48 Classification table
