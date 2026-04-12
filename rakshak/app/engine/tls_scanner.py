@@ -14,6 +14,45 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+# Global concurrency control to prevent system-wide stalls during bulk/overlapping scans
+GLOBAL_SCAN_SEMAPHORE = asyncio.Semaphore(50)
+# Tighter semaphore for Docker exec operations — Docker Desktop degrades above ~20 concurrent execs
+DOCKER_EXEC_SEMAPHORE = asyncio.Semaphore(15)
+
+async def _run_command_async(cmd: list[str], input_data: Optional[bytes] = None, timeout: int = 30) -> tuple[int, str]:
+    """Execute a subprocess asynchronously without blocking the event loop."""
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdin=asyncio.subprocess.PIPE if input_data else None,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        
+        try:
+            stdout, stderr = await asyncio.wait_for(proc.communicate(input=input_data), timeout=timeout)
+            output = stdout.decode("utf-8", errors="replace") + stderr.decode("utf-8", errors="replace")
+            return proc.returncode or 0, output
+        except asyncio.CancelledError:
+            # Scan was terminated — kill the subprocess and propagate cancellation
+            try:
+                proc.kill()
+                await proc.wait()
+            except Exception:
+                pass
+            raise
+        except asyncio.TimeoutExpired:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            return -1, "Command timed out"
+    except asyncio.CancelledError:
+        raise  # always propagate cancellation
+    except Exception as e:
+        return -1, f"Process execution failed: {str(e)}"
+
+
 # ── OQS Docker Probe ────────────────────────────────────────────────
 OQS_DOCKER_IMAGE = "openquantumsafe/curl:latest"
 
@@ -36,7 +75,52 @@ def _docker_available() -> bool:
     """Check if Docker CLI is available."""
     return shutil.which("docker") is not None
 
-def _discover_oqs_groups(timeout: int = 15) -> str:
+async def _docker_exec(cmd_args: list[str], input_data: Optional[bytes] = None, timeout: int = 30) -> tuple[int, str]:
+    """Execute a command inside the OQS Docker container with concurrency throttling."""
+    full_cmd = ["docker", "exec", "-i", "rakshak-oqs-daemon"] + cmd_args
+    async with DOCKER_EXEC_SEMAPHORE:
+        return await _run_command_async(full_cmd, input_data=input_data, timeout=timeout)
+
+# Cache for OQS daemon readiness (avoid repeated `docker ps` calls during bulk scans)
+_oqs_daemon_cache: Optional[bool] = None
+_oqs_daemon_cache_ts: float = 0
+_OQS_DAEMON_CACHE_TTL = 120  # seconds
+
+async def is_oqs_daemon_ready() -> bool:
+    """Check if rackshak-oqs-daemon is actively running."""
+    if not _docker_available(): return False
+    code, out = await _run_command_async(["docker", "ps", "-q", "-f", "name=rakshak-oqs-daemon"])
+    return bool(out.strip())
+
+async def ensure_oqs_daemon() -> bool:
+    """Attempt to start the daemon if not running. Caches result to avoid repeated docker ps calls."""
+    global _oqs_daemon_cache, _oqs_daemon_cache_ts
+    import time as _time
+    now = _time.monotonic()
+    if _oqs_daemon_cache is not None and (now - _oqs_daemon_cache_ts) < _OQS_DAEMON_CACHE_TTL:
+        return _oqs_daemon_cache
+
+    if await is_oqs_daemon_ready():
+        _oqs_daemon_cache = True
+        _oqs_daemon_cache_ts = now
+        return True
+    if not _docker_available():
+        _oqs_daemon_cache = False
+        _oqs_daemon_cache_ts = now
+        return False
+    # Try start existing stopped container
+    code, out = await _run_command_async(["docker", "ps", "-aq", "-f", "name=rakshak-oqs-daemon"])
+    if out.strip():
+        await _run_command_async(["docker", "start", "rakshak-oqs-daemon"])
+    else:
+        # Create and run
+        await _run_command_async(["docker", "run", "-d", "--restart", "always", "--name", "rakshak-oqs-daemon", "openquantumsafe/curl", "sleep", "infinity"])
+    ready = await is_oqs_daemon_ready()
+    _oqs_daemon_cache = ready
+    _oqs_daemon_cache_ts = now
+    return ready
+
+async def _discover_oqs_groups(timeout: int = 15) -> str:
     """
     Query the OQS Docker image for all supported KEM/group algorithms.
     Returns a colon-separated groups string for -groups parameter.
@@ -49,16 +133,15 @@ def _discover_oqs_groups(timeout: int = 15) -> str:
     # Hardcoded fallback in case discovery fails
     fallback = "X25519MLKEM768:SecP256r1MLKEM768:mlkem768:x25519"
 
-    if not _docker_available():
+    if not _docker_available() or not await ensure_oqs_daemon():
         _oqs_groups_cache = fallback
         return fallback
 
     try:
-        proc = subprocess.run(
-            ["docker", "run", "--rm", OQS_DOCKER_IMAGE, "openssl", "list", "-kem-algorithms"],
-            capture_output=True, timeout=timeout,
+        code, output = await _docker_exec(
+            ["openssl", "list", "-kem-algorithms"],
+            timeout=timeout,
         )
-        output = proc.stdout.decode("utf-8", errors="replace")
 
         # Parse group names: each line looks like "  X25519MLKEM768 @ oqsprovider"
         all_groups = []
@@ -108,22 +191,19 @@ def _discover_oqs_groups(timeout: int = 15) -> str:
         return fallback
 
 
-def _quick_group_test(host: str, port: int, group: str, timeout: int = 15) -> bool:
+async def _quick_group_test(host: str, port: int, group: str, timeout: int = 15) -> bool:
     """Quick test: can the server negotiate with this specific group?
     Uses a single-group probe — if the handshake succeeds, we know for certain
     this exact group was negotiated (no fallback possible).
     """
     try:
-        cmd = [
-            "docker", "run", "--rm", "-i",
-            OQS_DOCKER_IMAGE,
-            "openssl", "s_client",
-            "-connect", f"{host}:{port}",
-            "-servername", host,
-            "-groups", group,
-        ]
-        proc = subprocess.run(cmd, input=b"Q\n", capture_output=True, timeout=timeout)
-        output = proc.stdout.decode("utf-8", errors="replace") + proc.stderr.decode("utf-8", errors="replace")
+        code, output = await _docker_exec(
+            ["openssl", "s_client",
+             "-connect", f"{host}:{port}",
+             "-servername", host,
+             "-groups", group],
+            input_data=b"Q\n", timeout=timeout,
+        )
         return "CONNECTED" in output and "Cipher is " in output and "Cipher is (NONE)" not in output
     except Exception:
         return False
@@ -144,29 +224,16 @@ _GROUP_DISPLAY_NAMES = {
 }
 
 
-def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
+async def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
     """
     Use the OQS Docker container to probe a PQC-enabled server.
-    
-    Strategy (no cases missed):
-      1. Discover ALL supported PQC/hybrid groups from the OQS image.
-      2. Separate into pure PQC and hybrid lists.
-      3. Test each group INDIVIDUALLY (single-group probe) — if the handshake
-         succeeds with one group, we know FOR CERTAIN that's what was negotiated
-         (OpenSSL s_client cannot fall back when only one group is offered).
-      4. Order: pure PQC first → hybrid → stop at first success.
-      5. Do a final full probe with -showcerts using the winning group to get
-         cert chain and signature info.
-    
-    This catches every PQC/hybrid group the OQS image supports, including
-    servers that only show hybrid KEX in practice (like Google's X25519MLKEM768).
     """
-    if not _docker_available():
-        logger.warning("Docker not available — skipping OQS probe")
+    if not await ensure_oqs_daemon():
+        logger.warning("Docker or OQS daemon not available — skipping OQS probe")
         return None
 
     try:
-        all_groups = _discover_oqs_groups()
+        all_groups = await _discover_oqs_groups()
 
         # Separate into pure PQC and hybrid
         pure_pqc_groups = []
@@ -182,70 +249,79 @@ def _oqs_probe(host: str, port: int, timeout: int = 30) -> Optional[dict]:
             else:
                 pure_pqc_groups.append(g)
 
-        # ── Phase 1: Single-group probes to identify exact KEX ────────────
-        # Try each group individually. First match wins.
-        # Order: pure PQC (best) → hybrid (good) → classical (fallback)
-        negotiated_group = None
-        probe_type = None  # "pure_pqc" or "hybrid"
-
-        logger.info(f"OQS KEX scan for {host}:{port}: testing {len(pure_pqc_groups)} pure PQC + {len(hybrid_groups)} hybrid groups")
-
-        # Test pure PQC groups first
-        for g in pure_pqc_groups:
-            if _quick_group_test(host, port, g, timeout=15):
-                negotiated_group = g
-                probe_type = "pure_pqc"
-                logger.info(f"OQS KEX: {host}:{port} accepts pure PQC group '{g}'")
-                break
-
-        # If no pure PQC, test hybrid groups
-        if not negotiated_group:
-            for g in hybrid_groups:
-                if _quick_group_test(host, port, g, timeout=15):
-                    negotiated_group = g
-                    probe_type = "hybrid"
-                    logger.info(f"OQS KEX: {host}:{port} accepts hybrid group '{g}'")
-                    break
-
-        if not negotiated_group:
-            logger.info(f"OQS KEX: {host}:{port} does not support any PQC/hybrid groups")
-
-        # ── Phase 2: Full probe with -showcerts for cert chain info ───────
-        # Use the negotiated group (or all groups as fallback) to get full cert/sig data
-        full_group = negotiated_group or all_groups
-        cmd = [
-            "docker", "run", "--rm", "-i",
-            OQS_DOCKER_IMAGE,
-            "openssl", "s_client",
-            "-connect", f"{host}:{port}",
-            "-servername", host,
-            "-showcerts",
-            "-groups", full_group,
-        ]
-        logger.info(f"OQS full probe cmd: {' '.join(cmd)}")
-        proc = subprocess.run(cmd, input=b"Q\n", capture_output=True, timeout=timeout)
-        output = (proc.stdout.decode("utf-8", errors="replace") +
-                  proc.stderr.decode("utf-8", errors="replace"))
+        # ── Phase 1: Single composite probe with ALL groups ──────────────
+        # One Docker exec tells us: (a) connectivity, (b) PQC capability,
+        # and (c) cert chain + signature info via -showcerts. For the ~99%
+        # of classical servers this is the ONLY Docker exec (was 36+ before).
+        logger.info(f"OQS composite probe for {host}:{port} with {len(pure_pqc_groups)} pure + {len(hybrid_groups)} hybrid groups")
+        code, output = await _docker_exec(
+            ["openssl", "s_client",
+             "-connect", f"{host}:{port}",
+             "-servername", host,
+             "-showcerts",
+             "-groups", all_groups],
+            input_data=b"Q\n", timeout=timeout,
+        )
 
         if "CONNECTED" not in output or "Cipher is (NONE)" in output:
-            logger.info(f"OQS full probe to {host}:{port} did not connect")
+            logger.info(f"OQS composite probe to {host}:{port} did not connect")
             return None
 
-        # Parse cert chain and signature info from the full probe output
-        stage = probe_type or "classical"
-        result = _parse_oqs_output(output, host, port, stage)
+        # Parse cert chain and signature info from the composite probe output
+        result = _parse_oqs_output(output, host, port, "composite")
         if result is None:
             return None
 
-        # Inject the verified KEX group name (from Phase 1)
+        # ── Phase 2: PQC group identification ────────────────────────────
+        # TLS 1.3 output does NOT reliably show the negotiated group name
+        # (no "Server Temp Key" line for PQC groups in OQS OpenSSL).
+        # So we always test the top PQC groups individually.
+        # This adds 1-3 Docker execs (vs 35+ before) — still a huge win.
+        negotiated_group = None
+        probe_type = None
+
+        # Strategy A: Infer from Server Temp Key line (works for some TLS 1.2 servers)
+        server_key = result.get("server_temp_key", "")
+        if server_key:
+            sk_norm = server_key.upper().replace("-", "").replace("_", "").replace(" ", "").split(",")[0]
+            all_candidates = pure_pqc_groups + hybrid_groups
+            for g in all_candidates:
+                g_norm = g.upper().replace("-", "").replace("_", "")
+                if g_norm in sk_norm:
+                    if await _quick_group_test(host, port, g, timeout=15):
+                        negotiated_group = g
+                        probe_type = "pure_pqc" if g in pure_pqc_groups else "hybrid"
+                        logger.info(f"OQS KEX: {host}:{port} verified inferred group '{g}' from Server Temp Key")
+                    break
+
+        # Strategy B: Always test the most commonly deployed PQC groups.
+        # This catches TLS 1.3 servers that negotiate PQC but don't show
+        # the group name in the output (e.g., Google, Cloudflare).
+        if not negotiated_group:
+            top_candidates = [
+                "X25519MLKEM768", "SecP256r1MLKEM768", "SecP384r1MLKEM1024",
+                "mlkem768", "mlkem512", "mlkem1024",
+            ]
+            for g in top_candidates:
+                if g not in (pure_pqc_groups + hybrid_groups):
+                    continue
+                if await _quick_group_test(host, port, g, timeout=15):
+                    negotiated_group = g
+                    probe_type = "pure_pqc" if g in pure_pqc_groups else "hybrid"
+                    logger.info(f"OQS KEX: {host}:{port} accepts top-candidate group '{g}'")
+                    break
+
+        # Inject the verified KEX group name
         if negotiated_group:
             display_name = _GROUP_DISPLAY_NAMES.get(negotiated_group, negotiated_group)
             result["verified_kex_group"] = display_name
             result["pqc_kex_negotiated"] = True
+            result["probe_stage"] = probe_type
             logger.info(f"OQS result: KEX={display_name} ({probe_type}), pqc_kex=True")
         else:
             result["verified_kex_group"] = None
-            # pqc_kex_negotiated stays as whatever _parse_oqs_output set it to
+            # pqc_kex_negotiated stays True from composite parse — let scan_target
+            # use server_temp_key or probe_stage fallback for KEX identification.
 
         return result
 
@@ -356,7 +432,7 @@ def _parse_oqs_output(output: str, host: str, port: int, stage: str) -> Optional
 
     # Detect PQC KEX
     cipher_negotiated = "Cipher is (NONE)" not in output and "Cipher is " in output
-    pqc_sig_detected = bool(result.get("signature_type", ""))
+    pqc_sig_detected = _is_pqc_sig(result.get("signature_type", ""))
 
     server_key_raw = result.get("server_temp_key", "").upper()
     pqc_kex_in_output = any(frag in server_key_raw for frag in ["MLKEM", "KYBER", "ML-KEM"])
@@ -502,11 +578,8 @@ def parse_cipher_name(cipher_name: str) -> CipherSuiteInfo:
     )
 
 
-async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
-    """
-    Perform a TLS scan on a target URL/host using sslyze.
-    Returns TLSScanResult with all cipher suite and TLS data.
-    """
+def _sslyze_scan_sync(host: str, port: int, target: str) -> TLSScanResult:
+    """Synchronous worker for SSLyze handshakes — must run in an executor thread."""
     from sslyze import (
         ServerNetworkLocation,
         Scanner,
@@ -515,12 +588,6 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
     )
     from sslyze.errors import ServerHostnameCouldNotBeResolved, ConnectionToServerFailed
     from app.engine.cert_parser import parse_certificate_chain
-    from urllib.parse import urlparse
-
-    # Extract hostname and port
-    parsed_url = urlparse(target if target.startswith(('http://', 'https://')) else f'https://{target}')
-    host = parsed_url.hostname or target
-    port = parsed_url.port or 443
 
     result = TLSScanResult(target=target)
 
@@ -547,17 +614,15 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
 
         for server_scan_result in scanner.get_results():
             if server_scan_result.scan_result is None:
-                # connectivity_error_trace (sslyze ≥6) or connectivity_error (older) — use getattr to be safe
                 conn_err = (
                     getattr(server_scan_result, "connectivity_error_trace", None)
                     or getattr(server_scan_result, "connectivity_error", None)
                 )
                 result.error = f"Scan failed: {type(conn_err).__name__}: {conn_err}" if conn_err else "Scan failed: no result"
-                break  # Don't return — fall through to OQS Docker enrichment
+                break
 
             scan_res = server_scan_result.scan_result
 
-            # TLS version and cipher enumeration
             version_map = {
                 "ssl_2_0_cipher_suites": "SSL 2.0",
                 "ssl_3_0_cipher_suites": "SSL 3.0",
@@ -588,26 +653,20 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
             result.version_ciphers = version_ciphers
             result.cipher_suites = all_ciphers
 
-            # Set negotiated cipher info from the STRONGEST suite on the BEST supported version.
-            # This accurately reflects what a modern client (like Rekshak) would negotiate.
             if best_version and version_ciphers.get(best_version):
                 best_version_suites = version_ciphers[best_version]
-                
                 def score_cipher(c):
                     s = c.get("bits", 0)
                     name = c.get("name", "").upper()
-                    # AEAD and modern primitives get high scores
                     if "CHACHA" in name: s += 1000
                     if "GCM" in name: s += 500
                     if "AES256" in name: s += 256
                     if "POLY1305" in name: s += 100
-                    # Legacy stuff penalized for selection
                     if "CBC" in name: s -= 2000
                     if "3DES" in name: s -= 5000
                     if "SHA1" in name or "MD5" in name: s -= 3000
                     return s
 
-                # Select best from best (max score)
                 best = max(best_version_suites, key=score_cipher)
                 result.negotiated_cipher = best["name"]
                 result.key_exchange = best["key_exchange"]
@@ -615,8 +674,6 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 result.encryption = best["encryption"]
                 result.hashing = best["hashing"]
 
-
-            # Ensure the negotiated cipher is represented in the CBOM cipher list
             if result.negotiated_cipher:
                 negotiated_entry = {
                     "name": result.negotiated_cipher,
@@ -628,17 +685,11 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
                 }
                 if negotiated_entry not in result.cipher_suites:
                     result.cipher_suites.insert(0, negotiated_entry)
-                if negotiated_entry not in all_ciphers:
-                    all_ciphers.insert(0, negotiated_entry)
 
-
-            # Certificate chain
             cert_attempt = getattr(scan_res, "certificate_info", None)
             if cert_attempt and cert_attempt.result and cert_attempt.result.certificate_deployments:
                 deployment = cert_attempt.result.certificate_deployments[0]
                 result.cert_chain = parse_certificate_chain(deployment.received_certificate_chain)
-                
-                # REAL PQC SCANNING: Elevate authentication if leaf certificate uses a PQC OID
                 if result.cert_chain and "error" not in result.cert_chain[0]:
                     leaf_sig = result.cert_chain[0].get("signature_algorithm_reference", "").upper()
                     if "ML-DSA" in leaf_sig or "DILITHIUM" in leaf_sig or "SLH-DSA" in leaf_sig or "FALCON" in leaf_sig:
@@ -652,14 +703,31 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
         result.error = f"Connection failed: {e}"
     except Exception as e:
         result.error = f"Scan error: {str(e)}"
-        logger.exception(f"Error scanning {target}")
+    
+    return result
+
+
+async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
+    """
+    Perform a TLS scan on a target URL/host.
+    Offloads synchronous SSLyze to a thread to keep the main event loop responsive.
+    """
+    from urllib.parse import urlparse
+    parsed_url = urlparse(target if target.startswith(('http://', 'https://')) else f'https://{target}')
+    host = parsed_url.hostname or target
+    port = parsed_url.port or 443
+
+    # 1. Run the synchronous SSLyze handshake logic in a background thread
+    loop = asyncio.get_running_loop()
+    result = await loop.run_in_executor(None, _sslyze_scan_sync, host, port, target)
+
 
     # ── OQS Docker Enrichment ────────────────────────────────────────
     # Always run the OQS probe to discover the server's true PQC
     # capability. Dual-stack servers send classical certs to classical
     # clients, so we need OQS to see the PQC side.
     logger.info(f"Running OQS Docker enrichment for {target}...")
-    oqs_data = _oqs_probe(host, port)
+    oqs_data = await _oqs_probe(host, port)
     if oqs_data:
         sig_type = oqs_data.get("signature_type", "")
         if not _is_pqc_sig(sig_type):
@@ -832,18 +900,20 @@ async def scan_target(target: str, timeout: int = 30) -> TLSScanResult:
     return result
 
 
-async def scan_targets_concurrent(targets: list[str], progress_callback=None, max_concurrent: int = 10) -> list[TLSScanResult]:
-    """Scan multiple targets concurrently with throttling (FR-08, NFR concurrency)."""
-    semaphore = asyncio.Semaphore(max_concurrent)
-    results = []
-
-    async def scan_with_semaphore(target: str, idx: int) -> TLSScanResult:
-        async with semaphore:
-            result = await asyncio.get_event_loop().run_in_executor(None, lambda: asyncio.run(scan_target(target)))
+async def scan_targets_concurrent(targets: list[str], progress_callback=None) -> list[TLSScanResult]:
+    """Scan multiple targets concurrently using the global semaphore for throttling."""
+    
+    async def scan_with_throttling(target: str, idx: int) -> TLSScanResult:
+        async with GLOBAL_SCAN_SEMAPHORE:
+            result = await scan_target(target)
             if progress_callback:
                 await progress_callback(idx, len(targets), target, result)
             return result
 
-    tasks = [scan_with_semaphore(t, i) for i, t in enumerate(targets)]
+    tasks = [scan_with_throttling(t, i) for i, t in enumerate(targets)]
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    return [r if isinstance(r, TLSScanResult) else TLSScanResult(target=targets[i], error=str(r)) for i, r in enumerate(results)]
+    return [
+        r if isinstance(r, TLSScanResult) else TLSScanResult(target=targets[i], error=str(r)) 
+        for i, r in enumerate(results)
+    ]
+

@@ -26,6 +26,30 @@ logger = logging.getLogger(__name__)
 # Global dict: scan_id -> list of progress messages (for WebSocket delivery)
 scan_progress: dict[int, list[dict]] = {}
 scan_cancel_events: dict[int, asyncio.Event] = {}
+# Track in-flight asyncio.Tasks per scan for instant cancellation
+scan_active_tasks: dict[int, set[asyncio.Task]] = {}
+
+# Per-scan concurrency budget — prevents one scan from starving another
+PER_SCAN_CONCURRENCY = 20
+
+
+async def cancel_scan_tasks(scan_id: int):
+    """Instantly cancel all in-flight tasks for a scan.
+    
+    This calls task.cancel() on every running asyncio.Task,
+    which raises CancelledError at the next await point inside
+    _scan_single / scan_target / _oqs_probe / _run_command_async,
+    killing any Docker exec subprocesses immediately.
+    """
+    cancel_event = scan_cancel_events.get(scan_id)
+    if cancel_event:
+        cancel_event.set()
+
+    tasks = scan_active_tasks.get(scan_id, set())
+    for task in tasks:
+        if not task.done():
+            task.cancel()
+    logger.info(f"cancel_scan_tasks: cancelled {len(tasks)} in-flight tasks for scan {scan_id}")
 
 
 def validate_targets(targets: list[str]) -> tuple[list[str], list[str]]:
@@ -114,13 +138,9 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
 
         completed = 0
         failed = 0
-        
-        sem = asyncio.Semaphore(50)  # FR-10: Concurrency setup (aiming up to 50)
-        
+
         async def process_target(idx, target):
-            nonlocal completed, failed
-            if cancel_event.is_set():
-                return idx, target, None, None
+            """Scan one target. CancelledError is allowed to propagate for instant termination."""
             base_pct = round((idx / len(targets)) * 100)
             step_pct = max(1, round(100 / len(targets)))
 
@@ -147,20 +167,9 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
                 })
 
             await sub_progress("resolve")
-            try:
-                loop = asyncio.get_event_loop()
-                async with sem:
-                    if cancel_event.is_set():
-                        return idx, target, None, None
-                    await sub_progress("tls")
-                    scan_result_raw = await loop.run_in_executor(
-                        None,
-                        lambda t=target: asyncio.run(_scan_single(t))
-                    )
-                return idx, target, True, scan_result_raw
-            except Exception as e:
-                logger.exception(f"Error scanning {target}")
-                return idx, target, False, e
+            await sub_progress("tls")
+            scan_result_raw = await _scan_single(target)
+            return idx, target, True, scan_result_raw
 
         def progress_pct() -> int:
             if not targets:
@@ -169,6 +178,8 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
 
         target_iter = iter(enumerate(targets))
         active_tasks: set[asyncio.Task] = set()
+        # Register with global dict so cancel_scan_tasks() can reach us
+        scan_active_tasks[scan_id] = active_tasks
 
         def launch_next() -> bool:
             if cancel_event.is_set():
@@ -180,27 +191,32 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             active_tasks.add(asyncio.create_task(process_target(idx, target)))
             return True
 
-        for _ in range(min(50, len(targets))):
+        # Per-scan concurrency budget (not 50 — leaves room for concurrent scans)
+        for _ in range(min(PER_SCAN_CONCURRENCY, len(targets))):
             if not launch_next():
                 break
-
-        cancel_notice_sent = False
 
         while active_tasks:
             done, _ = await asyncio.wait(active_tasks, return_when=asyncio.FIRST_COMPLETED)
             for task in done:
                 active_tasks.discard(task)
-                idx, target, success, result_or_err = await task
-                if success is None:
+
+                # Handle cancelled tasks (from cancel_scan_tasks)
+                if task.cancelled():
+                    continue
+
+                try:
+                    idx, target, success, result_or_err = task.result()
+                except asyncio.CancelledError:
+                    continue
+                except Exception as e:
+                    # process_target raised an unexpected exception
+                    failed += 1
+                    logger.exception(f"Error scanning target")
                     continue
 
                 if cancel_event.is_set():
-                    if not cancel_notice_sent:
-                        await push_progress(scan_id, {
-                            "phase": "cancel_requested",
-                            "message": "Termination requested. Rakshak will keep only completed target results.",
-                        })
-                        cancel_notice_sent = True
+                    # Cancel was requested — don't save this result, just drain
                     continue
 
                 if success:
@@ -289,6 +305,7 @@ async def run_scan(scan_id: int, targets: list[str], db_url: str):
             logger.error(f"Failed to push final done progress: {e}")
         finally:
             scan_cancel_events.pop(scan_id, None)
+            scan_active_tasks.pop(scan_id, None)
 
 
 async def _check_reachability(host: str, port: int, timeout: float = 5.0) -> str:
@@ -325,6 +342,45 @@ async def _scan_single(target: str) -> dict:
     parsed = urlparse(target if target.startswith(("http://", "https://")) else f"https://{target}")
     host = parsed.hostname or target
     port = parsed.port or 443
+
+    # ── Pre-scan reachability filter ─────────────────────────────────
+    # Quick DNS + TCP check BEFORE expensive SSLyze/OQS scans.
+    # Unreachable hosts (dns_failed, intranet_only) are classified
+    # immediately, saving ~30-80s per unreachable target.
+    try:
+        reach_precheck = await _check_reachability(host, port)
+    except Exception:
+        reach_precheck = "reachable"  # assume reachable on error, let scanner decide
+
+    if reach_precheck in ("dns_failed", "intranet_only"):
+        label_map_precheck = {
+            "dns_failed":    ("dns_failed",    "🚫 DNS Failed",
+                              "Hostname has no public DNS record. This may be an internal or decommissioned service."),
+            "intranet_only": ("intranet_only", "🔒 Intranet Only",
+                              "Host resolves but port is firewalled. Service is likely only accessible from within the bank's network."),
+        }
+        pqc_label, pqc_display, err_msg = label_map_precheck[reach_precheck]
+
+        return {
+            "target": target,
+            "success": False,
+            "error": err_msg,
+            "tls_version": None,
+            "supported_tls_versions": [],
+            "negotiated_cipher": None,
+            "cipher_suites": [],
+            "key_exchange": None,
+            "authentication": None,
+            "encryption": None,
+            "hashing": None,
+            "cert_chain": [],
+            "pqc_label": pqc_label,
+            "pqc_label_display": pqc_display,
+            "pqc_details": {"error": err_msg, "reachability": reach_precheck},
+            "recommendations": [{"component": "Network", "action": err_msg, "priority": "Informational", "effort": "Low"}],
+            "cbom": {},
+            "playbook": {},
+        }
 
     tls_result = await tls_scanner.scan_target(target)
 

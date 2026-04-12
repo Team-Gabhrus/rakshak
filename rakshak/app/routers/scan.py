@@ -9,7 +9,7 @@ from app.database import get_db
 from app.models.scan import Scan, ScanResult, ScanStatus
 from app.models.user import User
 from app.dependencies import require_admin, require_any_role
-from app.services.scan_service import validate_targets, run_scan, scan_progress, scan_cancel_events, push_progress
+from app.services.scan_service import validate_targets, run_scan, scan_progress, scan_cancel_events, cancel_scan_tasks, push_progress
 from app.services.audit_service import log_event
 from app.config import settings
 import csv
@@ -22,11 +22,15 @@ class ScanRequest(BaseModel):
     targets: list[str]
     discover_subdomains: bool = False
 
+@router.get("/daemon/status")
+async def daemon_status(current_user: User = Depends(require_any_role)):
+    from app.engine.tls_scanner import is_oqs_daemon_ready
+    return {"status": await is_oqs_daemon_ready()}
+
 
 @router.post("")
 async def submit_scan(
     req: ScanRequest,
-    background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -61,8 +65,11 @@ async def submit_scan(
 
     await log_event(db, "scan_initiated", f"Scan #{scan.id} started with {len(valid_targets)} targets", current_user.id, current_user.username, request.client.host if request.client else None)
 
-    # Run scan in background
-    background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
+    # Fire scan immediately via asyncio.create_task (not BackgroundTasks)
+    # This ensures the scan starts running NOW, not after the response is sent.
+    # Multiple concurrent scans are fully supported — each gets its own
+    # concurrency budget (PER_SCAN_CONCURRENCY) so they don't starve each other.
+    asyncio.create_task(run_scan(scan.id, valid_targets, settings.DATABASE_URL))
 
     return {
         "scan_id": scan.id,
@@ -75,7 +82,6 @@ async def submit_scan(
 
 @router.post("/bulk-import")
 async def bulk_import(
-    background_tasks: BackgroundTasks,
     request: Request,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(require_admin),
@@ -105,7 +111,7 @@ async def bulk_import(
     db.add(scan)
     await db.commit()
     await db.refresh(scan)
-    background_tasks.add_task(run_scan, scan.id, valid_targets, settings.DATABASE_URL)
+    asyncio.create_task(run_scan(scan.id, valid_targets, settings.DATABASE_URL))
 
     return {"scan_id": scan.id, "target_count": len(valid_targets), "validation_errors": errors}
 
@@ -254,9 +260,11 @@ async def cancel_scan(
 
     cancel_event = scan_cancel_events.get(scan_id)
     if cancel_event:
-        cancel_event.set()
+        # Instant cancellation: cancel all in-flight asyncio tasks
+        # (kills Docker subprocesses, stops SSLyze waits immediately)
+        await cancel_scan_tasks(scan_id)
         await db.commit()
-        return {"message": f"Scan {scan_id} cancellation requested", "status": "cancellation_requested"}
+        return {"message": f"Scan {scan_id} terminated — all in-flight tasks cancelled", "status": "cancellation_requested"}
 
     scan.status = ScanStatus.cancelled
     await db.commit()
