@@ -201,13 +201,20 @@ async def get_cbom(
     current_user: User = Depends(require_any_role),
 ):
     """FR-10: Full CBOM for a specific snapshot."""
-    result = await db.execute(select(CBOMSnapshot).where(CBOMSnapshot.id == snap_id))
-    snap = result.scalar_one_or_none()
-    if not snap:
+    from app.models.asset import Asset
+    result = await db.execute(
+        select(CBOMSnapshot, Asset.name)
+        .outerjoin(Asset, CBOMSnapshot.target_url == Asset.url)
+        .where(CBOMSnapshot.id == snap_id)
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="CBOM snapshot not found")
+    snap, asset_name = row
     return {
         "id": snap.id,
         "target": snap.target_url,
+        "target_name": asset_name or snap.target_url,
         "pqc_label": snap.pqc_label,
         "created_at": snap.created_at,
         "snapshot_hash": snap.snapshot_hash,

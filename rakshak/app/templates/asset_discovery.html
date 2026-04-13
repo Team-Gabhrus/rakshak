@@ -46,7 +46,7 @@
           <input class="form-check-input" type="checkbox" id="showDeadTargets" onchange="loadDiscoveries()">
           <label class="form-check-label fs-13 text-muted" for="showDeadTargets">Show Dead</label>
         </div>
-        <!-- <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button> -->
+        <button class="rk-btn rk-btn-sm rk-btn-outline admin-only" onclick="openSubdomainModal()"><i class="bi bi-globe"></i> Subdomain Scan</button>
       </div>
     </div>
 
@@ -66,27 +66,47 @@
       </div>
     </div>
   </div>
+
+  <!-- Network Topology Graph — FR-40 -->
+  <div class="rk-card">
+    <div class="rk-section-title"><i class="bi bi-diagram-3-fill me-2 text-blue"></i>Network Topology Graph</div>
+    <div id="topologyGraph" style="height:420px;background:var(--rk-bg);border-radius:10px;position:relative;overflow:hidden;border:1px solid var(--rk-border)">
+      <div id="topoLoading" class="d-flex align-items-center justify-content-center h-100 text-muted flex-column gap-3">
+        <i class="bi bi-diagram-3" style="font-size:48px;opacity:0.3"></i>
+        <p class="fs-13">Loading network topology…</p>
+      </div>
+      <canvas id="topoCanvas" style="width:100%;height:100%"></canvas>
+    </div>
+    <!-- Legend overlay moved below the graph -->
+    <div style="margin-top:12px;display:flex;gap:12px;flex-wrap:wrap;align-items:center;pointer-events:none">
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#3498DB;margin-right:4px"></span>Domain</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2ECC71;margin-right:4px"></span>SSL Cert</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#F1C40F;margin-right:4px"></span>IP / Subnet</span>
+      <span style="font-size:11px;color:var(--rk-text-muted)"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#E67E22;margin-right:4px"></span>Software</span>
+      <span style="font-size:11px;color:var(--rk-text-muted);margin-left:8px">Dot: <span style="color:#3498DB">●</span> New &nbsp;<span style="color:#2ECC71">●</span> Confirmed &nbsp;<span style="color:#7D8590">●</span> Ignored</span>
+    </div>
+    <p class="fs-12 text-muted mt-2"><i class="bi bi-info-circle me-1"></i>Nodes represent discovered domains, IPs, SSL certificates, and software. Hover over a node to see details. Edges connect nodes to their domain hub. Up to 40 nodes shown.</p>
+  </div>
 </div>
 
 <!-- Subdomain Scan Modal -->
 <div id="subdomainModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:1000;align-items:center;justify-content:center">
-  <div class="rk-card" style="width:560px;max-width:92vw;padding:24px;position:relative">
-    <button type="button" class="btn-close btn-close-white" onclick="closeSubdomainModal()" style="position:absolute;top:16px;right:16px"></button>
+  <div class="rk-card" style="width:420px;max-width:90vw;padding:24px">
     <div class="rk-section-title mb-3"><i class="bi bi-globe me-2 text-blue"></i>Subdomain Scan</div>
-    <p class="fs-13 text-muted mb-3">Breadth-first recursive discovery is enabled. Rakshak pauses every 1000 resolved results and can send the live set directly to scan.</p>
+    <p class="fs-13 text-muted mb-3">Enter a root domain to passively discover subdomains via crt.sh, AlienVault, and Wayback Machine. Results are DNS-verified before saving.</p>
     <div class="mb-3">
       <label class="fs-12 text-muted mb-1 d-block">Root Domain</label>
       <input id="subdomainInput" type="text" class="rk-input" placeholder="e.g. manipurrural.bank.in" style="width:100%" />
+      <div class="form-check mt-2">
+        <input class="form-check-input" type="checkbox" id="subdomainAutoScan">
+        <label class="form-check-label fs-13 text-muted">Automatically run vulnerability scan on live results</label>
+      </div>
     </div>
     <div class="d-flex gap-2 justify-content-end">
-      <button class="rk-btn rk-btn-sm rk-btn-primary" id="subdomainScanBtn" onclick="runSubdomainScan()"><i class="bi bi-search me-1"></i>Discover</button>
+      <button class="rk-btn rk-btn-outline rk-btn-sm" onclick="closeSubdomainModal()">Cancel</button>
+      <button class="rk-btn rk-btn-sm rk-btn-primary" id="subdomainScanBtn" onclick="runSubdomainScan()"><i class="bi bi-search me-1"></i>Scan</button>
     </div>
-    <div id="subdomainResult" class="mt-3 fs-12" style="display:none;background:var(--rk-bg);border-radius:8px;padding:12px;max-height:240px;overflow-y:auto"></div>
-    <div class="mt-3 d-flex justify-content-end">
-      <button class="rk-btn rk-btn-primary d-none" id="scanDiscoveredDiscoveryBtn" onclick="scanDiscoveredSubdomainTargets()">
-        <i class="bi bi-play-fill"></i> Scan Live Targets
-      </button>
-    </div>
+    <div id="subdomainResult" class="mt-3 fs-12" style="display:none"></div>
   </div>
 </div>
 {% endblock %}
@@ -97,11 +117,7 @@ let currentCategory = 'domain';
 let currentStatus = '';
 let discData = [];
 let discCurrentPage = 1;
-const discPageSize = 100;
-let selectedDiscIds = new Set();
-let selectedDiscUrls = new Set();
-let activeSubdomainJobId = null;
-let promptedDiscoveryScanJobs = new Set();
+const discPageSize = 10;
 
 const HEADERS = {
   domain:     ['<input type="checkbox" class="form-check-input" id="selectAllDisc" onclick="toggleAllDisc(this.checked)">', 'Name','Value','DNS Status','Status','Source','Registrar','Discovered','Actions'],
@@ -132,53 +148,6 @@ function setFilter(status, btn) {
 
 let allDiscData = [];
 let filteredDiscData = [];
-
-function buildDiscoveryScanPrompt(liveCount) {
-  if (liveCount > 100) {
-    return {
-      title: 'Large Scan Warning',
-      message: `Warning! You are about to scan ${liveCount} targets. Start the quantum vulnerability scan now?`,
-    };
-  }
-  return {
-    title: 'Start Quantum Scan',
-    message: `Discovery finished with ${liveCount} live target(s). Start the quantum vulnerability scan now?`,
-  };
-}
-
-function isSubdomainModalOpen() {
-  const modal = document.getElementById('subdomainModal');
-  return !!modal && modal.style.display === 'flex';
-}
-
-function notifyDiscoveryPromptNeedsAttention(domain) {
-  showToast(`Discovery for ${domain} needs your input in Notifications.`, 'warning');
-  if (typeof loadTaskStatus === 'function') loadTaskStatus();
-}
-
-async function handleInlineSubdomainPrompt(jobId, msg) {
-  const prompt = msg.prompt || {};
-  if (!jobId) return;
-
-  if (msg.phase === 'scan_prompt') {
-    const btn = document.getElementById('subdomainScanBtn');
-    btn.disabled = false;
-    btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
-    document.getElementById('scanDiscoveredDiscoveryBtn').classList.toggle('d-none', !((msg.live_count || 0) > 0));
-    if (promptedDiscoveryScanJobs.has(jobId)) return;
-    promptedDiscoveryScanJobs.add(jobId);
-    const shouldScanNow = await rkConfirm(prompt.message || buildDiscoveryScanPrompt(msg.live_count || 0).message, prompt.title || 'Start Quantum Scan');
-    if (shouldScanNow) {
-      await scanDiscoveredSubdomainTargets(true);
-    } else if (typeof window.dismissDiscoveryPrompt === 'function') {
-      await window.dismissDiscoveryPrompt(jobId);
-    }
-    return;
-  }
-
-  const shouldContinue = await rkConfirm(prompt.message || msg.message || 'Continue Scanning?', prompt.title || 'Discovery Checkpoint');
-  await API.post(`/api/assets/discover/subdomains/${jobId}/decision`, { continue_scanning: shouldContinue });
-}
 
 
 async function loadDiscoveries() {
@@ -228,7 +197,6 @@ function filterDiscTable() {
         const isTwoPartTLD = /^(co|com|gov|org|edu|ac|bank)\.[a-z]{2}$/.test(parts.slice(-2).join('.'));
         root = isTwoPartTLD ? parts.slice(-3).join('.') : parts.slice(-2).join('.');
       }
-      item.groupRoot = root; // Used for "select all" in the domain grouping
       if (!groups[root]) groups[root] = [];
       groups[root].push(item);
     });
@@ -243,6 +211,7 @@ function filterDiscTable() {
   
   discCurrentPage = 1;
   renderDiscPage();
+  renderTopology(allDiscData);
 }
 
 function toggleGroupCheck(root, checked) {
@@ -343,7 +312,7 @@ function renderDiscRow(item, isChild, safeParentRoot, headers, statusBadge) {
     const rowClass = isChild ? `disc-row-${safeParentRoot}` : '';
     
     return `<tr ${rowStyle} class="${rowClass}">
-      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} ${selectedDiscIds.has(item.id.toString()) ? 'checked' : ''} onchange="updateSelectAllDisc()"></td>
+      <td><input type="checkbox" class="form-check-input disc-checkbox" value="${item.id}" data-val="${item.value}" ${item.groupRoot ? `data-root="${item.groupRoot}"` : ''} onchange="updateSelectAllDisc()"></td>
       <td style="${isChild?'padding-left:1.5rem':''}">${prefix}<strong>${item.name||'—'}</strong></td>
       <td class="text-muted fs-12"><div class="cell-truncate" title="${item.value}">${item.value}</div></td>
       <td><span class="${statusBadge[item.status]||'badge bg-secondary'}">${item.status}</span></td>
@@ -383,7 +352,7 @@ async function triggerDiscover() {
 }
 
 function toggleAllDisc(checked) {
-  document.querySelectorAll('.disc-checkbox').forEach(cb => { cb.checked = checked; });
+  document.querySelectorAll('.disc-checkbox').forEach(cb => cb.checked = checked);
   updateSelectAllDisc();
 }
 
@@ -394,182 +363,83 @@ function toggleGroupCheck(root, checked) {
 
 function updateSelectAllDisc() {
   const all = document.querySelectorAll('.disc-checkbox');
-  const checkedDOM = document.querySelectorAll('.disc-checkbox:checked');
+  const checked = document.querySelectorAll('.disc-checkbox:checked');
   const selectAllCb = document.getElementById('selectAllDisc');
-  
-  all.forEach(cb => {
-    if (cb.checked) {
-      selectedDiscIds.add(cb.value);
-      selectedDiscUrls.add(cb.getAttribute('data-val'));
-    } else {
-      selectedDiscIds.delete(cb.value);
-      selectedDiscUrls.delete(cb.getAttribute('data-val'));
-    }
-  });
-
   if (selectAllCb) {
-    selectAllCb.checked = (all.length > 0 && all.length === checkedDOM.length);
+    selectAllCb.checked = (all.length > 0 && all.length === checked.length);
   }
 }
 
 async function deleteSelectedDiscoveries() {
-  if (selectedDiscIds.size === 0) {
+  const checked = document.querySelectorAll('.disc-checkbox:checked');
+  if (checked.length === 0) {
     showToast('Please select at least one discovery record to delete.', 'warning');
     return;
   }
-  const confirmed = await rkConfirm(`Are you sure you want to delete ${selectedDiscIds.size} discovery records?`);
+  const confirmed = await rkConfirm(`Are you sure you want to delete ${checked.length} discovery records?`);
   if (!confirmed) return;
   
-  const ids = Array.from(selectedDiscIds);
-  showToast(`Deleting ${ids.length} records in the background...`, 'info');
+  const ids = Array.from(checked).map(cb => cb.value);
+  let successCount = 0;
   
-  const res = await API.post('/api/assets/discovery/bulk-delete', { disc_ids: ids });
+  for (const id of ids) {
+    const res = await fetch(`/api/assets/discovery/${id}`, { method: 'DELETE', headers: { 'Authorization': 'Bearer ' + API.token }});
+    if (res.ok) successCount++;
+  }
   
-  if (res && res.ok) {
-    const data = await res.json();
-    showToast(`Successfully deleted ${data.deleted} records.`, 'success');
+  if (successCount > 0) {
+    showToast(`Successfully deleted ${successCount} records.`, 'success');
   } else {
     showToast('Failed to delete records.', 'danger');
   }
   
-  selectedDiscIds.clear();
-  selectedDiscUrls.clear();
   loadDiscoveries();
 }
 
 
-async function scanSelectedDiscoveries() {
-  if (selectedDiscUrls.size === 0) {
-    showToast('Please select at least one discovered asset to scan.', 'warning');
-    return;
-  }
-  const targets = Array.from(selectedDiscUrls).filter(Boolean);
-  if (targets.length === 0) {
-    showToast('No valid targets selected.', 'warning');
-    return;
-  }
-  if (targets.length <= 100) {
-    const confirmed = await rkConfirm(`Submit ${targets.length} target(s) to the vulnerability scanner?`);
-    if (!confirmed) return;
-  } else {
-    if (!await confirmLargeScan(targets.length)) return;
-  }
-  try {
-    const res = await API.post('/api/scan', { targets });
-    if (res?.ok) {
-      const data = await res.json();
-      showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
-      if (typeof loadTaskStatus === 'function') loadTaskStatus();
-      await rkAlert(`Scan #${data.scan_id} was queued for ${data.target_count} target(s). Redirecting to Home so you can monitor Recent Scans and live progress.`, 'Scan Queued', 'info');
-      window.location.href = '/home';
-    } else {
-      const err = await res?.json().catch(() => ({}));
-      showToast(err?.detail?.message || 'Failed to start scan', 'danger');
-    }
-  } catch (e) {
-    showToast(`Error: ${e.message}`, 'danger');
-  }
-  
-  selectedDiscIds.clear();
-  selectedDiscUrls.clear();
-  toggleAllDisc(false);
-}
-
 function openSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'flex';
-  document.getElementById('subdomainInput').value = '';
-  document.getElementById('subdomainResult').innerHTML = '';
   document.getElementById('subdomainResult').style.display = 'none';
-  document.getElementById('scanDiscoveredDiscoveryBtn').classList.add('d-none');
-  const btn = document.getElementById('subdomainScanBtn');
-  btn.disabled = false;
-  btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
+  document.getElementById('subdomainInput').value = '';
 }
 
 function closeSubdomainModal() {
   document.getElementById('subdomainModal').style.display = 'none';
 }
 
-async function runSubdomainScan(pendingTargets = null) {
+async function runSubdomainScan() {
   const domain = document.getElementById('subdomainInput').value.trim();
+  const autoScan = document.getElementById('subdomainAutoScan').checked;
   if (!domain) { showToast('Please enter a domain','error'); return; }
   const btn = document.getElementById('subdomainScanBtn');
-  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Discovering…';
+  btn.disabled = true; btn.innerHTML = '<span class="rk-spinner" style="width:14px;height:14px"></span> Scanning…';
   const resultEl = document.getElementById('subdomainResult');
-  resultEl.style.display = 'block';
-  resultEl.innerHTML = '<div class="text-info">Creating discovery job…</div>';
-
+  resultEl.style.display = 'none';
   try {
-    const res = await API.post(`/api/assets/discover/subdomains`, { domain });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.detail || 'Subdomain scan failed');
-
-    activeSubdomainJobId = data.job_id;
-    resultEl.innerHTML = `<div class="text-info">Discovery started for <strong>${data.domain}</strong>.</div>`;
-
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const ws = new WebSocket(`${protocol}//${location.host}${data.websocket_url}`);
-    ws.onmessage = async (event) => {
-      const msg = JSON.parse(event.data);
-      const processed = msg.processed_count || 0;
-      const live = msg.live_count || 0;
-      const dead = msg.dead_count || 0;
-      resultEl.innerHTML += `<div style="padding:3px 0;color:${['continue_prompt','level_prompt','scan_prompt'].includes(msg.phase) ? '#F1C40F' : 'var(--rk-text)'}">${msg.message}</div>`;
-      resultEl.scrollTop = resultEl.scrollHeight;
-
-      if (['continue_prompt', 'level_prompt', 'scan_prompt'].includes(msg.phase) && activeSubdomainJobId) {
-        if (isSubdomainModalOpen()) {
-          await handleInlineSubdomainPrompt(activeSubdomainJobId, msg);
-        } else {
-          notifyDiscoveryPromptNeedsAttention(msg.domain || data.domain);
-        }
+    const res = await API.post(`/api/assets/discover/subdomains?domain=${encodeURIComponent(domain)}`, {});
+    if (res?.ok) {
+      const data = await res.json();
+      let hostsHtml = '';
+      if (data.live_hosts && data.live_hosts.length > 0) {
+        hostsHtml = '<div class="mt-2" style="max-height:150px; overflow-y:auto; background:var(--rk-bg); padding:8px; border-radius:4px; font-size:12px;">' +
+          data.live_hosts.map(h => `<div>🟢 ${h}</div>`).join('') +
+          '</div>';
       }
-
-      if (msg.phase === 'completed') {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
-        document.getElementById('scanDiscoveredDiscoveryBtn').classList.toggle('d-none', !(live > 0));
-        showToast(`Discovery finished: ${live} live / ${dead} dead`, 'success');
-        loadDiscoveries();
-        if (typeof loadTaskStatus === 'function') loadTaskStatus();
-      }
-
-      if (msg.phase === 'failed') {
-        btn.disabled = false;
-        btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
-        showToast(msg.message || 'Subdomain scan failed', 'danger');
-      }
-    };
+      resultEl.innerHTML = `<div class="text-success">✅ Done — <strong>${data.live}</strong> live, <strong>${data.dead}</strong> dead (cert ghosts), <strong>${data.new_records}</strong> new records saved.</div>${hostsHtml}`;
+      resultEl.style.display = 'block';
+      showToast(`Subdomain scan done: ${data.live} live hosts found`, 'success');
+      setTimeout(loadDiscoveries, 600);
+    } else {
+      const err = await res?.json().catch(()=>({}));
+      resultEl.innerHTML = `<div class="text-danger">❌ Error: ${err?.detail || 'Subdomain scan failed'}</div>`;
+      resultEl.style.display = 'block';
+    }
   } catch(e) {
     resultEl.innerHTML = `<div class="text-danger">❌ ${e.message}</div>`;
     resultEl.style.display = 'block';
-    btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Discover';
+  } finally {
+    btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-1"></i>Scan';
   }
-}
-
-async function scanDiscoveredSubdomainTargets(skipLargeScanWarning = false) {
-  if (!activeSubdomainJobId) return;
-  const stateRes = await API.get(`/api/assets/discover/subdomains/${activeSubdomainJobId}`);
-  if (!stateRes || !stateRes.ok) return;
-  const state = await stateRes.json();
-  const liveCount = state.live_count || 0;
-  if (!liveCount) {
-    showToast('No live targets available to scan', 'warning');
-    return;
-  }
-  if (!skipLargeScanWarning && !await confirmLargeScan(liveCount)) return;
-
-  const res = await API.post(`/api/assets/discover/subdomains/${activeSubdomainJobId}/scan`, {});
-  if (!res) return;
-  const data = await res.json();
-  if (!res.ok) {
-    showToast(data.detail?.message || data.detail || 'Failed to start scan', 'danger');
-    return;
-  }
-  showToast(`Scan #${data.scan_id} started with ${data.target_count} targets`, 'success');
-  if (typeof loadTaskStatus === 'function') loadTaskStatus();
-  await rkAlert(`Scan #${data.scan_id} was queued for ${data.target_count} target(s). Redirecting to Home so you can monitor Recent Scans and live progress.`, 'Scan Queued', 'info');
-  window.location.href = '/home';
 }
 
 function renderTopology(items) {

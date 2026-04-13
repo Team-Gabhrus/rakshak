@@ -150,7 +150,7 @@ body.rk-body {
     position: absolute; top: 100%; left: 0; right: 0;
     background: var(--rk-surface2); border: 1px solid var(--rk-border);
     border-radius: var(--rk-radius); margin-top: 4px;
-    max-height: 300px; overflow-y: auto; display: none; z-index: 500;
+    max-height: 650px; overflow-y: auto; display: none; z-index: 500;
     box-shadow: var(--rk-shadow);
 }
 .rk-search-dropdown.show { display: block; }

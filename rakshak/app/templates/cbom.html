@@ -51,6 +51,24 @@
         <button class="rk-btn rk-btn-sm rk-btn-outline" onclick="document.getElementById('cbomDetail').classList.add('d-none')">✕ Close</button>
       </div>
     </div>
+    
+    <div id="cbomDetailInfo" class="mb-3 d-flex align-items-center gap-3 flex-wrap p-3 rounded" style="background:var(--rk-bg); border:1px solid var(--rk-border);">
+      <div class="d-flex flex-column">
+        <span class="fs-12 text-muted text-uppercase fw-semibold mb-1">Asset Name</span>
+        <strong id="cbomTargetName" class="fs-14">—</strong>
+      </div>
+      <div class="vr mx-1" style="opacity:0.2"></div>
+      <div class="d-flex flex-column">
+        <span class="fs-12 text-muted text-uppercase fw-semibold mb-1">Asset URL</span>
+        <a id="cbomTargetUrl" href="#" target="_blank" class="fs-14 text-blue text-decoration-none">—</a>
+      </div>
+      <div class="vr mx-1" style="opacity:0.2"></div>
+      <div class="d-flex flex-column">
+        <span class="fs-12 text-muted text-uppercase fw-semibold mb-1">Global PQC Status</span>
+        <div id="cbomTargetLabel">—</div>
+      </div>
+    </div>
+
     <div class="rk-tabs mb-3" id="cbomDetailTabs">
       <button class="rk-tab active" onclick="showCBOMTab('algorithms',this)">Algorithms</button>
       <button class="rk-tab" onclick="showCBOMTab('keys',this)">Keys</button>
@@ -324,6 +342,13 @@ async function loadCBOMDetail(id) {
   if (!res) return;
   currentCBOM = await res.json();
   document.getElementById('cbomDetail').classList.remove('d-none');
+  
+  // Populate Info Bar
+  document.getElementById('cbomTargetName').textContent = currentCBOM.target_name || currentCBOM.target;
+  document.getElementById('cbomTargetUrl').textContent = currentCBOM.target;
+  document.getElementById('cbomTargetUrl').href = currentCBOM.target.startsWith('http') ? currentCBOM.target : 'https://' + currentCBOM.target;
+  document.getElementById('cbomTargetLabel').innerHTML = pqcBadge(currentCBOM.pqc_label);
+  
   showCBOMTab('algorithms', document.querySelector('#cbomDetailTabs .rk-tab'));
 
   // Certificate chain visualization — FR-14

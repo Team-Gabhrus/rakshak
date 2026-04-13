@@ -373,14 +373,14 @@ function toggleSidebar() {
 // ── Global search ─────────────────────────────────────────────────────────
 async function doSearch(q) {
     if (q.length < 2) { document.getElementById('searchDropdown')?.classList.remove('show'); return; }
-    const res = await API.get(`/api/assets?search=${encodeURIComponent(q)}&page_size=5`);
+    const res = await API.get(`/api/assets?search=${encodeURIComponent(q)}&page_size=10`);
     if (!res) return;
     const data = await res.json();
     const drop = document.getElementById('searchDropdown');
     if (!drop) return;
     if (data.assets?.length) {
         drop.innerHTML = data.assets.map(a =>
-            `<div class="rk-search-item" onclick="handleSearchClick('${a.url || ''}', '${a.name || ''}')">
+            `<div class="rk-search-item" onclick="handleSearchClick('${a.url}', '${a.id}')">
                 <strong>${a.name}</strong> <span class="text-muted fs-12 ms-2">${a.url}</span>
                 <span class="ms-2">${pqcBadge(a.pqc_label)}</span>
             </div>`
@@ -392,23 +392,21 @@ async function doSearch(q) {
     }
 }
 
-async function handleSearchClick(url, name) {
+async function handleSearchClick(url, assetId) {
     try {
-        const res = await API.get('/api/cbom');
+        const res = await API.get('/api/cbom/history?target=' + encodeURIComponent(url));
         if (res && res.ok) {
-            const snaps = await res.json();
-            const searchTarget = url || name;
-            const latest = snaps.find(s => s.target === url || (name && s.target.includes(name)));
-            if (latest) {
-                window.location.href = `/cbom?open_target=${encodeURIComponent(latest.target)}`;
+            const history = await res.json();
+            if (history && history.length > 0) {
+                window.location.href = `/cbom?open_target=${encodeURIComponent(url)}`;
                 return;
             }
         }
     } catch (err) {
         console.error('Failed to resolve CBOM route', err);
     }
-    // Fallback to asset inventory
-    window.location.href = '/asset-inventory?search=' + encodeURIComponent(name || url);
+    // Fallback: if no CBOM history, just navigate to asset inventory
+    window.location.href = '/asset-inventory';
 }// ── Time filter ───────────────────────────────────────────────────────────
 function applyTimeFilter() {
     const start = document.getElementById('filterStart')?.value;

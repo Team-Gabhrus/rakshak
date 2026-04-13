@@ -50,6 +50,20 @@ async def list_assets(
             (Asset.url.ilike(f"%{search}%")) |
             (Asset.ipv4.ilike(f"%{search}%"))
         )
+        # Exclude assets with unknown status from search results
+        query = query.where(Asset.risk_level != RiskLevel.unknown)
+        
+        # Rank results: exact matches > subdomains > partial matches
+        from sqlalchemy import case, func as sqla_func
+        search_lower = search.lower().strip()
+        exact_match = case((sqla_func.lower(Asset.url) == search_lower, 5), else_=0)
+        subdomain_match = case((sqla_func.lower(Asset.url).like(f"%.{search_lower}"), 4), else_=0)
+        url_prefix_match = case((sqla_func.lower(Asset.url).like(f"{search_lower}%"), 3), else_=0)
+        name_match = case((sqla_func.lower(Asset.name).like(f"{search_lower}%"), 2), else_=0)
+        partial_match = case((True, 1))  # All matched rows get at least 1
+        
+        score = exact_match + subdomain_match + url_prefix_match + name_match + partial_match
+        query = query.order_by(score.desc(), Asset.url.asc())
     if risk:
         query = query.where(Asset.risk_level == risk)
     if asset_type:
@@ -62,12 +76,13 @@ async def list_assets(
     total_q = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_q.scalar()
 
-    # Apply sorting
-    sort_col = getattr(Asset, sort_by, Asset.created_at)
-    if sort_dir == "asc":
-        query = query.order_by(sort_col.asc())
-    else:
-        query = query.order_by(sort_col.desc())
+    # Apply sorting (skip if we already ordered by search ranking)
+    if not search:
+        sort_col = getattr(Asset, sort_by, Asset.created_at)
+        if sort_dir == "asc":
+            query = query.order_by(sort_col.asc())
+        else:
+            query = query.order_by(sort_col.desc())
 
     query = query.offset((page - 1) * page_size).limit(page_size)
     result = await db.execute(query)
